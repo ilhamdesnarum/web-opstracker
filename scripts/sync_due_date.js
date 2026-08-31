@@ -1,7 +1,7 @@
 // =========================================================================
 // SCRIPT SINKRONISASI DATA DUE DATE & SUSPEND / DISMANTLE -> SUPABASE
 // =========================================================================
-// Mendukung: Suspend, Dismantled, Ready To Dismantle, & Dismantling
+// Urutan presisi: Ready To Dismantle -> Dismantling -> Dismantled -> Suspend
 // =========================================================================
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jtmferyskpbnacluyafs.supabase.co';
@@ -67,12 +67,16 @@ async function main() {
   console.log("⚡ MEMULAI SINKRONISASI CEPAT DUE DATE & SUSPEND -> SUPABASE");
   console.log("=================================================================");
 
-  // Daftar Status yang ditarik dari API Partner Starlite
+  // Urutan penarikan:
+  // 1. Ready To Dismantle (General pool)
+  // 2. Dismantling
+  // 3. Dismantled (Khusus status dismantled)
+  // 4. Suspend (Prioritas tertinggi: Pelanggan yang aktif suspend)
   const statusConfigs = [
-    { key: "suspend", query: "status=suspend", dbStatus: "Suspend" },
-    { key: "dismantled", query: "status=dismantled", dbStatus: "Dismantled" },
     { key: "ready-to-dismantle", query: "dismantle_status=ready-to-dismantle", dbStatus: "Ready To Dismantle" },
-    { key: "dismantling", query: "status=dismantling", dbStatus: "Dismantle" }
+    { key: "dismantling", query: "status=dismantling", dbStatus: "Dismantle" },
+    { key: "dismantled", query: "status=dismantled", dbStatus: "Dismantled" },
+    { key: "suspend", query: "status=suspend", dbStatus: "Suspend" }
   ];
 
   const targetStations = Object.keys(PARTNER_STATION_IDS);
