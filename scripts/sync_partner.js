@@ -1,20 +1,14 @@
 // =========================================================================
 // SCRIPT SINKRONISASI DATA PARTNER STARLITE -> SUPABASE (NODE.JS)
 // =========================================================================
-// Cocok untuk penarikan massal puluhan ribu data tanpa batas waktu eksekusi.
+// Pure Native Fetch (Zero Dependency, No WebSocket, Fast & Stable)
 // =========================================================================
-
-import { createClient } from '@supabase/supabase-js';
 
 // 1. KREDENSIAL DATABASE SUPABASE
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jtmferyskpbnacluyafs.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 
   process.env.SUPABASE_ANON_KEY || 
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw';
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false },
-});
 
 // 2. KREDENSIAL MASTER PARTNER STARLITE
 const PARTNER_TOKEN = process.env.STARLITE_PARTNER_TOKEN || 
@@ -43,13 +37,34 @@ function formatKeWIB(isoString) {
   return isoString.substring(0, 19).replace("T", " ");
 }
 
+// FUNGSI UPSERT LANGSUNG KE SUPABASE VIA REST API (PostgREST)
+async function upsertToSupabase(rows) {
+  if (!rows || rows.length === 0) return true;
+  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error(`   ❌ Supabase Upsert Error (${res.status}):`, txt);
+    return false;
+  }
+  return true;
+}
+
 async function main() {
   const t0 = Date.now();
   console.log("=================================================================");
   console.log("🚀 MEMULAI SINKRONISASI PARTNER STARLITE -> SUPABASE");
   console.log("=================================================================");
 
-  // Parameter Status yang ditarik (Active, Suspend, Dismantle, Ready To Dismantle)
   const statusesToFetch = process.env.SYNC_STATUSES 
     ? process.env.SYNC_STATUSES.split(",") 
     : ["active", "suspend", "dismantle", "ready-to-dismantle"];
@@ -143,7 +158,6 @@ async function main() {
             const lat = customer.latitude ? String(customer.latitude).replace(",", ".") : "";
             const lng = customer.longitude ? String(customer.longitude).replace(",", ".") : "";
 
-            // Ekstrak ODP & Port ODP
             let odp = "";
             let portOdp = "";
             if (customer.installation_info_id) {
@@ -163,7 +177,6 @@ async function main() {
             if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
             else if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
 
-            // Ekstrak Tanggal Berakhir & Telat Bayar
             let tanggalBerakhir = "";
             const telatBayarHari = (customer.count_late_payment_days !== undefined && customer.count_late_payment_days !== null && customer.count_late_payment_days !== "") ? Number(customer.count_late_payment_days) : null;
 
@@ -245,13 +258,8 @@ async function main() {
 
       for (let i = 0; i < dedupedRows.length; i += CHUNK_SIZE) {
         const chunk = dedupedRows.slice(i, i + CHUNK_SIZE);
-        const { error: upsertError } = await supabase
-          .from("data_pelanggan")
-          .upsert(chunk, { onConflict: "id_pelanggan" });
-
-        if (upsertError) {
-          console.error(`   ❌ Gagal upsert chunk di Supabase:`, upsertError.message);
-        } else {
+        const ok = await upsertToSupabase(chunk);
+        if (ok) {
           upsertedCount += chunk.length;
           grandTotalUpserted += chunk.length;
         }
