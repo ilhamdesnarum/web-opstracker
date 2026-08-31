@@ -1,7 +1,7 @@
 // =========================================================================
 // SCRIPT SINKRONISASI DATA PARTNER STARLITE -> SUPABASE (NODE.JS)
 // =========================================================================
-// Pure Native Fetch (Zero Dependency, No WebSocket, Fast & Stable)
+// Pure Native Fetch with Immediate Flushing & Timeout Protection
 // =========================================================================
 
 // 1. KREDENSIAL DATABASE SUPABASE
@@ -41,22 +41,28 @@ function formatKeWIB(isoString) {
 async function upsertToSupabase(rows) {
   if (!rows || rows.length === 0) return true;
   const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=merge-duplicates'
-    },
-    body: JSON.stringify(rows)
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    console.error(`   ❌ Supabase Upsert Error (${res.status}):`, txt);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(rows),
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      console.error(`   ❌ Supabase Upsert Error (${res.status}):`, txt);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`   ❌ Supabase Network Error:`, err.message);
     return false;
   }
-  return true;
 }
 
 async function main() {
@@ -100,8 +106,6 @@ async function main() {
       let hasMore = true;
       let statusCount = 0;
 
-      process.stdout.write(`   ↳ Status [${currentStatus}]: `);
-
       while (hasMore) {
         let urlList = "";
         if (currentStatus === "new") {
@@ -113,7 +117,7 @@ async function main() {
           urlList = `https://partner.starliteindonesia.com/api/mitra/customer/active?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
         } else {
           const apiPath = (currentStatus === "dismantle" || currentStatus === "dismantled" || currentStatus === "ready-to-dismantle") ? "suspend" : currentStatus;
-          const apiStatusParam = (currentStatus === "dismantle") ? "dismantled" : currentStatus;
+          const apiStatusParam = (currentStatus === "dismantle") ? "dismantled" : (currentStatus === "ready-to-dismantle" ? "ready_to_dismantle" : currentStatus);
           urlList = `https://partner.starliteindonesia.com/api/mitra/customer/${apiPath}?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${apiStatusParam}&sales_partner_id=${partnerId}`;
         }
 
@@ -122,7 +126,10 @@ async function main() {
 
         while (retry <= 3) {
           try {
-            response = await fetch(urlList, { headers });
+            response = await fetch(urlList, { 
+              headers,
+              signal: AbortSignal.timeout(12000) // Proteksi Timeout 12 detik
+            });
             if (response && response.ok) break;
             retry++;
             if (retry <= 3) await new Promise(r => setTimeout(r, 600));
@@ -133,7 +140,7 @@ async function main() {
         }
 
         if (!response || !response.ok) {
-          process.stdout.write(`[Gagal Halaman ${page}] `);
+          console.log(`   ↳ [${currentStatus}] Gagal pada halaman ${page}, melanjutkan...`);
           break;
         }
 
@@ -155,8 +162,6 @@ async function main() {
             const telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
             const alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
             const patokan = customer.notes || "";
-            const lat = customer.latitude ? String(customer.latitude).replace(",", ".") : "";
-            const lng = customer.longitude ? String(customer.longitude).replace(",", ".") : "";
 
             let odp = "";
             let portOdp = "";
@@ -212,7 +217,7 @@ async function main() {
               nomor_hp: telepon,
               alamat: alamat,
               catatan: patokan,
-              // [!] Latitude & Longitude sengaja TIDAK ditarik agar tidak menimpa data koordinat akurat dari Reporting Bot
+              // [!] Latitude & Longitude TIDAK ditarik agar koordinat bot reporting tidak tertimpa
               status_ikr: tIkr,
               status_aktivasi: tStatus,
               tanggal_registrasi: tglRegistrasi,
@@ -229,19 +234,19 @@ async function main() {
             grandTotalFetched++;
           }
 
+          console.log(`   ↳ Status [${currentStatus}] Hal ${page}: ${customers.length} data (Total status: ${statusCount})`);
+
           if (customers.length < pageSize) {
             hasMore = false;
           } else {
             page++;
-            await new Promise(r => setTimeout(r, 40));
+            await new Promise(r => setTimeout(r, 60));
           }
         } catch (jsonErr) {
-          process.stdout.write(`[JSON Error] `);
+          console.log(`   ↳ [${currentStatus}] JSON Parse Error pada halaman ${page}`);
           hasMore = false;
         }
       }
-
-      console.log(`✅ ${statusCount} data`);
     }
 
     // BATCH UPSERT KE SUPABASE
