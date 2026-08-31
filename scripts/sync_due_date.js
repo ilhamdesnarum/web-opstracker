@@ -1,7 +1,7 @@
 // =========================================================================
-// SCRIPT SINKRONISASI DATA DUE DATE & SUSPEND (SUPER CEPAT ~30 DETIK)
+// SCRIPT SINKRONISASI DATA DUE DATE & SUSPEND / DISMANTLE -> SUPABASE
 // =========================================================================
-// Khusus menarik status: Suspend & Dismantled dari API Starlite
+// Mendukung: Suspend, Dismantled, Ready To Dismantle, & Dismantling
 // =========================================================================
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jtmferyskpbnacluyafs.supabase.co';
@@ -67,8 +67,14 @@ async function main() {
   console.log("⚡ MEMULAI SINKRONISASI CEPAT DUE DATE & SUSPEND -> SUPABASE");
   console.log("=================================================================");
 
-  // Status resmi API Starlite untuk Suspend & Dismantled
-  const statusesToFetch = ["suspend", "dismantled"];
+  // Daftar Status yang ditarik dari API Partner Starlite
+  const statusConfigs = [
+    { key: "suspend", query: "status=suspend", dbStatus: "Suspend" },
+    { key: "dismantled", query: "status=dismantled", dbStatus: "Dismantled" },
+    { key: "ready-to-dismantle", query: "dismantle_status=ready-to-dismantle", dbStatus: "Ready To Dismantle" },
+    { key: "dismantling", query: "status=dismantling", dbStatus: "Dismantle" }
+  ];
+
   const targetStations = Object.keys(PARTNER_STATION_IDS);
 
   let grandTotalFetched = 0;
@@ -89,14 +95,14 @@ async function main() {
     console.log(`\n🏢 [${stationIndex}/${targetStations.length}] Memproses Stasiun: ${stationName.toUpperCase()}`);
     const stationRows = [];
 
-    for (const currentStatus of statusesToFetch) {
+    for (const cfg of statusConfigs) {
       let page = 1;
       const pageSize = 30;
       let hasMore = true;
       let statusCount = 0;
 
       while (hasMore) {
-        const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${currentStatus}&sales_partner_id=${partnerId}`;
+        const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&${cfg.query}&sales_partner_id=${partnerId}`;
 
         let response = null;
         let retry = 0;
@@ -120,7 +126,7 @@ async function main() {
         }
 
         if (!response || !response.ok) {
-          console.log(`   ↳ [${currentStatus}] Halaman ${page} (${lastErr}), lanjut...`);
+          console.log(`   ↳ [${cfg.key}] Halaman ${page} (${lastErr}), lanjut...`);
           break;
         }
 
@@ -178,8 +184,6 @@ async function main() {
               } catch (_e) {}
             }
 
-            const tStatus = (currentStatus === "dismantled") ? "Dismantled" : "Suspend";
-
             const rowPayload = {
               id_pelanggan: idPelanggan,
               nama_pelanggan: nama,
@@ -187,7 +191,7 @@ async function main() {
               alamat: alamat,
               catatan: patokan,
               status_ikr: "Sudah",
-              status_aktivasi: tStatus,
+              status_aktivasi: cfg.dbStatus,
               tanggal_registrasi: tglRegistrasi,
               tanggal_berakhir: tanggalBerakhir || null,
               telat_bayar_hari: telatBayarHari,
@@ -202,7 +206,7 @@ async function main() {
             grandTotalFetched++;
           }
 
-          console.log(`   ↳ [${currentStatus}] Hal ${page}: ${customers.length} data`);
+          console.log(`   ↳ [${cfg.key}] Hal ${page}: ${customers.length} data`);
 
           if (customers.length < pageSize) {
             hasMore = false;
@@ -243,8 +247,8 @@ async function main() {
   const durationSec = ((Date.now() - t0) / 1000).toFixed(1);
   console.log("\n=================================================================");
   console.log(`🎉 SINKRONISASI DUE DATE SELESAI DALAM ${durationSec} DETIK!`);
-  console.log(`📊 Total Data Suspend/Dismantled Ditarik : ${grandTotalFetched}`);
-  console.log(`💾 Total Diperbarui di Supabase          : ${grandTotalUpserted}`);
+  console.log(`📊 Total Data Ditarik          : ${grandTotalFetched}`);
+  console.log(`💾 Total Diperbarui di Supabase : ${grandTotalUpserted}`);
   console.log("=================================================================");
 }
 
