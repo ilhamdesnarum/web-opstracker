@@ -8,6 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "sync-due-date": "node scripts/sync_due_date.js",
+    "sync-active": "node scripts/sync_active.js",
     "sync-partner": "node scripts/sync_partner.js"
   },
   "dependencies": {
