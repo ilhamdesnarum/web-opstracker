@@ -123,24 +123,33 @@ async function main() {
 
         let response = null;
         let retry = 0;
+        let lastErr = "";
 
-        while (retry <= 3) {
+        while (retry <= 4) {
           try {
             response = await fetch(urlList, { 
               headers,
-              signal: AbortSignal.timeout(12000) // Proteksi Timeout 12 detik
+              signal: AbortSignal.timeout(30000) // Timeout 30 detik
             });
             if (response && response.ok) break;
+            lastErr = `HTTP ${response ? response.status : 'No Response'}`;
             retry++;
-            if (retry <= 3) await new Promise(r => setTimeout(r, 600));
-          } catch (_e) {
+            if (retry <= 4) {
+              console.log(`      ⏳ Retry ${retry}/4 (Alasan: ${lastErr}), jeda ${retry * 1.5} detik...`);
+              await new Promise(r => setTimeout(r, retry * 1500));
+            }
+          } catch (fetchErr) {
+            lastErr = fetchErr.name === 'TimeoutError' ? 'Timeout 30s' : fetchErr.message;
             retry++;
-            if (retry <= 3) await new Promise(r => setTimeout(r, 600));
+            if (retry <= 4) {
+              console.log(`      ⏳ Retry ${retry}/4 (Error: ${lastErr}), jeda ${retry * 1.5} detik...`);
+              await new Promise(r => setTimeout(r, retry * 1500));
+            }
           }
         }
 
         if (!response || !response.ok) {
-          console.log(`   ↳ [${currentStatus}] Gagal pada halaman ${page}, melanjutkan...`);
+          console.log(`   ❌ [${currentStatus}] Gagal pada halaman ${page} (${lastErr}), melanjutkan ke status berikutnya...`);
           break;
         }
 
@@ -240,7 +249,7 @@ async function main() {
             hasMore = false;
           } else {
             page++;
-            await new Promise(r => setTimeout(r, 60));
+            await new Promise(r => setTimeout(r, 250)); // Jeda 250ms antar halaman
           }
         } catch (jsonErr) {
           console.log(`   ↳ [${currentStatus}] JSON Parse Error pada halaman ${page}`);
