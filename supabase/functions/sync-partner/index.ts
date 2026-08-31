@@ -217,8 +217,7 @@ Deno.serve(async (req: Request) => {
                 nomor_hp: telepon,
                 alamat: alamat,
                 catatan: patokan,
-                latitude: lat,
-                longitude: lng,
+                // [!] Latitude & Longitude sengaja TIDAK ditarik agar tidak menimpa data koordinat akurat dari Reporting Bot
                 status_ikr: tIkr,
                 status_aktivasi: tStatus,
                 tanggal_registrasi: tglRegistrasi,
