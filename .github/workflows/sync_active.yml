@@ -1,16 +1,15 @@
-name: 2. Sync Pelanggan Aktif (Massal Paralel)
+name: 2. Sync Pelanggan Aktif (Massal)
 
 on:
   schedule:
     # Berjalan OTOMATIS SETIAP HARI pada jam 02:00 Dini Hari WIB (19:00 UTC)
-    # 11 stasiun berjalan PARALEL sekaligus sehingga selesai dalam ~7-8 Menit!
     - cron: '0 19 * * *'
 
   # Bisa dipicu manual kapan saja (Bisa pilih stasiun tertentu atau ALL)
   workflow_dispatch:
     inputs:
       stations:
-        description: 'Pilih Stasiun (Pilih ALL untuk 11 stasiun paralel serentak)'
+        description: 'Pilih Stasiun (Pilih ALL untuk seluruh 11 stasiun)'
         required: true
         default: 'ALL'
         type: choice
@@ -50,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 11
+      max-parallel: 2 # Dibatasi 2 runner paralel agar server Starlite tidak overload/timeout
       matrix:
         station: ${{ fromJson(needs.determine-stations.outputs.stations) }}
     timeout-minutes: 40

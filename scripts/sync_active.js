@@ -107,21 +107,21 @@ async function main() {
         try {
           response = await fetch(urlList, { 
             headers,
-            signal: AbortSignal.timeout(30000)
+            signal: AbortSignal.timeout(45000)
           });
           if (response && response.ok) break;
           lastErr = `HTTP ${response ? response.status : 'No Response'}`;
           retry++;
           if (retry <= 4) {
-            console.log(`      ⏳ Retry ${retry}/4 (Alasan: ${lastErr}), jeda ${retry * 1.5}s...`);
-            await new Promise(r => setTimeout(r, retry * 1500));
+            console.log(`      ⏳ Retry ${retry}/4 (Alasan: ${lastErr}), jeda ${retry * 2.5}s...`);
+            await new Promise(r => setTimeout(r, retry * 2500));
           }
         } catch (fetchErr) {
-          lastErr = fetchErr.message;
+          lastErr = fetchErr.name === 'TimeoutError' ? 'Timeout 45s' : fetchErr.message;
           retry++;
           if (retry <= 4) {
-            console.log(`      ⏳ Retry ${retry}/4 (Error: ${lastErr}), jeda ${retry * 1.5}s...`);
-            await new Promise(r => setTimeout(r, retry * 1500));
+            console.log(`      ⏳ Retry ${retry}/4 (Error: ${lastErr}), jeda ${retry * 2.5}s...`);
+            await new Promise(r => setTimeout(r, retry * 2500));
           }
         }
       }
