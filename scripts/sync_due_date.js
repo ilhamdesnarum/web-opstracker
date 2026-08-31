@@ -74,7 +74,7 @@ async function main() {
   // 4. Suspend (Prioritas tertinggi: Pelanggan yang aktif suspend)
   const statusConfigs = [
     { key: "ready-to-dismantle", query: "dismantle_status=ready-to-dismantle", dbStatus: "Ready To Dismantle" },
-    { key: "dismantling", query: "status=dismantling", dbStatus: "Dismantle" },
+    { key: "dismantling", query: "status=dismantling", dbStatus: "Ready To Dismantle" },
     { key: "dismantled", query: "status=dismantled", dbStatus: "Dismantled" },
     { key: "suspend", query: "status=suspend", dbStatus: "Suspend" }
   ];

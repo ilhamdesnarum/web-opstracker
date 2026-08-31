@@ -9892,15 +9892,19 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         <Icon name="clock" size={8} /> {umurWoStr}
                       </span>
                     )}
-                    {(Number(item.telatBayarHari) > 0) && (
-                      <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
-                        <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
-                      </span>
-                    )}
-                    {item.tanggalBerakhir && (
-                      <span className="text-[8px] font-medium text-slate-400">
-                        Exp: {item.tanggalBerakhir.substring(0, 10)}
-                      </span>
+                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'DISMANTLE') && (
+                      <>
+                        {(Number(item.telatBayarHari) > 0) && (
+                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                            <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
+                          </span>
+                        )}
+                        {item.tanggalBerakhir && (
+                          <span className="text-[8px] font-medium text-slate-400">
+                            Exp: {item.tanggalBerakhir.substring(0, 10)}
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -10126,20 +10130,22 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                             </span>
                           )}
 
-                          {/* INDIKATOR TELAT BAYAR (Hanya jika telat > 0 hari) */}
-                          {(Number(item.telatBayarHari) > 0) && (
-                            <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                              <Icon name="clock" size={10} className="text-rose-500" />
-                              Telat {item.telatBayarHari} Hari
-                            </span>
-                          )}
-
-                          {/* INDIKATOR TANGGAL BERAKHIR */}
-                          {item.tanggalBerakhir && (
-                            <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
-                              <Icon name="calendar" size={10} className="text-slate-400" />
-                              Exp: {item.tanggalBerakhir.substring(0, 10)}
-                            </span>
+                          {/* INDIKATOR TELAT BAYAR & EXP (Hanya untuk Suspend & Ready To Dismantle) */}
+                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'DISMANTLE') && (
+                            <>
+                              {(Number(item.telatBayarHari) > 0) && (
+                                <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                  <Icon name="clock" size={10} className="text-rose-500" />
+                                  Telat {item.telatBayarHari} Hari
+                                </span>
+                              )}
+                              {item.tanggalBerakhir && (
+                                <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
+                                  <Icon name="calendar" size={10} className="text-slate-400" />
+                                  Exp: {item.tanggalBerakhir.substring(0, 10)}
+                                </span>
+                              )}
+                            </>
                           )}
 
                           {/* INDIKATOR KENDALA */}
