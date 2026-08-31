@@ -1,7 +1,7 @@
 // =========================================================================
 // SCRIPT SINKRONISASI DATA DUE DATE & SUSPEND (SUPER CEPAT ~30 DETIK)
 // =========================================================================
-// Khusus menarik status: Suspend, Dismantled, Ready To Dismantle, Telat Bayar
+// Khusus menarik status: Suspend & Dismantled dari API Starlite
 // =========================================================================
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jtmferyskpbnacluyafs.supabase.co';
@@ -67,7 +67,8 @@ async function main() {
   console.log("⚡ MEMULAI SINKRONISASI CEPAT DUE DATE & SUSPEND -> SUPABASE");
   console.log("=================================================================");
 
-  const statusesToFetch = ["suspend", "dismantle", "ready-to-dismantle"];
+  // Status resmi API Starlite untuk Suspend & Dismantled
+  const statusesToFetch = ["suspend", "dismantled"];
   const targetStations = Object.keys(PARTNER_STATION_IDS);
 
   let grandTotalFetched = 0;
@@ -95,12 +96,7 @@ async function main() {
       let statusCount = 0;
 
       while (hasMore) {
-        const apiPath = "suspend";
-        let apiStatusParam = "suspend";
-        if (currentStatus === "dismantle") apiStatusParam = "dismantled";
-        else if (currentStatus === "ready-to-dismantle") apiStatusParam = "ready_to_dismantle";
-
-        const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/${apiPath}?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${apiStatusParam}&sales_partner_id=${partnerId}`;
+        const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${currentStatus}&sales_partner_id=${partnerId}`;
 
         let response = null;
         let retry = 0;
@@ -182,10 +178,7 @@ async function main() {
               } catch (_e) {}
             }
 
-            let tStatus = "Suspend";
-            let tIkr = "Sudah";
-            if (currentStatus === "dismantle") tStatus = "Dismantled";
-            else if (currentStatus === "ready-to-dismantle") tStatus = "Ready To Dismantle";
+            const tStatus = (currentStatus === "dismantled") ? "Dismantled" : "Suspend";
 
             const rowPayload = {
               id_pelanggan: idPelanggan,
@@ -193,7 +186,7 @@ async function main() {
               nomor_hp: telepon,
               alamat: alamat,
               catatan: patokan,
-              status_ikr: tIkr,
+              status_ikr: "Sudah",
               status_aktivasi: tStatus,
               tanggal_registrasi: tglRegistrasi,
               tanggal_berakhir: tanggalBerakhir || null,
@@ -250,8 +243,8 @@ async function main() {
   const durationSec = ((Date.now() - t0) / 1000).toFixed(1);
   console.log("\n=================================================================");
   console.log(`🎉 SINKRONISASI DUE DATE SELESAI DALAM ${durationSec} DETIK!`);
-  console.log(`📊 Total Data Suspend/Dismantle Ditarik : ${grandTotalFetched}`);
-  console.log(`💾 Total Diperbarui di Supabase        : ${grandTotalUpserted}`);
+  console.log(`📊 Total Data Suspend/Dismantled Ditarik : ${grandTotalFetched}`);
+  console.log(`💾 Total Diperbarui di Supabase          : ${grandTotalUpserted}`);
   console.log("=================================================================");
 }
 
