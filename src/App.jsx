@@ -9892,7 +9892,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         <Icon name="clock" size={8} /> {umurWoStr}
                       </span>
                     )}
-                    {(item.telatBayarHari !== null && item.telatBayarHari !== undefined) && (
+                    {(Number(item.telatBayarHari) > 0) && (
                       <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
                         <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
                       </span>
@@ -10126,8 +10126,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                             </span>
                           )}
 
-                          {/* INDIKATOR TELAT BAYAR (SUSPEND) */}
-                          {(item.telatBayarHari !== null && item.telatBayarHari !== undefined) && (
+                          {/* INDIKATOR TELAT BAYAR (Hanya jika telat > 0 hari) */}
+                          {(Number(item.telatBayarHari) > 0) && (
                             <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
                               <Icon name="clock" size={10} className="text-rose-500" />
                               Telat {item.telatBayarHari} Hari
