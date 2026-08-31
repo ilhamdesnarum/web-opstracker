@@ -1,9 +1,10 @@
 name: 2. Sync Pelanggan Aktif (Massal)
 
 on:
-  # Berjalan otomatis 1x seminggu setiap hari Minggu jam 00:00 UTC
   schedule:
-    - cron: '0 0 * * 0'
+    # Berjalan OTOMATIS SETIAP HARI pada jam 02:00 Dini Hari WIB (19:00 UTC)
+    # Sehingga saat tim bangun & mulai kerja jam 07:00 pagi, seluruh data aktif 11 stasiun sudah 100% fresh!
+    - cron: '0 19 * * *'
 
   # Bisa dipicu manual kapan saja (Bisa pilih stasiun atau ALL)
   workflow_dispatch:
