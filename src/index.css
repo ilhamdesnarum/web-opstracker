@@ -1,0 +1,309 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* PERBAIKAN FATAL MOBILE: Memaksa tinggi 100% di semua kondisi browser HP */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  /* Trik khusus untuk mengatasi bar navigasi Safari & Chrome HP */
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background-color: #f8fafc;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Skala Font Halus untuk HP agar proporsional & nyaman dibaca */
+@media (max-width: 768px) {
+  html {
+    font-size: 13.5px;
+  }
+}
+
+@media (max-width: 380px) {
+  html {
+    font-size: 12.5px;
+  }
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Efek zoom hanya aktif di layar besar (Laptop/PC) */
+@media (min-width: 1024px) {
+  body {
+    zoom: 0.9;
+  }
+
+  html,
+  body,
+  #root {
+    height: 111.12vh;
+  }
+}
+
+.sidebar-active {
+  background-color: #2563eb;
+  color: white;
+  border-left: 4px solid #22d3ee;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.page-enter {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-dropdown {
+  animation: dropdownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top;
+}
+
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-fade {
+  animation: fadeInOverlay 0.3s ease-out forwards;
+}
+
+@keyframes fadeInOverlay {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+
+  to {
+    opacity: 1;
+    backdrop-filter: blur(4px);
+  }
+}
+
+.animate-modal {
+  animation: modalPop 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Tambahkan di dalam tag <style> yang sudah ada */
+.animate-dropdown {
+  animation: dropdownIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top;
+}
+
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.org-tree {
+  display: flex;
+  justify-content: center;
+}
+
+.org-tree ul {
+  padding-top: 30px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding-left: 0;
+}
+
+.org-tree li {
+  text-align: center;
+  list-style-type: none;
+  position: relative;
+  padding: 30px 12px 0 12px;
+}
+
+.org-tree li::before,
+.org-tree li::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 50%;
+  border-top: 2px solid #cbd5e1;
+  width: 50%;
+  height: 30px;
+}
+
+.org-tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 2px solid #cbd5e1;
+}
+
+.org-tree li:only-child::after,
+.org-tree li:only-child::before {
+  display: none;
+}
+
+.org-tree li:first-child::before,
+.org-tree li:last-child::after {
+  border: 0 none;
+}
+
+.org-tree li:last-child::before {
+  border-right: 2px solid #cbd5e1;
+  border-radius: 0 6px 0 0;
+}
+
+.org-tree li:first-child::after {
+  border-radius: 6px 0 0 0;
+}
+
+.org-tree ul::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  border-left: 2px solid #cbd5e1;
+  width: 0;
+  height: 30px;
+  transform: translateX(-1px);
+}
+
+.org-tree ul:first-child::before {
+  display: none;
+}
+
+/* Menghilangkan focus outline hitam bawaan browser pada chart Recharts dan container-nya */
+.recharts-wrapper,
+.recharts-responsive-container,
+.recharts-wrapper:focus,
+.recharts-responsive-container:focus,
+svg:focus,
+svg *,
+.recharts-wrapper *,
+.recharts-responsive-container * {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+@keyframes slideConnector {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.animated-route-line {
+  stroke-dasharray: 8, 8 !important;
+  animation: routeDash 5s linear infinite forwards !important;
+  -webkit-animation: routeDash 5s linear infinite forwards !important;
+}
+
+@keyframes routeDash {
+  from {
+    stroke-dashoffset: 200;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.custom-mini-popup .leaflet-popup-content-wrapper {
+  padding: 1px;
+  border-radius: 6px;
+}
+
+.custom-mini-popup .leaflet-popup-content {
+  margin: 4px 6px;
+  width: auto !important;
+  line-height: 1.2;
+}
+
+.custom-mini-popup .leaflet-popup-content p {
+  margin: 0;
+}
+
+.custom-mini-popup .leaflet-popup-tip {
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+}

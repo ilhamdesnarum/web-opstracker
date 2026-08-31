@@ -1,0 +1,620 @@
+// ==========================================
+// FUNGSI TARIK PELANGGAN SUSPEND DARI PARTNER API (MULTI STASIUN)
+// ==========================================
+
+const PARTNER_STATION_IDS = {
+    "Wadu": "22e3ea03b120584cc7f5f1fc72571f12",
+    "Randublatung": "a3371976f338ec30d563cf5ff1bb5ad0",
+    "Sulur": "2573f4a2019695eae43dc3ab424fbfcd",
+    "Kradenan": "35f1e173a7ed98c3d1fce9353e1e9d91",
+    "Brumbung": "a03dd0e8d8f2e878e58c684fbaa64483",
+    "Alastua": "e4029158beceeec4420c71ced1ebca9b",
+    "Tawang": "972f9a002e04a16e6c423df80e80969c",
+    "Kaliwungu": "035f51aa3d54e5e284dd202a04b932c4",
+    "Kalibodri": "d027f79d3c452111efc3949dec89a18f",
+    "Weleri": "f94232b09359b914871ee59b276711f9",
+    "Krengseng": "6e574c1aea5332ef76ef425d07739588"
+};
+
+// Kredensial Master API Partner
+const PARTNER_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
+const PARTNER_COOKIE = "_ga=GA1.1.1000327763.1779010726; _gcl_au=1.1.1451051866.1779010727; _fbp=fb.1.1779010726946.118555004272738158; _tt_enable_cookie=1; _ttp=01KRTMTV531SKYMHFWWT9XR4DH_.tt.1; _ga_DFWC1L1VBM=GS2.1.s1782135322$o6$g0$t1782135322$j60$l0$h0; ttcsid=1782135322245::M649s3W_u5vulwz81TSP.5.1782135323124.0::1.-2031.0::0.0.0.0::0.0.0; ttcsid_D6N6GJRC77U5VG9U4DSG=1782135322245::WsZdqWnprfIDO3deWfQF.5.1782135323125.0; _ga_1ST28GMNXL=GS2.1.s1782207506$o7$g0$t1782207506$j60$l0$h0; token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
+
+// [+] Kredensial Database Supabase
+const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
+
+function formatKeWIB(isoString) {
+    if (!isoString) return "";
+    return isoString.substring(0, 19).replace("T", " ");
+}
+
+// =========================================================================
+// 1. FUNGSI PENARIKAN DATA AKTIF (PER BATCH - COCOK UNTUK PEMICU OTOMATIS)
+// =========================================================================
+function tarikAktifBatch1() {
+    Logger.log("--- [AKTIF] BATCH 1: Wadu, Randublatung, Sulur, Kradenan ---");
+    syncPartnerData(["active"], ["Wadu", "Randublatung", "Sulur", "Kradenan"], null, false, false);
+}
+
+function tarikAktifBatch2() {
+    Logger.log("--- [AKTIF] BATCH 2: Brumbung, Alastua, Tawang, Kaliwungu ---");
+    syncPartnerData(["active"], ["Brumbung", "Alastua", "Tawang", "Kaliwungu"], null, false, false);
+}
+
+function tarikAktifBatch3() {
+    Logger.log("--- [AKTIF] BATCH 3: Kalibodri, Weleri, Krengseng ---");
+    syncPartnerData(["active"], ["Kalibodri", "Weleri", "Krengseng"], null, false, false);
+}
+
+// =========================================================================
+// 2. FUNGSI PENARIKAN DATA SUSPEND (PER BATCH)
+// =========================================================================
+function tarikSuspendBatch1() {
+    Logger.log("--- [SUSPEND] BATCH 1: Wadu, Randublatung, Sulur, Kradenan ---");
+    syncPartnerData(["suspend"], ["Wadu", "Randublatung", "Sulur", "Kradenan"], null, false, true);
+}
+
+function tarikSuspendBatch2() {
+    Logger.log("--- [SUSPEND] BATCH 2: Brumbung, Alastua, Tawang, Kaliwungu ---");
+    syncPartnerData(["suspend"], ["Brumbung", "Alastua", "Tawang", "Kaliwungu"], null, false, true);
+}
+
+function tarikSuspendBatch3() {
+    Logger.log("--- [SUSPEND] BATCH 3: Kalibodri, Weleri, Krengseng ---");
+    syncPartnerData(["suspend"], ["Kalibodri", "Weleri", "Krengseng"], null, false, true);
+}
+
+// =========================================================================
+// 3. FUNGSI PENARIKAN DISMANTLE & READY TO DISMANTLE (PER BATCH)
+// =========================================================================
+function tarikDismantleBatch1() {
+    Logger.log("--- [DISMANTLE] BATCH 1: Wadu, Randublatung, Sulur, Kradenan ---");
+    syncPartnerData(["dismantle", "ready-to-dismantle"], ["Wadu", "Randublatung", "Sulur", "Kradenan"], null, false, true);
+}
+
+function tarikDismantleBatch2() {
+    Logger.log("--- [DISMANTLE] BATCH 2: Brumbung, Alastua, Tawang, Kaliwungu ---");
+    syncPartnerData(["dismantle", "ready-to-dismantle"], ["Brumbung", "Alastua", "Tawang", "Kaliwungu"], null, false, true);
+}
+
+function tarikDismantleBatch3() {
+    Logger.log("--- [DISMANTLE] BATCH 3: Kalibodri, Weleri, Krengseng ---");
+    syncPartnerData(["dismantle", "ready-to-dismantle"], ["Kalibodri", "Weleri", "Krengseng"], null, false, true);
+}
+
+// =========================================================================
+// 4. FUNGSI ALL-IN-ONE (AKTIF + SUSPEND + DISMANTLE SEKALIGUS PER BATCH)
+// =========================================================================
+function syncAllBatch1() {
+    Logger.log("--- [ALL STATUS] BATCH 1: Wadu, Randublatung, Sulur, Kradenan ---");
+    syncPartnerData(["active", "suspend", "dismantle", "ready-to-dismantle"], ["Wadu", "Randublatung", "Sulur", "Kradenan"], null, false, true);
+}
+
+function syncAllBatch2() {
+    Logger.log("--- [ALL STATUS] BATCH 2: Brumbung, Alastua, Tawang, Kaliwungu ---");
+    syncPartnerData(["active", "suspend", "dismantle", "ready-to-dismantle"], ["Brumbung", "Alastua", "Tawang", "Kaliwungu"], null, false, true);
+}
+
+function syncAllBatch3() {
+    Logger.log("--- [ALL STATUS] BATCH 3: Kalibodri, Weleri, Krengseng ---");
+    syncPartnerData(["active", "suspend", "dismantle", "ready-to-dismantle"], ["Kalibodri", "Weleri", "Krengseng"], null, false, true);
+}
+
+// =========================================================================
+// 5. FUNGSI KHUSUS 1 STASIUN (CUSTOM / MANUAL)
+// =========================================================================
+function tarikDataSatuStasiunCustom() {
+    var targetStasiun = "Randublatung"; // Ganti nama stasiun target
+    Logger.log("--- MENARIK UPDATE STATUS LENGKAP KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["active", "suspend", "dismantle", "ready-to-dismantle"], targetStasiun, null, false, true);
+}
+
+function tarikAktifKradenan() {
+    Logger.log("--- [KHUSUS KRADENAN] MENARIK 100% DATA PELANGGAN AKTIF (2.217 DATA) ---");
+    syncPartnerData(["active"], "Kradenan", null, false, false, 1);
+}
+
+function tarikPelangganAktifSatuStasiunCustom() {
+    var targetStasiun = "Kradenan"; // Ganti nama stasiun target sesuai kebutuhan
+    Logger.log("--- MENARIK SEMUA DATA PELANGGAN AKTIF KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["active"], targetStasiun, null, false, false, 1);
+}
+
+function tarikPelangganSuspendSatuStasiunCustom() {
+    var targetStasiun = "Randublatung"; // Ganti nama stasiun target
+    Logger.log("--- MENARIK HANYA DATA PELANGGAN SUSPEND KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["suspend"], targetStasiun, null, false, true);
+}
+
+function tarikPelangganReadyToDismantleSatuStasiunCustom() {
+    var targetStasiun = "Randublatung"; // Ganti nama stasiun target
+    Logger.log("--- MENARIK HANYA DATA PELANGGAN READY TO DISMANTLE KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["ready-to-dismantle"], targetStasiun, null, false, true);
+}
+
+function tarikPelangganDismantledSatuStasiunCustom() {
+    var targetStasiun = "Randublatung"; // Ganti nama stasiun target
+    Logger.log("--- MENARIK HANYA DATA PELANGGAN DISMANTLED KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["dismantle"], targetStasiun, null, false, true);
+}
+
+function tarikPelangganBaruMulti() {
+    Logger.log("--- MENARIK PELANGGAN BARU (REGISTRASI) SEMUA STASIUN ---");
+    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"]);
+}
+function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, skipSupabase = false, onlyUpdateExisting = true, startPage = 1) {
+    let stations = Object.keys(PARTNER_STATION_IDS);
+
+    if (targetStationName) {
+        if (Array.isArray(targetStationName)) {
+            stations = targetStationName;
+        } else if (PARTNER_STATION_IDS[targetStationName]) {
+            stations = [targetStationName];
+        } else {
+            Logger.log("GAGAL: Stasiun '" + targetStationName + "' tidak ditemukan di konfigurasi PARTNER_STATION_IDS.");
+            return;
+        }
+    }
+
+
+    const options = {
+        "method": "get",
+        "headers": {
+            "Authorization": PARTNER_TOKEN,
+            "Cookie": PARTNER_COOKIE
+        },
+        "muteHttpExceptions": true
+    };
+
+    // maxPagesToCheck sekarang diatur langsung di dalam loop (max 5 halaman per status dengan page_size 500)
+
+    var startTime = new Date().getTime();
+    var scriptProperties = PropertiesService.getScriptProperties();
+    var savedResumeData = scriptProperties.getProperty("SYNC_RESUME_STATE");
+    var resumeState = savedResumeData ? JSON.parse(savedResumeData) : null;
+    var isTimeout = false;
+
+    let startIdx = 0;
+    if (resumeState && resumeState.station) {
+        let foundIdx = stations.indexOf(resumeState.station);
+        if (foundIdx !== -1) {
+            startIdx = foundIdx;
+            Logger.log("⏩ Resume aktif: Melompati stasiun yang sudah selesai, mulai dari stasiun: " + resumeState.station);
+        }
+    }
+
+    for (let sIdx = startIdx; sIdx < stations.length; sIdx++) {
+        let stationName = stations[sIdx];
+        let partnerId = PARTNER_STATION_IDS[stationName];
+        Logger.log("Mulai memproses stasiun: " + stationName + " (ID: " + partnerId + ")");
+
+        try {
+            // Jika customSheetInfo diberikan, gunakan itu. Jika tidak, ambil dari STATION_DB_MAP
+            const stationInfo = customSheetInfo || (typeof STATION_DB_MAP !== 'undefined' ? STATION_DB_MAP[stationName] : null);
+            if (!stationInfo) {
+                Logger.log("Bypass: Konfigurasi sheet stasiun " + stationName + " tidak ditemukan.");
+                continue;
+            }
+
+            var sheet = SpreadsheetApp.openById(stationInfo.id).getSheetByName(stationInfo.sheetName);
+            if (!sheet) {
+                Logger.log("Bypass: Sheet tidak ditemukan untuk stasiun " + stationName);
+                continue;
+            }
+
+            // --- LOGIKA MENCARI BARIS TERAKHIR & DATA EXISTING ---
+            var aValues = sheet.getRange("A:A").getValues();
+            var realLastRow = 0;
+            for (var r = aValues.length - 1; r >= 0; r--) {
+                if (aValues[r] && aValues[r][0] !== undefined && aValues[r][0].toString().trim() !== "") {
+                    realLastRow = r + 1;
+                    break;
+                }
+            }
+
+            var existingIds = {};
+            if (realLastRow > 1) {
+                var idValues = sheet.getRange(2, 1, realLastRow - 1, 1).getValues();
+                for (var r = 0; r < idValues.length; r++) {
+                    var id = idValues[r][0].toString().trim();
+                    if (id !== "") existingIds[id] = r + 2;
+                }
+            }
+
+            // OPTIMASI BATCH UPDATE: Ambil kolom 9 (Status) dan 38 (Tgl) ke memory
+            // Agar tidak timeout gara-gara setValue berulang kali
+            var statusColValues = [];
+            var ikrColValues = [];
+            var tglColValues = [];
+            var latColValues = [];
+            var lngColValues = [];
+            var odpColValues = [];
+            var portOdpColValues = [];
+            var isColValuesModified = false;
+            var isLatLngModified = false;
+            var isOdpModified = false;
+
+            if (realLastRow > 0) {
+                latColValues = sheet.getRange(1, 6, realLastRow, 1).getValues();
+                lngColValues = sheet.getRange(1, 7, realLastRow, 1).getValues();
+                ikrColValues = sheet.getRange(1, 8, realLastRow, 1).getValues();
+                statusColValues = sheet.getRange(1, 9, realLastRow, 1).getValues();
+                odpColValues = sheet.getRange(1, 13, realLastRow, 1).getValues();   // Kolom M (13 - ODP)
+                portOdpColValues = sheet.getRange(1, 14, realLastRow, 1).getValues(); // Kolom N (14 - Port ODP)
+                tglColValues = sheet.getRange(1, 38, realLastRow, 1).getValues();
+            }
+
+            var totalUpdateTanggal = 0;
+            var totalBaru = 0;
+
+            var supabasePayloadUpdateWithStatus = [];
+            var supabasePayloadNew = [];
+            var newRowsSheet = [];
+
+            // Variabel startTime, isTimeout, resumeState sudah diinisialisasi sebelum loop stations
+
+            for (var s = 0; s < statusesToFetch.length; s++) {
+                var currentStatus = statusesToFetch[s];
+                var page = startPage;
+
+                if (resumeState && resumeState.station === stationName) {
+                    if (resumeState.status !== currentStatus && !resumeState.passed) {
+                        Logger.log("⏩ Melewati status '" + currentStatus + "' (sudah selesai diproses di sesi sebelumnya)");
+                        continue; // Lewati status ini karena sudah selesai di sesi sebelumnya
+                    } else if (resumeState.status === currentStatus && !resumeState.passed) {
+                        page = resumeState.page;
+                        resumeState.passed = true; // Tandai titik temu resume
+                        Logger.log("🔄 MELANJUTKAN OTOMATIS STATUS '" + currentStatus + "' DARI HALAMAN " + page);
+                    }
+                }
+
+                var hasMoreData = true;
+                var pageSize = 30; // Ukuran baku server Partner (1 Halaman = 30 Data, bebas error 500)
+                var maxPages = 150; // 150 x 30 = 4500 pelanggan (mencakup seluruh stasiun besar seperti Kradenan 2200+ data)
+
+                while (hasMoreData && page <= maxPages) {
+                    // Batas waktu aman (3.0 menit) agar data tetap tersimpan sebelum Google Apps Script timeout 6 menit
+                    if (new Date().getTime() - startTime > 180000) {
+                        Logger.log("⚠️ Waktu eksekusi mencapai 3.0 menit. Menyimpan progress (Halaman " + page + ") untuk dilanjutkan nanti...");
+                        scriptProperties.setProperty("SYNC_RESUME_STATE", JSON.stringify({
+                            station: stationName,
+                            status: currentStatus,
+                            page: page,
+                            passed: false,
+                            args: {
+                                statusesToFetch: statusesToFetch,
+                                targetStationName: targetStationName,
+                                customSheetInfo: customSheetInfo,
+                                skipSupabase: skipSupabase,
+                                onlyUpdateExisting: onlyUpdateExisting
+                            }
+                        }));
+                        hasMoreData = false;
+                        isTimeout = true;
+                        break;
+                    }
+
+                    var urlList = "";
+                    if (currentStatus === "new") {
+                        urlList = "https://partner.starliteindonesia.com/api/mitra/customer/new?page=" + page + "&page_size=" + pageSize + "&sort_order=DESC&sales_partner_id=" + partnerId;
+                    } else if (currentStatus.startsWith("new-")) {
+                        var ikrStatus = currentStatus.replace("new-", "");
+                        urlList = "https://partner.starliteindonesia.com/api/mitra/customer/new?page=" + page + "&page_size=" + pageSize + "&sort_order=DESC&ikr_status=" + ikrStatus + "&sales_partner_id=" + partnerId;
+                    } else if (currentStatus === "active") {
+                        urlList = "https://partner.starliteindonesia.com/api/mitra/customer/active?page=" + page + "&page_size=" + pageSize + "&sort_order=DESC&sales_partner_id=" + partnerId;
+                    } else {
+                        var apiPath = (currentStatus === "dismantle" || currentStatus === "dismantled" || currentStatus === "ready-to-dismantle") ? "suspend" : currentStatus;
+                        var apiStatusParam = (currentStatus === "dismantle") ? "dismantled" : currentStatus;
+                        urlList = "https://partner.starliteindonesia.com/api/mitra/customer/" + apiPath + "?page=" + page + "&page_size=" + pageSize + "&sort_order=DESC&status=" + apiStatusParam + "&sales_partner_id=" + partnerId;
+                    }
+
+                    var responseList = UrlFetchApp.fetch(urlList, options);
+                    if (responseList.getResponseCode() !== 200) {
+                        Logger.log("Gagal akses API List " + currentStatus + " di " + stationName + " (Hal " + page + "). Response: " + responseList.getResponseCode());
+                        break;
+                    }
+
+                    var jsonList = JSON.parse(responseList.getContentText());
+                    if (jsonList && jsonList.data && jsonList.data.length > 0) {
+                        var customers = jsonList.data;
+                        Logger.log("-> " + stationName + " [" + currentStatus + "] Hal " + page + ": memproses " + customers.length + " data...");
+
+                        for (var i = 0; i < customers.length; i++) {
+                            var customer = customers[i];
+                            if (!customer) continue;
+
+                            var idPelanggan = customer.customer_id && typeof customer.customer_id === 'string' ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
+                            var nama = customer.name || (customer.customer_id ? customer.customer_id.name : "");
+                            var telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
+                            var alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
+                            var patokan = customer.notes || "";
+
+                            var lat = customer.latitude || "";
+                            var lng = customer.longitude || "";
+
+                            // Sedot ODP & Port ODP dari Partner API (Mendukung struktur installation_info_id & fallback)
+                            var odp = "";
+                            var portOdp = "";
+
+                            if (customer.installation_info_id) {
+                                var instArr = Array.isArray(customer.installation_info_id) ? customer.installation_info_id : [customer.installation_info_id];
+                                if (instArr.length > 0 && instArr[0]) {
+                                    var inst = instArr[0];
+                                    portOdp = (inst.port_number !== undefined && inst.port_number !== null) ? String(inst.port_number) : (inst.port ? String(inst.port) : "");
+                                    if (inst.device_id) {
+                                        odp = inst.device_id.code || inst.device_id.name || "";
+                                    }
+                                }
+                            }
+
+                            // Fallback jika ada properti tingkat atas
+                            if (!odp) odp = customer.odp || customer.odp_name || customer.odp_code || customer.fat || customer.fat_code || customer.fat_name || (customer.customer_id && typeof customer.customer_id === 'object' ? (customer.customer_id.odp || customer.customer_id.fat_code || customer.customer_id.fat_name) : "") || "";
+                            if (!portOdp) portOdp = customer.port_odp || customer.port || customer.fat_port || customer.odp_port || (customer.customer_id && typeof customer.customer_id === 'object' ? (customer.customer_id.port_odp || customer.customer_id.port) : "") || "";
+
+                            var tglRegistrasi = "";
+                            if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
+                            else if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+
+                            // --- EKSTRAK TANGGAL BERAKHIR & TELAT BAYAR ---
+                            var tanggalBerakhir = "";
+                            var telatBayarHari = (customer.count_late_payment_days !== undefined && customer.count_late_payment_days !== null && customer.count_late_payment_days !== "") ? Number(customer.count_late_payment_days) : null;
+
+                            if (customer.user_ppoe_id && customer.user_ppoe_id.yinet_info) {
+                                try {
+                                    var yinet = typeof customer.user_ppoe_id.yinet_info === 'string' ? JSON.parse(customer.user_ppoe_id.yinet_info) : customer.user_ppoe_id.yinet_info;
+                                    if (yinet && yinet.expired_date) tanggalBerakhir = formatKeWIB(yinet.expired_date);
+                                } catch(e) {}
+                            }
+                            if (!tanggalBerakhir && customer.ont_id && customer.ont_id.length > 0 && customer.ont_id[0].payload) {
+                                try {
+                                    var payloadOnt = typeof customer.ont_id[0].payload === 'string' ? JSON.parse(customer.ont_id[0].payload) : customer.ont_id[0].payload;
+                                    if (payloadOnt && payloadOnt.expired_date) tanggalBerakhir = formatKeWIB(payloadOnt.expired_date);
+                                } catch(e) {}
+                            }
+
+                            var tStatus = "Sudah";
+                            var tIkr = "Sudah";
+                            if (currentStatus === "suspend") tStatus = "Suspend";
+                            else if (currentStatus === "dismantle") tStatus = "Dismantled";
+                            else if (currentStatus === "ready-to-dismantle") tStatus = "Ready To Dismantle";
+                            else if (currentStatus === "new-cancel") {
+                                tStatus = "Kendala";
+                                tIkr = "Kendala";
+                            }
+                            else if (currentStatus.startsWith("new")) {
+                                tStatus = "Belum";
+                                tIkr = "Belum";
+                            }
+
+                            if (idPelanggan !== "" && existingIds.hasOwnProperty(idPelanggan)) {
+                                // DATA LAMA -> Update Status IKR & Status Aktivasi & Tanggal Berakhir & Telat Bayar
+                                var targetRow = existingIds[idPelanggan]; // 1-indexed
+                                if (targetRow <= realLastRow) {
+                                    ikrColValues[targetRow - 1][0] = tIkr;
+                                    statusColValues[targetRow - 1][0] = tStatus;
+                                    isColValuesModified = true;
+                                } else {
+                                    // Jika data baru saja ditambahkan di siklus ini (newRowsSheet)
+                                    var newRowIndex = targetRow - realLastRow - 2;
+                                    if (newRowIndex >= 0 && newRowIndex < newRowsSheet.length) {
+                                        newRowsSheet[newRowIndex][7] = tIkr;
+                                        newRowsSheet[newRowIndex][8] = tStatus;
+                                    }
+                                }
+
+                                var updatePayload = {
+                                    id_pelanggan: idPelanggan,
+                                    status_ikr: tIkr,
+                                    status_aktivasi: tStatus,
+                                    tanggal_berakhir: tanggalBerakhir || null,
+                                    telat_bayar_hari: telatBayarHari
+                                };
+
+                                supabasePayloadUpdateWithStatus.push(updatePayload);
+                                totalUpdateTanggal++;
+                            } else if (idPelanggan !== "" && !onlyUpdateExisting) {
+                                // DATA BARU
+                                totalBaru++;
+                                existingIds[idPelanggan] = realLastRow + totalBaru + 1;
+
+                                var newRow = new Array(38).fill("");
+                                newRow[0] = idPelanggan;
+                                newRow[1] = nama;
+                                newRow[2] = telepon;
+                                newRow[3] = alamat;
+                                newRow[4] = patokan;
+                                newRow[5] = lat ? "'" + lat.toString().replace(",", ".") : "";
+                                newRow[6] = lng ? "'" + lng.toString().replace(",", ".") : "";
+                                newRow[7] = tIkr;
+                                newRow[8] = tStatus;
+                                newRow[12] = odp;     // Kolom M (13 - ODP)
+                                newRow[13] = portOdp; // Kolom N (14 - Port ODP)
+                                newRow[32] = stationName;
+                                newRow[37] = tglRegistrasi;
+                                newRowsSheet.push(newRow);
+
+                                supabasePayloadNew.push({
+                                    id_pelanggan: idPelanggan,
+                                    nama_pelanggan: nama,
+                                    nomor_hp: telepon,
+                                    alamat: alamat,
+                                    catatan: patokan,
+                                    latitude: lat.toString().replace(",", "."),
+                                    longitude: lng.toString().replace(",", "."),
+                                    status_ikr: tIkr,
+                                    status_aktivasi: tStatus,
+                                    tanggal_registrasi: tglRegistrasi,
+                                    tanggal_berakhir: tanggalBerakhir || null,
+                                    telat_bayar_hari: telatBayarHari,
+                                    stasiun: stationName,
+                                    odp: odp,
+                                    port_odp: portOdp
+                                });
+                            }
+                        }
+                        if (customers.length < pageSize) {
+                            hasMoreData = false;
+                        } else {
+                            page++;
+                            Utilities.sleep(100); // Jeda singkat 0.1s
+                        }
+                    } else {
+                        hasMoreData = false;
+                    }
+                }
+                if (isTimeout) break; // Berhenti memproses status lainnya jika sudah timeout
+            }
+
+
+            // --- PUSH KE GOOGLE SHEET ---
+            if (isColValuesModified && realLastRow > 0) {
+                sheet.getRange(1, 8, realLastRow, 1).setValues(ikrColValues);
+                sheet.getRange(1, 9, realLastRow, 1).setValues(statusColValues);
+            }
+
+            if (isLatLngModified && realLastRow > 0) {
+                sheet.getRange(1, 6, realLastRow, 1).setValues(latColValues);
+                sheet.getRange(1, 7, realLastRow, 1).setValues(lngColValues);
+            }
+
+            if (isOdpModified && realLastRow > 0) {
+                sheet.getRange(1, 13, realLastRow, 1).setValues(odpColValues);  // Kolom M (ODP)
+                sheet.getRange(1, 14, realLastRow, 1).setValues(portOdpColValues); // Kolom N (Port ODP)
+            }
+
+            if (newRowsSheet.length > 0) {
+                sheet.getRange(realLastRow + 1, 1, newRowsSheet.length, 38).setValues(newRowsSheet);
+            }
+
+            // --- PUSH KE SUPABASE (Memanggil Fungsi upsertToSupabase yg ada di file lain) ---
+            if (!skipSupabase) {
+                if (supabasePayloadUpdateWithStatus.length > 0) {
+                    var uniqueMapUpdateStatus = {};
+                    for (var k = 0; k < supabasePayloadUpdateWithStatus.length; k++) {
+                        uniqueMapUpdateStatus[supabasePayloadUpdateWithStatus[k].id_pelanggan] = supabasePayloadUpdateWithStatus[k];
+                    }
+                    if (typeof upsertToSupabase === "function") upsertToSupabase(Object.values(uniqueMapUpdateStatus));
+                }
+
+                if (supabasePayloadNew.length > 0) {
+                    var uniqueMapNew = {};
+                    for (var k = 0; k < supabasePayloadNew.length; k++) {
+                        uniqueMapNew[supabasePayloadNew[k].id_pelanggan] = supabasePayloadNew[k];
+                    }
+                    if (typeof upsertToSupabase === "function") upsertToSupabase(Object.values(uniqueMapNew));
+                }
+            } else {
+                Logger.log("Bypass: Sinkronisasi ke Supabase dilewati (skipSupabase = true).");
+            }
+
+            Logger.log("Stasiun " + stationName + " selesai. Baru: " + totalBaru + ", Update: " + totalUpdateTanggal);
+
+        } catch (e) {
+            Logger.log("Error di stasiun " + stationName + ": " + e.message);
+        }
+
+        if (isTimeout) {
+            Logger.log("⚠️ Berhenti sementara karena batas waktu. Auto-resume akan menjadwalkan kelanjutannya...");
+            createAutoResumeTrigger();
+            return;
+        }
+
+        // Jeda antar stasiun
+        Utilities.sleep(1500);
+    }
+
+    scriptProperties.deleteProperty("SYNC_RESUME_STATE");
+    Logger.log("✅ Sinkronisasi Partner Semua Stasiun Selesai!");
+}
+
+// ==========================================
+// FUNGSI BANTUAN UNTUK PUSH DATA KE SUPABASE
+// ==========================================
+function upsertToSupabase(payloadArray) {
+    if (!payloadArray || payloadArray.length === 0) return;
+
+    if (typeof SUPABASE_URL === 'undefined' || typeof SUPABASE_KEY === 'undefined') {
+        Logger.log("⚠️ Supabase Credentials (SUPABASE_URL / SUPABASE_KEY) tidak ditemukan di lingkup global. Lewati sync Supabase.");
+        return;
+    }
+
+    var nowIso = new Date().toISOString();
+    payloadArray.forEach(function(item) {
+        if (!item.created_at) item.created_at = nowIso;
+        item.updated_at = nowIso;
+    });
+
+    var url = SUPABASE_URL + "/rest/v1/data_pelanggan?on_conflict=id_pelanggan";
+
+    var options = {
+        method: "post",
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates" // INI KUNCI UPSERT DI SUPABASE
+        },
+        payload: JSON.stringify(payloadArray),
+        muteHttpExceptions: true
+    };
+
+    try {
+        var response = UrlFetchApp.fetch(url, options);
+        if (response.getResponseCode() >= 400) {
+            Logger.log("❌ Gagal Upsert ke Supabase: " + response.getContentText());
+        } else {
+            Logger.log("✅ Sukses Upsert " + payloadArray.length + " baris ke Supabase.");
+        }
+    } catch (e) {
+        Logger.log("❌ Error koneksi Supabase: " + e.message);
+    }
+}
+
+// ==========================================
+// FUNGSI AUTO-RESUME TRIGGER
+// ==========================================
+function createAutoResumeTrigger() {
+    // Hapus trigger lama agar tidak menumpuk
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+        if (triggers[i].getHandlerFunction() === "autoResumeTrigger") {
+            ScriptApp.deleteTrigger(triggers[i]);
+        }
+    }
+    // Buat trigger baru untuk berjalan 1 menit dari sekarang
+    ScriptApp.newTrigger("autoResumeTrigger")
+        .timeBased()
+        .after(60000)
+        .create();
+    Logger.log("⏱️ Auto-Resume telah dijadwalkan. Script akan otomatis berjalan sendiri dalam 1 menit.");
+}
+
+function autoResumeTrigger() {
+    Logger.log("▶️ Memulai Auto-Resume...");
+    // Bersihkan trigger setelah dijalankan agar tidak berulang
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+        if (triggers[i].getHandlerFunction() === "autoResumeTrigger") {
+            ScriptApp.deleteTrigger(triggers[i]);
+        }
+    }
+
+    var scriptProperties = PropertiesService.getScriptProperties();
+    var savedResumeData = scriptProperties.getProperty("SYNC_RESUME_STATE");
+    if (savedResumeData) {
+        var state = JSON.parse(savedResumeData);
+        if (state.args) {
+            syncPartnerData(
+                state.args.statusesToFetch, 
+                state.args.targetStationName, 
+                state.args.customSheetInfo, 
+                state.args.skipSupabase, 
+                state.args.onlyUpdateExisting, 
+                1
+            );
+        }
+    } else {
+        Logger.log("Tidak ada state resume yang ditemukan.");
+    }
+}

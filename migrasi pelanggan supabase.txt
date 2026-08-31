@@ -1,0 +1,239 @@
+// ==========================================
+// KONFIGURASI DATABASE SUPABASE
+// ==========================================
+const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
+
+function upsertToSupabase(payloadArray) {
+  if (!payloadArray || payloadArray.length === 0) return;
+  
+  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`;
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": "Bearer " + SUPABASE_KEY,
+      "Prefer": "resolution=merge-duplicates" 
+    },
+    payload: JSON.stringify(payloadArray),
+    muteHttpExceptions: true
+  };
+  
+  try {
+    const res = UrlFetchApp.fetch(url, options);
+    Logger.log("Response Supabase: " + res.getContentText());
+  } catch (error) {
+    Logger.log("Error Supabase: " + error.message);
+  }
+}
+
+// ==========================================
+// SUPER MIGRASI (ALL IN ONE + AUTO REPLACE)
+// ==========================================
+function migrasiSemuaStasiun() {
+  const listStasiun = [
+    { nama: "Wadu", id: "1UIQpbuGdPdIefIggktJpSsdmRIhhrjyXbNx60m2LMPA", sheetName: "Wadu" },
+    { nama: "Kradenan", id: "1GEc9s_oMpEbuwdahzNgCtb42PGFWWASVYwuuBAwk5UE", sheetName: "Kradenan" },
+    { nama: "Sulur", id: "1zoy7IvYtjfmjvBw2lUK7-i-1c73ikCRDlhGT5CftNvc", sheetName: "Sulur" },
+    { nama: "Randublatung", id: "1BPa2WBRzYwus336l3s4wfE333QaxvuIvg-jV_QaCsmQ", sheetName: "Randu" },
+    { nama: "Alastua", id: "1zJbx-ZJoRay4dj-E5dv2T9w1bpE8vi8GtyDuNlaV-Ws", sheetName: "Alastua" },
+    { nama: "Krengseng", id: "1qTqQpzK34kqBJE-NsvidUhM3x2cVRXhA5F4_G65X7mo", sheetName: "Krengseng" },
+    { nama: "Weleri", id: "1ZVlW0X0NB5RU9NoLSdFFbOisLhBjy_bxBJXwL-Xgqnk", sheetName: "Weleri" },
+    { nama: "Kaliwungu", id: "1r7SErCmhxBuWqo_DOpThJk8X8Ddgv0oR7A98Av18Zo8", sheetName: "Kaliwungu" },
+    { nama: "Kalibodri", id: "1P4bESYhtqkyM14tknKYMiBVVNg3Zgj8KS9yVSGiQIwo", sheetName: "Kalibodri" },
+    { nama: "Brumbung", id: "1CyHkgCR-6kUO5gxKBQbNwT28PYHTPNDvaSt3F5TXGUs", sheetName: "Brumbung" }
+  ];
+
+  for (let s = 0; s < listStasiun.length; s++) {
+    let conf = listStasiun[s];
+    Logger.log("Mulai migrasi stasiun: " + conf.nama);
+    
+    try {
+      let ss = SpreadsheetApp.openById(conf.id);
+      let sheet = ss.getSheetByName(conf.sheetName);
+      if (!sheet) continue;
+      
+      let dataRange = sheet.getDataRange();
+      let data = dataRange.getValues();
+      let formulas = dataRange.getFormulas(); 
+      
+      let payloadArray = [];
+      
+      for (let i = 1; i < data.length; i++) { 
+        let row = data[i];
+        let id_pelanggan = String(row[0] || "").trim(); // A
+        
+        if (id_pelanggan !== "" && id_pelanggan.toLowerCase() !== "id pelanggan") {
+          payloadArray.push({
+            id_pelanggan: id_pelanggan,
+            nama_pelanggan: String(row[1] || ""),     // B
+            nomor_hp: String(row[2] || ""),           // C
+            alamat: String(row[3] || ""),             // D
+            catatan: String(row[4] || ""),            // E
+            latitude: String(row[5] || ""),           // F
+            longitude: String(row[6] || ""),          // G
+            status_ikr: String(row[7] || "Belum"),    // H
+            status_aktivasi: String(row[8] || "Belum"), // I
+            sn_ont: String(row[9] || ""),             // J
+            tgl_ikr: formatTanggalData(row[10]),      // K
+            tgl_aktivasi: formatTanggalData(row[11]), // L
+            odp: String(row[12] || ""),               // M
+            port_odp: String(row[13] || ""),          // N
+            odc: String(row[14] || ""),               // O
+            
+            // SEDOT LINK FOTO DARI RUMUS HYPERLINK
+            foto_odp_terbuka: ekstrakLink(formulas[i][15], row[15]),      // P
+            foto_penarikan_odp: ekstrakLink(formulas[i][16], row[16]),    // Q
+            foto_rumah_pelanggan: ekstrakLink(formulas[i][17], row[17]),  // R
+            foto_ont_terpasang: ekstrakLink(formulas[i][18], row[18]),    // S
+            foto_sn_ont: ekstrakLink(formulas[i][19], row[19]),           // T
+            
+            kabel_precon: String(row[20] || ""),      // U
+            issue_kendala: String(row[21] || ""),     // V
+            petugas_ikr: String(row[27] || ""),       // AB (27)
+            petugas_aktivasi: String(row[28] || ""),  // AC (28)
+            reporter_kendala: String(row[29] || ""),  // AD (29)
+            tanggal_kendala: formatTanggalData(row[30]), // AE (30)
+            tahap_pembangunan: String(row[31] || ""), // AF (31)
+            stasiun: conf.nama,                       // Otomatis
+            tanggal_registrasi: formatTanggalData(row[37]) // AL (37)
+          });
+        }
+        
+        if (payloadArray.length === 500) {
+           upsertToSupabase(payloadArray);
+           payloadArray = []; 
+        }
+      }
+      
+      if (payloadArray.length > 0) upsertToSupabase(payloadArray);
+      Logger.log("✅ Sukses migrasi: " + conf.nama);
+      
+    } catch (e) {
+      Logger.log("Error pada stasiun " + conf.nama + ": " + e.message);
+    }
+  }
+}
+
+// ==========================================
+// FUNGSI BANTUAN FORMAT DATA
+// ==========================================
+function formatTanggalData(val) {
+  if (!val) return "";
+  if (val instanceof Date) return Utilities.formatDate(val, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
+  return String(val);
+}
+
+function ekstrakLink(formula, text) {
+  if (formula && formula.toString().toUpperCase().startsWith('=HYPERLINK')) {
+    let match = formula.match(/=HYPERLINK\(\s*["']([^"']+)["']/i);
+    if (match && match[1]) return match[1];
+  }
+  return String(text || "");
+}
+
+
+// ==========================================
+// FUNGSI TESTING UNTUK 1 STASIUN (MANUAL TEST)
+// ==========================================
+function migrasiSatuStasiun() {
+  // Ganti nama ini dengan stasiun yang mau dites
+  const targetStasiun = "Brumbung"; 
+
+  const listStasiun = [
+    { nama: "Wadu", id: "1UIQpbuGdPdIefIggktJpSsdmRIhhrjyXbNx60m2LMPA", sheetName: "Wadu" },
+    { nama: "Kradenan", id: "1GEc9s_oMpEbuwdahzNgCtb42PGFWWASVYwuuBAwk5UE", sheetName: "Kradenan" },
+    { nama: "Sulur", id: "1zoy7IvYtjfmjvBw2lUK7-i-1c73ikCRDlhGT5CftNvc", sheetName: "Sulur" },
+    { nama: "Randublatung", id: "1BPa2WBRzYwus336l3s4wfE333QaxvuIvg-jV_QaCsmQ", sheetName: "Randu" },
+    { nama: "Alastua", id: "1zJbx-ZJoRay4dj-E5dv2T9w1bpE8vi8GtyDuNlaV-Ws", sheetName: "Alastua" },
+    { nama: "Krengseng", id: "1qTqQpzK34kqBJE-NsvidUhM3x2cVRXhA5F4_G65X7mo", sheetName: "Krengseng" },
+    { nama: "Weleri", id: "1ZVlW0X0NB5RU9NoLSdFFbOisLhBjy_bxBJXwL-Xgqnk", sheetName: "Weleri" },
+    { nama: "Kaliwungu", id: "1r7SErCmhxBuWqo_DOpThJk8X8Ddgv0oR7A98Av18Zo8", sheetName: "Kaliwungu" },
+    { nama: "Kalibodri", id: "1P4bESYhtqkyM14tknKYMiBVVNg3Zgj8KS9yVSGiQIwo", sheetName: "Kalibodri" },
+    { nama: "Brumbung", id: "1CyHkgCR-6kUO5gxKBQbNwT28PYHTPNDvaSt3F5TXGUs", sheetName: "Brumbung" }
+  ];
+
+  // Cari config stasiun yang diinginkan
+  let conf = listStasiun.find(s => s.nama === targetStasiun);
+  
+  if (!conf) {
+    Logger.log("Stasiun " + targetStasiun + " tidak ditemukan!");
+    return;
+  }
+
+  Logger.log("Mulai migrasi HANYA untuk stasiun: " + conf.nama);
+  
+  try {
+    let ss = SpreadsheetApp.openById(conf.id);
+    let sheet = ss.getSheetByName(conf.sheetName);
+    if (!sheet) {
+      Logger.log("Sheet tidak ditemukan!");
+      return;
+    }
+    
+    let dataRange = sheet.getDataRange();
+    let data = dataRange.getValues();
+    let formulas = dataRange.getFormulas(); 
+    
+    let payloadArray = [];
+    let totalMigrasi = 0;
+    
+    for (let i = 1; i < data.length; i++) { 
+      let row = data[i];
+      let id_pelanggan = String(row[0] || "").trim(); // Kolom A
+      
+      if (id_pelanggan !== "" && id_pelanggan.toLowerCase() !== "id pelanggan") {
+        payloadArray.push({
+          id_pelanggan: id_pelanggan,
+          nama_pelanggan: String(row[1] || ""),
+          nomor_hp: String(row[2] || ""),
+          alamat: String(row[3] || ""),
+          catatan: String(row[4] || ""),
+          latitude: String(row[5] || ""),
+          longitude: String(row[6] || ""),
+          status_ikr: String(row[7] || "Belum"),
+          status_aktivasi: String(row[8] || "Belum"),
+          sn_ont: String(row[9] || ""),
+          tgl_ikr: formatTanggalData(row[10]),
+          tgl_aktivasi: formatTanggalData(row[11]),
+          odp: String(row[12] || ""),
+          port_odp: String(row[13] || ""),
+          odc: String(row[14] || ""),
+          
+          foto_odp_terbuka: ekstrakLink(formulas[i][15], row[15]),
+          foto_penarikan_odp: ekstrakLink(formulas[i][16], row[16]),
+          foto_rumah_pelanggan: ekstrakLink(formulas[i][17], row[17]),
+          foto_ont_terpasang: ekstrakLink(formulas[i][18], row[18]),
+          foto_sn_ont: ekstrakLink(formulas[i][19], row[19]),
+          
+          kabel_precon: String(row[20] || ""),
+          issue_kendala: String(row[21] || ""),
+          petugas_ikr: String(row[27] || ""),
+          petugas_aktivasi: String(row[28] || ""),
+          reporter_kendala: String(row[29] || ""),
+          tanggal_kendala: formatTanggalData(row[30]),
+          tahap_pembangunan: String(row[31] || ""),
+          stasiun: conf.nama,
+          tanggal_registrasi: formatTanggalData(row[37])
+        });
+      }
+      
+      if (payloadArray.length === 500) {
+         upsertToSupabase(payloadArray);
+         totalMigrasi += payloadArray.length;
+         payloadArray = []; 
+      }
+    }
+    
+    if (payloadArray.length > 0) {
+       upsertToSupabase(payloadArray);
+       totalMigrasi += payloadArray.length;
+    }
+    Logger.log("✅ Sukses migrasi: " + conf.nama + " (Total: " + totalMigrasi + " data)");
+    
+  } catch (e) {
+    Logger.log("❌ Error pada stasiun " + conf.nama + ": " + e.message);
+  }
+}
+
