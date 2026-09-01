@@ -92,13 +92,14 @@ async function main() {
     const stationRows = [];
 
     let page = 1;
-    const pageSize = 30;
+    const pageSize = 15; // Dikurangi dari 30 agar load API Starlite lebih ringan
     let hasMore = true;
     let statusCount = 0;
     let consecutiveErrors = 0;
 
     while (hasMore) {
-      const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/active?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
+      // Menghapus sort_order=DESC barangkali membebani query database mereka
+      const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/active?page=${page}&page_size=${pageSize}&sales_partner_id=${partnerId}`;
 
       let response = null;
       let retry = 0;
@@ -129,11 +130,16 @@ async function main() {
 
       if (!response || !response.ok) {
         consecutiveErrors++;
-        console.log(`   ❌ Gagal pada halaman ${page} (${lastErr}), skip ke halaman berikutnya...`);
-        if (consecutiveErrors >= 3) {
-          console.log(`   🚨 Terlalu banyak error beruntun (3x). Menghentikan penarikan untuk stasiun ini.`);
+        console.log(`   ❌ Gagal pada halaman ${page} (${lastErr}). Server Starlite down/overload.`);
+        console.log(`   ⏱️  Memberikan jeda istirahat (cooldown) 30 detik untuk server Starlite...`);
+        await new Promise(r => setTimeout(r, 30000));
+        
+        if (consecutiveErrors >= 5) {
+          console.log(`   🚨 Terlalu banyak error beruntun (5x). Menghentikan penarikan untuk stasiun ini.`);
           break;
         }
+        
+        console.log(`   ⏭️ Lanjut coba tarik halaman ${page + 1}...`);
         page++;
         continue;
       }
