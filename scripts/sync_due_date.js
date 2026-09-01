@@ -104,6 +104,7 @@ async function main() {
       const pageSize = 30;
       let hasMore = true;
       let statusCount = 0;
+      let consecutiveErrors = 0;
 
       while (hasMore) {
         const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&${cfg.query}&sales_partner_id=${partnerId}`;
@@ -130,9 +131,17 @@ async function main() {
         }
 
         if (!response || !response.ok) {
-          console.log(`   ↳ [${cfg.key}] Halaman ${page} (${lastErr}), lanjut...`);
-          break;
+          consecutiveErrors++;
+          console.log(`   ↳ [${cfg.key}] Halaman ${page} (${lastErr}), skip ke halaman berikutnya...`);
+          if (consecutiveErrors >= 3) {
+            console.log(`   🚨 Terlalu banyak error beruntun (3x). Menghentikan kategori ini.`);
+            break;
+          }
+          page++;
+          continue;
         }
+        
+        consecutiveErrors = 0;
 
         try {
           const json = await response.json();

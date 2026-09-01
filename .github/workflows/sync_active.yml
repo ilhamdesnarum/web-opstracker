@@ -36,7 +36,7 @@ jobs:
     steps:
       - id: set-stations
         run: |
-          INPUT_STATION="${{ github.event.inputs.stations || 'ALL' }}"
+          INPUT_STATION="${{ inputs.stations || 'ALL' }}"
           if [ "$INPUT_STATION" = "ALL" ]; then
             echo 'stations=["Wadu", "Randublatung", "Sulur", "Kradenan", "Brumbung", "Alastua", "Tawang", "Kaliwungu", "Kalibodri", "Weleri", "Krengseng"]' >> $GITHUB_OUTPUT
           else
