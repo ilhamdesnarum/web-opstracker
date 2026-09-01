@@ -49,10 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 2 # Dibatasi 2 runner paralel agar server Starlite tidak overload/timeout
+      max-parallel: 1 # Dibatasi 1 runner agar server Starlite tidak overload/timeout
       matrix:
         station: ${{ fromJson(needs.determine-stations.outputs.stations) }}
-    timeout-minutes: 40
+    timeout-minutes: 120
 
     steps:
       - name: Checkout Repository
