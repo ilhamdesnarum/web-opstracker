@@ -10134,14 +10134,14 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                           {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'DISMANTLE') && (
                             <>
                               {(Number(item.telatBayarHari) > 0) && (
-                                <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                                  <Icon name="clock" size={10} className="text-rose-500" />
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                  <Icon name="clock" size={9} className="text-rose-500" />
                                   Telat {item.telatBayarHari} Hari
                                 </span>
                               )}
                               {item.tanggalBerakhir && (
-                                <span className="px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
-                                  <Icon name="calendar" size={10} className="text-slate-400" />
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
+                                  <Icon name="calendar" size={9} className="text-slate-400" />
                                   Exp: {item.tanggalBerakhir.substring(0, 10)}
                                 </span>
                               )}
