@@ -108,16 +108,16 @@ Deno.serve(async (req: Request) => {
         while (hasMore && page <= maxPages) {
           let urlList = "";
           if (currentStatus === "new") {
-            urlList = `https://partner.starliteindonesia.com/api/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
+            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
           } else if (currentStatus.startsWith("new-")) {
             const ikrStatus = currentStatus.replace("new-", "");
-            urlList = `https://partner.starliteindonesia.com/api/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&ikr_status=${ikrStatus}&sales_partner_id=${partnerId}`;
+            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&ikr_status=${ikrStatus}&sales_partner_id=${partnerId}`;
           } else if (currentStatus === "active") {
-            urlList = `https://partner.starliteindonesia.com/api/mitra/customer/active?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
+            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
           } else {
             const apiPath = (currentStatus === "dismantle" || currentStatus === "dismantled" || currentStatus === "ready-to-dismantle") ? "suspend" : currentStatus;
             const apiStatusParam = (currentStatus === "dismantle") ? "dismantled" : currentStatus;
-            urlList = `https://partner.starliteindonesia.com/api/mitra/customer/${apiPath}?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${apiStatusParam}&sales_partner_id=${partnerId}`;
+            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/${apiPath}?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${apiStatusParam}&sales_partner_id=${partnerId}`;
           }
 
           let response: Response | null = null;

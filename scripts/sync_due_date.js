@@ -107,7 +107,7 @@ async function main() {
       let consecutiveErrors = 0;
 
       while (hasMore) {
-        const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&${cfg.query}&sales_partner_id=${partnerId}`;
+        const urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/suspend?page=${page}&page_size=${pageSize}&sort_order=DESC&${cfg.query}&sales_partner_id=${partnerId}`;
 
         let response = null;
         let retry = 0;

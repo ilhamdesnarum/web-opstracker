@@ -99,7 +99,7 @@ async function main() {
 
     while (hasMore) {
       // Menghapus sort_order=DESC barangkali membebani query database mereka
-      const urlList = `https://partner.starliteindonesia.com/api/mitra/customer/active?page=${page}&page_size=${pageSize}&sales_partner_id=${partnerId}`;
+      const urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${page}&page_size=${pageSize}&sales_partner_id=${partnerId}`;
 
       let response = null;
       let retry = 0;
