@@ -9548,6 +9548,110 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
   const isAllPageSelected = currentData.length > 0 && currentData.every(item => selectedIds.includes(item.idPelanggan));
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  // FUNGSI EKSPOR EXCEL DINAMIS
+  const handleExportExcel = (customRows = null, customLabel = '') => {
+    const rowsToExport = customRows || filteredData;
+    if (!rowsToExport || rowsToExport.length === 0) {
+      alert("Tidak ada data pelanggan yang cocok untuk diekspor.");
+      return;
+    }
+
+    setIsExporting(true);
+    setTimeout(() => {
+      try {
+        const exportRows = rowsToExport.map((item, index) => {
+          const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+          const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+          let displayStatusStr = 'WAITING';
+          if (globalStat.includes('KENDALA')) displayStatusStr = 'KENDALA';
+          else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') displayStatusStr = 'AKTIF';
+          else if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') displayStatusStr = 'READY TO DISMANTLE';
+          else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') displayStatusStr = 'DISMANTLED';
+          else if (rawAktivasi === 'suspend' || globalStat === 'SUSPEND') displayStatusStr = 'SUSPEND';
+          else if (rawAktivasi === 'kendala') displayStatusStr = 'KENDALA';
+          else displayStatusStr = getGlobalStatusStr(item);
+
+          return {
+            'No': index + 1,
+            'ID Pelanggan': item.idPelanggan || '',
+            'Nama Pelanggan': item.namaPelanggan || '',
+            'Nomor HP': item.nomorHp ? String(item.nomorHp) : '',
+            'Alamat': item.alamat || '',
+            'Catatan': item.catatan || '',
+            'Stasiun': toProperCase(item.stasiun) || '',
+            'ODP': item.odpAktual || item.odp || '',
+            'Port ODP': (item.portOdp !== undefined && item.portOdp !== null) ? String(item.portOdp) : '',
+            'Status IKR': item.ikr || item.statusIkr || 'Belum',
+            'Status Aktivasi': displayStatusStr,
+            'Telat Bayar (Hari)': (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) ? Number(item.telatBayarHari) : '',
+            'Tanggal Exp / Berakhir': item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : '',
+            'Tanggal Registrasi': item.tanggalRegistrasi ? String(item.tanggalRegistrasi).substring(0, 19).replace('T', ' ') : '',
+            'Tanggal IKR': item.tglIkr ? String(item.tglIkr).substring(0, 19).replace('T', ' ') : '',
+            'Tanggal Aktivasi': item.tglAktivasi ? String(item.tglAktivasi).substring(0, 19).replace('T', ' ') : '',
+            'Petugas': item.petugasAktivasi || item.petugasIkr || '',
+            'Kendala': item.issueKendala || '',
+            'Reporter Kendala': item.reporterKendala || '',
+            'Latitude': item.latitude ? String(item.latitude) : '',
+            'Longitude': item.longitude ? String(item.longitude) : ''
+          };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(exportRows);
+
+        ws['!cols'] = [
+          { wch: 6 },  // No
+          { wch: 15 }, // ID Pelanggan
+          { wch: 28 }, // Nama Pelanggan
+          { wch: 18 }, // Nomor HP
+          { wch: 40 }, // Alamat
+          { wch: 22 }, // Catatan
+          { wch: 16 }, // Stasiun
+          { wch: 16 }, // ODP
+          { wch: 10 }, // Port ODP
+          { wch: 13 }, // Status IKR
+          { wch: 22 }, // Status Aktivasi
+          { wch: 18 }, // Telat Bayar (Hari)
+          { wch: 24 }, // Tanggal Exp
+          { wch: 22 }, // Tanggal Registrasi
+          { wch: 20 }, // Tanggal IKR
+          { wch: 20 }, // Tanggal Aktivasi
+          { wch: 20 }, // Petugas
+          { wch: 30 }, // Kendala
+          { wch: 20 }, // Reporter Kendala
+          { wch: 14 }, // Latitude
+          { wch: 14 }  // Longitude
+        ];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Data Pelanggan");
+
+        let nameParts = ['Data_Pelanggan'];
+        if (customLabel) {
+          nameParts.push(customLabel);
+        } else {
+          if (filterStation) nameParts.push(String(filterStation).trim().replace(/\s+/g, '_'));
+          if (filterStatus && filterStatus.length > 0) nameParts.push(filterStatus.join('_').replace(/\s+/g, '-'));
+          if (searchTerm) nameParts.push('Search');
+          if (!filterStation && (!filterStatus || filterStatus.length === 0) && !searchTerm) {
+            nameParts = ['Data_Semua_Pelanggan'];
+          }
+        }
+        const todayStr = new Date().toISOString().substring(0, 10);
+        nameParts.push(todayStr);
+        const fileName = `${nameParts.join('_')}.xlsx`;
+
+        XLSX.writeFile(wb, fileName);
+      } catch (err) {
+        console.error("Gagal ekspor excel:", err);
+        alert("Terjadi kesalahan saat mengekspor data: " + err.message);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 50);
+  };
+
   return (
     <div className="max-w-7xl mx-auto h-auto md:h-full min-h-full flex flex-col page-enter relative pb-20 md:pb-0">
 
@@ -9637,6 +9741,21 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 className="flex items-center justify-center gap-1.5 sm:gap-2 bg-rose-500 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold hover:bg-rose-600 shadow-sm shadow-rose-500/20 transition-colors"
               >
                 <Icon name="layers" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5" /> <span className="hidden sm:inline">Update Status</span><span className="sm:hidden">Update</span> ({selectedIds.length})
+              </button>
+
+              {/* TOMBOL EKSPOR PILIHAN (JIKA ADA CENTANGAN) */}
+              <button
+                onClick={() => {
+                  const selectedRows = filteredData.filter(item => selectedIds.includes(item.idPelanggan));
+                  handleExportExcel(selectedRows, `Pilihan_${selectedIds.length}_Pelanggan`);
+                }}
+                disabled={isExporting}
+                className="flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-500/20 transition-colors disabled:opacity-50"
+                title="Ekspor baris yang dipilih ke Excel"
+              >
+                <Icon name="download" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5" /> 
+                <span className="hidden sm:inline">Ekspor Pilihan</span>
+                <span className="sm:hidden">Ekspor</span> ({selectedIds.length})
               </button>
             </div>
           )}
@@ -9775,6 +9894,20 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           {/* Sembunyikan Tombol Baru Jika Ada Pilihan Massal */}
           {selectedIds.length === 0 && (
             <>
+              {/* TOMBOL EKSPOR EXCEL DINAMIS (SESUAI FILTER ATAU SEMUA) */}
+              <button
+                onClick={() => handleExportExcel()}
+                disabled={isExporting || filteredData.length === 0}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg hover:bg-emerald-700 text-xs sm:text-sm font-semibold shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                title={`Ekspor ${filteredData.length} data saat ini ke Excel`}
+              >
+                <Icon name={isExporting ? "clock" : "download"} size={14} className={`sm:w-4 sm:h-4 ${isExporting ? 'animate-spin' : ''}`} /> 
+                <span>{isExporting ? 'Mengekspor...' : 'Ekspor Excel'}</span>
+                <span className="bg-emerald-700/90 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none">
+                  {filteredData.length}
+                </span>
+              </button>
+
               {/* TOMBOL PETA OUTSTANDING BARU */}
               <button
                 onClick={() => setShowMapModal(true)}
