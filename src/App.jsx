@@ -9129,193 +9129,11 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
   );
 }
 
-
-// ==========================================
-// KOMPONEN BARU: MODAL PETA PELANGGAN WAITING (DENGAN FILTER)
-// ==========================================
-function WaitingMapModal({ pelangganData, odpData, onClose }) {
-  const mapRef = useRef(null);
-  const mapInstance = useRef(null);
-  const markersLayer = useRef(null);
-
-  // --- 1. STATE UNTUK FILTER STASIUN ---
-  const [filterStasiun, setFilterStasiun] = useState('');
-
-  // --- 2. AMBIL LIST STASIUN UNIK KHUSUS WAITING ---
-  const uniqueStations = useMemo(() => {
-    const rawStations = (pelangganData || []).filter(item => {
-      const statusAkt = String(item.aktivasi || '').trim().toLowerCase();
-      const statusIkr = String(item.ikr || '').trim().toLowerCase();
-      const hasKendala = String(item.issueKendala || '').trim() !== '';
-      return (statusAkt === 'belum' || statusAkt === 'waiting' || statusIkr === 'belum' || statusIkr === 'waiting') && !hasKendala;
-    }).map(item => item.stasiun).filter(Boolean);
-
-    const properStations = rawStations.map(st => String(st).charAt(0).toUpperCase() + String(st).slice(1).toLowerCase());
-    return [...new Set(properStations)].sort();
-  }, [pelangganData]);
-
-  // --- 3. FILTER PELANGGAN BERDASARKAN STASIUN ---
-  const waitingCustomers = useMemo(() => {
-    return (pelangganData || []).filter(item => {
-      const statusAkt = String(item.aktivasi || '').trim().toLowerCase();
-      const statusIkr = String(item.ikr || '').trim().toLowerCase();
-      const hasKendala = String(item.issueKendala || '').trim() !== '';
-      const isWaiting = (statusAkt === 'belum' || statusAkt === 'waiting' || statusIkr === 'belum' || statusIkr === 'waiting') && !hasKendala;
-      const lat = parseFloat(String(item.latitude || '').replace(',', '.'));
-      const lng = parseFloat(String(item.longitude || '').replace(',', '.'));
-
-      const matchStation = filterStasiun === '' || String(item.stasiun || '').toLowerCase() === filterStasiun.toLowerCase();
-
-      return isWaiting && !isNaN(lat) && !isNaN(lng) && matchStation;
-    });
-  }, [pelangganData, filterStasiun]);
-
-  // --- 4. FILTER ODP BERDASARKAN STASIUN ---
-  const filteredOdp = useMemo(() => {
-    return (odpData || []).filter(odp => {
-      return filterStasiun === '' || String(odp.stasiun || '').toLowerCase() === filterStasiun.toLowerCase();
-    });
-  }, [odpData, filterStasiun]);
-
-  // Cegah scroll body saat modal terbuka
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = 'auto'; };
-  }, []);
-
-  // --- 5. LOGIKA RENDER PETA ---
-  useEffect(() => {
-    if (!window.L || !mapRef.current) return;
-
-    if (!mapInstance.current) {
-      // Inisialisasi Peta (Hanya dijalankan 1 kali)
-      mapInstance.current = window.L.map(mapRef.current).setView([-6.957, 110.252], 10);
-      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://carto.com/">CartoDB</a>', maxZoom: 20
-      }).addTo(mapInstance.current);
-
-      markersLayer.current = window.L.layerGroup().addTo(mapInstance.current);
-    }
-
-    const layer = markersLayer.current;
-    layer.clearLayers(); // Bersihkan marker lama setiap kali filter berubah
-    const bounds = [];
-
-    // RENDER ODP (Titik Hijau/Merah)
-    (filteredOdp || []).forEach(odp => {
-      const lat = parseFloat(String(odp.latitude || '').replace(',', '.'));
-      const lng = parseFloat(String(odp.longitude || '').replace(',', '.'));
-      if (!isNaN(lat) && !isNaN(lng)) {
-        const cap = Number(odp.kapasitas) || 0;
-        const used = Number(odp.portTerpakai || odp.terpakai) || 0;
-        const isFull = cap > 0 && used >= cap;
-
-        const markerHtml = `<div style="background-color: ${isFull ? '#ef4444' : '#10b981'}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>`;
-        const icon = window.L.divIcon({ html: markerHtml, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
-
-        window.L.marker([lat, lng], { icon, zIndexOffset: 1 }).bindPopup(`<b>${odp.kodeOdp || odp.label}</b><br>Terpakai: ${used}/${cap}`).addTo(layer);
-        bounds.push([lat, lng]);
-      }
-    });
-
-    // RENDER PELANGGAN WAITING (Titik Rumah Kuning)
-    waitingCustomers.forEach(cust => {
-      const lat = parseFloat(String(cust.latitude || '').replace(',', '.'));
-      const lng = parseFloat(String(cust.longitude || '').replace(',', '.'));
-
-      const markerHtml = `
-        <div style="background-color: #eab308; width: 28px; height: 28px; border-radius: 50%; border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; position: relative;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-            <polyline points="9 22 9 12 15 12 15 22"></polyline>
-          </svg>
-        </div>
-      `;
-      const icon = window.L.divIcon({ html: markerHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
-
-      window.L.marker([lat, lng], { icon, zIndexOffset: 1000 })
-        .bindPopup(`
-          <div style="text-align: center; min-width: 140px; font-family: 'Inter', sans-serif;">
-            <strong style="font-size:13px; color:#1e293b;">${cust.namaPelanggan}</strong><br/>
-            <span style="font-size:11px; color:#64748b;">ID: ${cust.idPelanggan} | ${cust.stasiun}</span><br/>
-            <div style="margin-top: 6px; padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; color: white; background-color: #eab308; display: inline-block;">WAITING IKR</div>
-          </div>
-        `).addTo(layer);
-      bounds.push([lat, lng]);
-    });
-
-    // Auto-zoom map agar fokus ke titik yang difilter saja
-    if (bounds.length > 0) {
-      mapInstance.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
-    } else {
-      mapInstance.current.setView([-6.957, 110.252], 10); // Default Zoom jika kosong
-    }
-
-    setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 300);
-
-  }, [waitingCustomers, filteredOdp]);
-
-  return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/80 animate-fade" onClick={onClose}></div>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[85vh] relative z-10 animate-modal flex flex-col overflow-hidden">
-
-        <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-white shrink-0 flex-wrap gap-4">
-          <div>
-            <h2 className="text-xl font-black text-slate-800 flex items-center tracking-tight">
-              <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mr-3">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-              </span>
-              Peta Pelanggan Outstanding (Waiting)
-            </h2>
-            <p className="text-xs text-slate-500 mt-1 sm:ml-11">
-              Menampilkan <b className="text-amber-600">{waitingCustomers.length}</b> pelanggan yang memiliki koordinat.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
-            {/* --- DROPDOWN FILTER STASIUN --- */}
-            <select
-              value={filterStasiun}
-              onChange={(e) => setFilterStasiun(e.target.value)}
-              className="appearance-none flex-1 sm:flex-none w-full sm:w-48 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 cursor-pointer shadow-sm transition-colors"
-            >
-              <option value="">Semua Stasiun</option>
-              {uniqueStations.map(st => <option key={st} value={st}>{st}</option>)}
-            </select>
-
-            <button onClick={onClose} className="p-2.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors bg-slate-50 border border-slate-200 shadow-sm">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 w-full bg-slate-100 relative z-0">
-          <div ref={mapRef} className="absolute inset-0"></div>
-        </div>
-
-        <div className="p-4 bg-white border-t border-slate-100 flex flex-wrap gap-4 items-center justify-between shrink-0 text-xs font-bold text-slate-500">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-amber-500 border border-white outline outline-1 outline-amber-500"></div> Pelanggan Waiting</div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-emerald-500 border border-white"></div> ODP Tersedia</div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-rose-500 border border-white"></div> ODP Penuh</div>
-          </div>
-          <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-colors shadow-md active:scale-95">Tutup Peta</button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
 // ==========================================
 // HALAMAN 2: DATABASE & MANAJEMEN PELANGGAN
 // ==========================================
 function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false }) {
   const isPageLoading = Boolean(isLoading || !pelangganData || (Array.isArray(pelangganData) && pelangganData.length === 0 && isLoading));
-
-  // STATE BARU UNTUK KONTROL POP-UP PETA OUTSTANDING
-  const [showMapModal, setShowMapModal] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -9970,14 +9788,6 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 </span>
               </button>
 
-              {/* TOMBOL PETA OUTSTANDING BARU */}
-              <button
-                onClick={() => setShowMapModal(true)}
-                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-amber-500 text-white px-2 sm:px-4 py-1.5 sm:py-2.5 rounded-lg hover:bg-amber-600 text-xs sm:text-sm font-semibold shadow-sm transition-colors"
-              >
-                <Icon name="map" size={14} className="sm:w-4 sm:h-4" /> Peta Outstanding
-              </button>
-
               <button
                 onClick={() => setActionModal({ type: 'add', data: null })}
                 className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-blue-600 text-white px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg hover:bg-blue-700 text-xs sm:text-sm font-semibold shadow-sm transition-colors"
@@ -10599,14 +10409,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           />
         )}
 
-        {/* --- RENDER MODAL PETA WAITING --- */}
-        {showMapModal && (
-          <WaitingMapModal
-            pelangganData={filteredData} // Agar mengikuti stasiun yang difilter
-            odpData={odpData}
-            onClose={() => setShowMapModal(false)}
-          />
-        )}
+        {/* MODAL AKSI (PASTIKAN SEMUA KABEL TERSAMBUNG DI SINI) */}
 
       </div>
     </div>
