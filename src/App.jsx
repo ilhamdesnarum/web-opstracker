@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { createClient } from '@supabase/supabase-js';
 
 // Konfigurasi Supabase
@@ -9586,15 +9586,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             'Status IKR': item.ikr || item.statusIkr || 'Belum',
             'Status Aktivasi': displayStatusStr,
             'Telat Bayar (Hari)': (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) ? Number(item.telatBayarHari) : '',
-            'Tanggal Exp / Berakhir': item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : '',
-            'Tanggal Registrasi': item.tanggalRegistrasi ? String(item.tanggalRegistrasi).substring(0, 19).replace('T', ' ') : '',
-            'Tanggal IKR': item.tglIkr ? String(item.tglIkr).substring(0, 19).replace('T', ' ') : '',
-            'Tanggal Aktivasi': item.tglAktivasi ? String(item.tglAktivasi).substring(0, 19).replace('T', ' ') : '',
-            'Petugas': item.petugasAktivasi || item.petugasIkr || '',
-            'Kendala': item.issueKendala || '',
-            'Reporter Kendala': item.reporterKendala || '',
-            'Latitude': item.latitude ? String(item.latitude) : '',
-            'Longitude': item.longitude ? String(item.longitude) : ''
+            'Tanggal Exp / Berakhir': item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : ''
           };
         });
 
@@ -9613,16 +9605,40 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           { wch: 13 }, // Status IKR
           { wch: 22 }, // Status Aktivasi
           { wch: 18 }, // Telat Bayar (Hari)
-          { wch: 24 }, // Tanggal Exp
-          { wch: 22 }, // Tanggal Registrasi
-          { wch: 20 }, // Tanggal IKR
-          { wch: 20 }, // Tanggal Aktivasi
-          { wch: 20 }, // Petugas
-          { wch: 30 }, // Kendala
-          { wch: 20 }, // Reporter Kendala
-          { wch: 14 }, // Latitude
-          { wch: 14 }  // Longitude
+          { wch: 24 }  // Tanggal Exp / Berakhir
         ];
+
+        // Format styling header (Warna Biru Muda)
+        if (ws['!ref']) {
+          const range = XLSX.utils.decode_range(ws['!ref']);
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellAddress = XLSX.utils.encode_cell({ r: 0, c: C });
+            if (!ws[cellAddress]) continue;
+            ws[cellAddress].s = {
+              fill: {
+                fgColor: { rgb: "BFDBFE" } // Biru muda lembut (Tailwind Blue-200 / Sky Blue)
+              },
+              font: {
+                name: "Calibri",
+                sz: 11,
+                bold: true,
+                color: { rgb: "1E3A8A" } // Biru tua kontras dan jelas dibaca
+              },
+              alignment: {
+                vertical: "center",
+                horizontal: "center",
+                wrapText: true
+              },
+              border: {
+                top: { style: "thin", color: { rgb: "93C5FD" } },
+                bottom: { style: "medium", color: { rgb: "3B82F6" } },
+                left: { style: "thin", color: { rgb: "BFDBFE" } },
+                right: { style: "thin", color: { rgb: "BFDBFE" } }
+              }
+            };
+          }
+          ws['!rows'] = [{ hpt: 26 }];
+        }
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Data Pelanggan");
