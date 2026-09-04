@@ -1800,7 +1800,7 @@ function App({ onLogout }) {
           <div className="h-full w-full">
             {activeTab === 'dashboard' && <DashboardView data={data} isSyncing={isLoading} />}
             {activeTab === 'overview' && <OverviewView data={data} onGoToDatabase={(statusFilter, stationFilter = '') => { setInitialDatabaseStatusFilter(statusFilter); setInitialDatabaseStationFilter(stationFilter); setActiveTab('database'); }} />}
-            {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
+            {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
             {activeTab === 'okupansi' && <OkupansiView data={data} />}
             {activeTab === 'gangguan' && <DataGangguanView visitData={data.visitData} pelangganData={data.pelangganData} petugasList={data.teknisiData} onRefresh={() => fetchData(true)} onLocalVisitUpdate={handleLocalVisitAction} />}
             {activeTab === 'gamas' && <MonitoringGamasView />}
@@ -9311,7 +9311,9 @@ function WaitingMapModal({ pelangganData, odpData, onClose }) {
 // ==========================================
 // HALAMAN 2: DATABASE & MANAJEMEN PELANGGAN
 // ==========================================
-function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, petugasList, initialStatusFilter = '', initialStationFilter = '' }) {
+function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false }) {
+  const isPageLoading = Boolean(isLoading || !pelangganData || (Array.isArray(pelangganData) && pelangganData.length === 0 && isLoading));
+
   // STATE BARU UNTUK KONTROL POP-UP PETA OUTSTANDING
   const [showMapModal, setShowMapModal] = useState(false);
 
@@ -9706,45 +9708,60 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
       {/* SUMMARY CARDS */}
       <div className="grid grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-4 mb-2 sm:mb-4">
-        {[
-          { label: 'WAITING', key: 'WAITING', icon: 'clock', color: 'amber' },
-          { label: 'AKTIF', key: 'AKTIF', icon: 'check-circle', color: 'emerald' },
-          { label: 'KENDALA', key: 'KENDALA', icon: 'alert-triangle', color: 'rose' },
-          { label: 'SUSPEND', key: 'SUSPEND', icon: 'pause-circle', color: 'orange' },
-          { label: 'DISMANTLE', key: 'READY TO DISMANTLE', icon: 'alert-circle', color: 'brown' },
-          { label: 'DISMANTLED', key: 'DISMANTLED', icon: 'x-circle', color: 'slate' }
-        ].map((c, i) => {
-          const count = summaryCounts[c.key] || 0;
-          const isActive = filterStatus && filterStatus.includes(c.key);
-          const activeClass = isActive ? colorStyles[c.color].active : colorStyles[c.color].inactive;
-          const iconClass = isActive ? colorStyles[c.color].iconActive : colorStyles[c.color].iconInactive;
-
-          return (
+        {isPageLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
             <div
-              key={c.key}
-              onClick={() => {
-                const newFilter = isActive
-                  ? filterStatus.filter(s => s !== c.key)
-                  : [...(filterStatus || []), c.key];
-                setFilterStatus(newFilter);
-                setTempFilterStatus(newFilter);
-              }}
-              className={`px-2 sm:px-4 py-2 sm:py-3 min-h-[48px] sm:min-h-0 rounded-lg sm:rounded-2xl cursor-pointer transition-all border flex flex-col justify-between ${activeClass}`}
+              key={i}
+              className="px-2 sm:px-4 py-2 sm:py-3 min-h-[48px] sm:min-h-0 rounded-lg sm:rounded-2xl border border-slate-200/70 bg-white flex flex-col justify-between shadow-sm animate-pulse"
             >
               <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-                <div className={`w-5 h-5 sm:w-8 sm:h-8 rounded-md sm:rounded-xl flex items-center justify-center ${iconClass}`}>
-                  <Icon name={c.icon} size={12} className="sm:w-[15px] sm:h-[15px]" />
-                </div>
-                <div className={`text-xs sm:text-xl font-black ${isActive ? 'text-white' : 'text-slate-800'}`}>
-                  {count}
-                </div>
+                <div className="w-5 h-5 sm:w-8 sm:h-8 rounded-md sm:rounded-xl bg-slate-200/70"></div>
+                <div className="h-4 sm:h-6 w-8 sm:w-12 bg-slate-200/80 rounded-md"></div>
               </div>
-              <div className={`text-[7.5px] sm:text-[10px] font-black uppercase tracking-wider ${isActive ? 'text-white/90' : 'text-slate-500'}`}>
-                {c.label}
-              </div>
+              <div className="h-2 sm:h-2.5 w-12 sm:w-16 bg-slate-200/60 rounded mt-1"></div>
             </div>
-          );
-        })}
+          ))
+        ) : (
+          [
+            { label: 'WAITING', key: 'WAITING', icon: 'clock', color: 'amber' },
+            { label: 'AKTIF', key: 'AKTIF', icon: 'check-circle', color: 'emerald' },
+            { label: 'KENDALA', key: 'KENDALA', icon: 'alert-triangle', color: 'rose' },
+            { label: 'SUSPEND', key: 'SUSPEND', icon: 'pause-circle', color: 'orange' },
+            { label: 'DISMANTLE', key: 'READY TO DISMANTLE', icon: 'alert-circle', color: 'brown' },
+            { label: 'DISMANTLED', key: 'DISMANTLED', icon: 'x-circle', color: 'slate' }
+          ].map((c, i) => {
+            const count = summaryCounts[c.key] || 0;
+            const isActive = filterStatus && filterStatus.includes(c.key);
+            const activeClass = isActive ? colorStyles[c.color].active : colorStyles[c.color].inactive;
+            const iconClass = isActive ? colorStyles[c.color].iconActive : colorStyles[c.color].iconInactive;
+
+            return (
+              <div
+                key={c.key}
+                onClick={() => {
+                  const newFilter = isActive
+                    ? filterStatus.filter(s => s !== c.key)
+                    : [...(filterStatus || []), c.key];
+                  setFilterStatus(newFilter);
+                  setTempFilterStatus(newFilter);
+                }}
+                className={`px-2 sm:px-4 py-2 sm:py-3 min-h-[48px] sm:min-h-0 rounded-lg sm:rounded-2xl cursor-pointer transition-all border flex flex-col justify-between ${activeClass}`}
+              >
+                <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+                  <div className={`w-5 h-5 sm:w-8 sm:h-8 rounded-md sm:rounded-xl flex items-center justify-center ${iconClass}`}>
+                    <Icon name={c.icon} size={12} className="sm:w-[15px] sm:h-[15px]" />
+                  </div>
+                  <div className={`text-xs sm:text-xl font-black ${isActive ? 'text-white' : 'text-slate-800'}`}>
+                    {count}
+                  </div>
+                </div>
+                <div className={`text-[7.5px] sm:text-[10px] font-black uppercase tracking-wider ${isActive ? 'text-white/90' : 'text-slate-500'}`}>
+                  {c.label}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Header Actions */}
@@ -9977,7 +9994,37 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
         {/* === MOBILE LIST VIEW (CARD) === */}
         <div className="md:hidden flex flex-col gap-2 p-2 bg-slate-50">
-          {currentData.length > 0 ? currentData.map((item, idx) => {
+          {isPageLoading ? (
+            Array.from({ length: 6 }).map((_, idx) => (
+              <div key={idx} className="p-2.5 rounded-xl border border-slate-200/80 bg-white shadow-sm flex flex-col gap-2.5 animate-pulse">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-4 h-4 rounded bg-slate-200 shrink-0"></div>
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="h-3.5 w-32 bg-slate-200 rounded"></div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2.5 w-16 bg-slate-100 rounded"></div>
+                        <div className="h-2.5 w-14 bg-slate-100 rounded"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-5 w-16 bg-slate-200 rounded-full shrink-0"></div>
+                </div>
+                <div className="h-2.5 w-4/5 bg-slate-100 rounded ml-6"></div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-50 ml-6">
+                  <div className="flex gap-2">
+                    <div className="h-5 w-12 bg-slate-100 rounded"></div>
+                    <div className="h-5 w-12 bg-slate-100 rounded"></div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-6 h-6 bg-slate-100 rounded-md"></div>
+                    <div className="w-6 h-6 bg-slate-100 rounded-md"></div>
+                    <div className="w-6 h-6 bg-slate-100 rounded-md"></div>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : currentData.length > 0 ? currentData.map((item, idx) => {
             const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
             const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
             let displayStatusStr = 'WAITING';
@@ -10185,7 +10232,55 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {currentData.length > 0 ? currentData.map((item, idx) => {
+              {isPageLoading ? (
+                Array.from({ length: 8 }).map((_, idx) => (
+                  <tr key={idx} className="animate-pulse">
+                    {/* Checkbox Skeleton */}
+                    <td className="px-4 py-4 text-center">
+                      <div className="flex items-center justify-center">
+                        <div className="w-4 h-4 rounded bg-slate-200"></div>
+                      </div>
+                    </td>
+                    {/* ID Pelanggan Skeleton */}
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-20 bg-slate-200 rounded"></div>
+                    </td>
+                    {/* Nama & Alamat Skeleton */}
+                    <td className="px-6 py-4">
+                      <div className="space-y-2">
+                        <div className="h-4 w-36 sm:w-44 bg-slate-200 rounded"></div>
+                        <div className="h-3 w-52 sm:w-64 bg-slate-100 rounded"></div>
+                      </div>
+                    </td>
+                    {/* Kontak & Lokasi Skeleton */}
+                    <td className="px-6 py-4">
+                      <div className="space-y-2">
+                        <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
+                        <div className="h-3.5 w-20 bg-slate-100 rounded"></div>
+                      </div>
+                    </td>
+                    {/* Stasiun Skeleton */}
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-20 bg-slate-200 rounded"></div>
+                    </td>
+                    {/* Status Skeleton */}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <div className="h-6 w-20 bg-slate-200 rounded-full"></div>
+                        <div className="h-5 w-14 bg-slate-100 rounded-md"></div>
+                      </div>
+                    </td>
+                    {/* Aksi Skeleton */}
+                    <td className="px-6 py-4 text-center">
+                      <div className="flex justify-center gap-2">
+                        <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
+                        <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
+                        <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : currentData.length > 0 ? currentData.map((item, idx) => {
                 const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
                 const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
                 let displayStatusStr = 'WAITING';
@@ -10423,22 +10518,29 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           </table>
         </div>
         <div className="mt-auto p-3 sm:p-4 pb-8 sm:pb-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-0 text-xs sm:text-sm text-slate-500">
-          <span className="text-center sm:text-left">Menampilkan <span className="font-bold">{filteredData.length > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, filteredData.length)}</span> dari <span className="font-bold">{filteredData.length}</span> data</span>
+          {isPageLoading ? (
+            <span className="flex items-center gap-2 text-slate-500 font-medium">
+              <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+              Sedang memuat data pelanggan...
+            </span>
+          ) : (
+            <span className="text-center sm:text-left">Menampilkan <span className="font-bold">{filteredData.length > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, filteredData.length)}</span> dari <span className="font-bold">{filteredData.length}</span> data</span>
+          )}
           <div className="flex gap-2 sm:gap-1 items-center w-full sm:w-auto justify-between sm:justify-end">
             <span className="sm:mr-4 text-xs font-bold bg-white px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">
-              Hal {currentPage} / {totalPages || 1}
+              Hal {isPageLoading ? '...' : `${currentPage} / ${totalPages || 1}`}
             </span>
             <div className="flex gap-1.5">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
+                disabled={isPageLoading || currentPage === 1}
                 className="px-4 py-2 sm:py-1.5 border border-slate-200 bg-white font-bold rounded-md hover:bg-slate-50 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 Prev
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages || totalPages === 0}
+                disabled={isPageLoading || currentPage === totalPages || totalPages === 0}
                 className="px-4 py-2 sm:py-1.5 border border-slate-200 bg-white font-bold rounded-md hover:bg-slate-50 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 Next
