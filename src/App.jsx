@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
+import * as fflate from 'fflate';
 import { createClient } from '@supabase/supabase-js';
 
 // Konfigurasi Supabase
@@ -9658,7 +9659,35 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         nameParts.push(todayStr);
         const fileName = `${nameParts.join('_')}.xlsx`;
 
-        XLSX.writeFile(wb, fileName);
+        // Generate file binary dan freeze baris 1 (Header)
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        let finalBuffer = wbout;
+        try {
+          const unzipped = fflate.unzipSync(new Uint8Array(wbout));
+          for (const path in unzipped) {
+            if (path.startsWith('xl/worksheets/sheet')) {
+              let xml = fflate.strFromU8(unzipped[path]);
+              xml = xml.replace(
+                /<sheetViews><sheetView workbookViewId="0"\/>/g,
+                '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView>'
+              );
+              unzipped[path] = fflate.strToU8(xml);
+            }
+          }
+          finalBuffer = fflate.zipSync(unzipped);
+        } catch (freezeErr) {
+          console.warn("Freeze header warning, using standard buffer:", freezeErr);
+        }
+
+        const blob = new Blob([finalBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
       } catch (err) {
         console.error("Gagal ekspor excel:", err);
         alert("Terjadi kesalahan saat mengekspor data: " + err.message);
