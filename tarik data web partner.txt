@@ -270,7 +270,7 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                 }
 
                 var hasMoreData = true;
-                var pageSize = 30; // Ukuran baku server Partner (1 Halaman = 30 Data, bebas error 500)
+                var pageSize = 10; // Ukuran baku server Partner terbaru (1 Halaman = 10 Data)
                 var maxPages = 150; // 150 x 30 = 4500 pelanggan (mencakup seluruh stasiun besar seperti Kradenan 2200+ data)
 
                 while (hasMoreData && page <= maxPages) {

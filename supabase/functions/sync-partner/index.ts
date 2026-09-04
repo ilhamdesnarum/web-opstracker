@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
 
       for (const currentStatus of statusesToFetch) {
         let page = 1;
-        const pageSize = 30;
+        const pageSize = 10;
         const maxPages = 100;
         let hasMore = true;
 

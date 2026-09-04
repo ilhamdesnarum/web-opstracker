@@ -92,7 +92,7 @@ async function main() {
     const stationRows = [];
 
     let page = 1;
-    const pageSize = 15; // Dikurangi dari 30 agar load API Starlite lebih ringan
+    const pageSize = 10; // API Starlite baru membatasi baku 10 data per halaman
     let hasMore = true;
     let statusCount = 0;
     let consecutiveErrors = 0;

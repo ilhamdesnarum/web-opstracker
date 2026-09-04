@@ -101,7 +101,7 @@ async function main() {
 
     for (const cfg of statusConfigs) {
       let page = 1;
-      const pageSize = 30;
+      const pageSize = 10;
       let hasMore = true;
       let statusCount = 0;
       let consecutiveErrors = 0;
