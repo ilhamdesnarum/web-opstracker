@@ -225,7 +225,7 @@ async function main() {
             hasMore = false;
           } else {
             page++;
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 30));
           }
         } catch (jsonErr) {
           hasMore = false;

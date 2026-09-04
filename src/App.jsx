@@ -9421,15 +9421,15 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
           let finalStatus = 'WAITING';
           if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
-          else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
-          else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
-          else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
-          else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
+          else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') finalStatus = 'AKTIF';
+          else if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
+          else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
+          else if (rawAktivasi === 'suspend' || globalStat === 'SUSPEND') finalStatus = 'SUSPEND';
           else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
           else finalStatus = globalStat;
 
-          // 1. JIKA STATUS SUSPEND: Hitung dari telatBayarHari atau tanggalBerakhir
-          if (finalStatus === 'SUSPEND') {
+          // 1. JIKA STATUS SUSPEND / READY TO DISMANTLE / DISMANTLE / DISMANTLED: Hitung dari telatBayarHari atau tanggalBerakhir
+          if (finalStatus === 'SUSPEND' || finalStatus === 'READY TO DISMANTLE' || finalStatus === 'DISMANTLE' || finalStatus === 'DISMANTLED') {
             if (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) {
               return Number(item.telatBayarHari);
             }
@@ -9467,6 +9467,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
         const ageA = getAge(a);
         const ageB = getAge(b);
+
+        if (ageA === -999999 && ageB !== -999999) return 1;
+        if (ageB === -999999 && ageA !== -999999) return -1;
+        if (ageA === -999999 && ageB === -999999) return 0;
 
         if (sortAgeOrder === 'asc') return ageA - ageB;
         if (sortAgeOrder === 'desc') return ageB - ageA;
