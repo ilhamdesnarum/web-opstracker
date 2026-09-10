@@ -1376,7 +1376,7 @@ function App({ onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v3', null);
+        setCachedData('otas_pelanggan_cache_v4', null);
         setCachedData('otas_odp_cache_v4', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_detail_po_cache', null);
@@ -1384,7 +1384,7 @@ function App({ onLogout }) {
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v3');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v4');
       let parsedOdp = getCachedData('otas_odp_cache_v4');
       let cachedStation = getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_detail_po_cache');
@@ -1425,7 +1425,7 @@ function App({ onLogout }) {
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v3', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v4', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -1538,7 +1538,7 @@ function App({ onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v3', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v4', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -5177,7 +5177,7 @@ function DashboardView({ data, isSyncing }) {
       }
     });
 
-    const defaultStations = ['Brumbung', 'Wadu', 'Kradenan', 'Sulur', 'Randublatung', 'Alastua', 'Krengseng', 'Weleri', 'Kaliwungu', 'Kalibodri', 'Tawang'];
+    const defaultStations = ['Brumbung', 'Wadu', 'Kradenan', 'Sulur', 'Randublatung', 'Alastua', 'Krengseng', 'Weleri', 'Kaliwungu', 'Kalibodri', 'Semarang Tawang'];
     let baseStations = safeStationData;
     const hasSheetData = baseStations && baseStations.length > 0;
 
@@ -5283,7 +5283,7 @@ function DashboardView({ data, isSyncing }) {
   // =========================================================================
   const registrasiPerStasiun = useMemo(() => {
     const stats = {};
-    const defaultStations = ['Brumbung', 'Wadu', 'Kradenan', 'Sulur', 'Randublatung', 'Alastua', 'Krengseng', 'Weleri', 'Kaliwungu', 'Kalibodri', 'Tawang'];
+    const defaultStations = ['Brumbung', 'Wadu', 'Kradenan', 'Sulur', 'Randublatung', 'Alastua', 'Krengseng', 'Weleri', 'Kaliwungu', 'Kalibodri', 'Semarang Tawang'];
     const stationList = safeStationData.length > 0 ? safeStationData : defaultStations.map(s => ({ stasiun: s }));
 
     stationList.forEach(st => {

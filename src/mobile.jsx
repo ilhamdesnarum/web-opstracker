@@ -932,15 +932,15 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
-        setCachedData('otas_pelanggan_cache_v3', null);
+        setCachedData('otas_pelanggan_cache_v4', null);
         setCachedData('otas_cache_visit', null);
-        setCachedData('otas_odp_cache', null);
+        setCachedData('otas_odp_cache_v4', null);
       }
       setGlobalError(null);
 
-      const cachedPelanggan = getCachedData('otas_pelanggan_cache_v3');
+      const cachedPelanggan = getCachedData('otas_pelanggan_cache_v4');
       const cachedVisit = getCachedData('otas_cache_visit');
-      const cachedOdp = getCachedData('otas_odp_cache');
+      const cachedOdp = getCachedData('otas_odp_cache_v4');
 
       let finalPelanggan = cachedPelanggan;
       let finalVisit = cachedVisit;
@@ -955,7 +955,7 @@ const MobileApp = () => {
           fetchAllSupabaseData('data_pelanggan', pelangganCols, 'id_pelanggan')
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v3', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v4', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -969,7 +969,7 @@ const MobileApp = () => {
           fetchAllSupabaseData('odp', odpCols, 'label')
             .then((sbData) => {
               finalOdp = (sbData || []).map(parseSupabaseOdpDocument);
-              setCachedData('otas_odp_cache', finalOdp);
+              setCachedData('otas_odp_cache_v4', finalOdp);
             }).catch(e => {
               console.error("Gagal memuat odp dari Supabase:", e);
             })
@@ -1069,7 +1069,7 @@ const MobileApp = () => {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v3', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v4', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
