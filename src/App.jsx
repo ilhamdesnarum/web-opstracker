@@ -1377,7 +1377,7 @@ function App({ onLogout }) {
     try {
       if (isForce) {
         setCachedData('otas_pelanggan_cache_v3', null);
-        setCachedData('otas_odp_cache_v3', null);
+        setCachedData('otas_odp_cache_v4', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_detail_po_cache', null);
         setCachedData('otas_visit_cache', null);
@@ -1385,7 +1385,7 @@ function App({ onLogout }) {
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
       let parsedPelanggan = getCachedData('otas_pelanggan_cache_v3');
-      let parsedOdp = getCachedData('otas_odp_cache_v3');
+      let parsedOdp = getCachedData('otas_odp_cache_v4');
       let cachedStation = getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
@@ -1435,7 +1435,7 @@ function App({ onLogout }) {
             if (k && !uniq.has(k)) uniq.set(k, o);
           });
           parsedOdp = Array.from(uniq.values());
-          setCachedData('otas_odp_cache_v3', parsedOdp);
+          setCachedData('otas_odp_cache_v4', parsedOdp);
         }
         if (supabaseVisit) {
           cachedVisit = supabaseVisit.map(parseSupabaseVisitDocument);
@@ -1637,7 +1637,7 @@ function App({ onLogout }) {
                 return true;
               });
             }
-            setCachedData('otas_odp_cache_v3', newOdpData);
+            setCachedData('otas_odp_cache_v4', newOdpData);
             return {
               ...prev,
               odpData: newOdpData
@@ -2574,7 +2574,7 @@ export function OkupansiView({ data, setData }) {
             }
             return o;
           });
-          setCachedData('otas_odp_cache_v3', updated);
+          setCachedData('otas_odp_cache_v4', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -2670,7 +2670,7 @@ export function OkupansiView({ data, setData }) {
             kodeOdc: payload.kode_odc,
             tahapPembangunan: payload.tahap_pembangunan
           } : o);
-          setCachedData('otas_odp_cache_v3', updated);
+          setCachedData('otas_odp_cache_v4', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -2701,7 +2701,7 @@ export function OkupansiView({ data, setData }) {
       if (typeof setData === 'function') {
         setData(prev => {
           const filtered = (prev.odpData || []).filter(o => o.id !== deletingOdp.id);
-          setCachedData('otas_odp_cache_v3', filtered);
+          setCachedData('otas_odp_cache_v4', filtered);
           return { ...prev, odpData: filtered };
         });
       }
