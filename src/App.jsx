@@ -14,6 +14,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 import * as LucideIcons from 'lucide-react';
 
 import AiDeceView from './components/AiDeceView';
+import ActivationCalendarTable from './components/ActivationCalendarTable';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
@@ -437,13 +438,17 @@ const getGlobalStatusStr = (item) => {
 
   if (valAktivasi === 'AKTIF' || valAktivasi === 'SUDAH') return "AKTIF";
 
+  if (valAktivasi === 'SUSPEND') return "SUSPEND";
+  if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
+  if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
+
   if (valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) {
     return "KENDALA";
   }
 
-  if (valAktivasi === 'SUSPEND') return "SUSPEND";
-  if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
-  if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
+  if (issue && String(issue).trim() !== "" && String(issue).trim().toLowerCase() !== String(item.alamat || '').trim().toLowerCase()) {
+    return "KENDALA";
+  }
 
   if (valIkr === 'SUDAH') return "SUDAH IKR";
   if (valIkr === 'BELUM' || valIkr === '') return "WAITING";
@@ -3820,6 +3825,9 @@ function OverviewView({ data, onGoToDatabase }) {
           )}
         </div>
       </div>
+
+      {/* --- KALENDER AKTIVASI PER STASIUN (WADU S/D KRENGSENG) --- */}
+      <ActivationCalendarTable pelangganData={data.pelangganData} onGoToDatabase={onGoToDatabase} />
 
       {/* --- MENAMPILKAN PAPAN PERINGKAT DI SINI --- */}
       <OfficerAchievementBoard data={aktivasiList} />

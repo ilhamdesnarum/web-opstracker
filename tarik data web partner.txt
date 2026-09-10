@@ -29,6 +29,56 @@ function formatKeWIB(isoString) {
     return isoString.substring(0, 19).replace("T", " ");
 }
 
+// ==========================================
+// FUNGSI CEK DATA EXISTING DI SUPABASE
+// ==========================================
+function checkExistingInSupabase(customerIds, existingMap) {
+    if (!customerIds || customerIds.length === 0) return;
+    if (typeof SUPABASE_URL === 'undefined' || typeof SUPABASE_KEY === 'undefined') return;
+
+    var idsToQuery = customerIds.filter(function(id) {
+        if (!id) return false;
+        var sId = id.toString().trim();
+        return !existingMap.hasOwnProperty(sId) && !existingMap.hasOwnProperty(sId.toUpperCase());
+    });
+    if (idsToQuery.length === 0) return;
+
+    var cleanIds = idsToQuery.map(function(id) {
+        return id.toString().trim().replace(/['"(),]/g, '');
+    }).filter(Boolean);
+
+    if (cleanIds.length === 0) return;
+
+    // Batasi chunk max 50 ID per query URL GET Supabase
+    for (var c = 0; c < cleanIds.length; c += 50) {
+        var chunk = cleanIds.slice(c, c + 50);
+        var url = SUPABASE_URL + "/rest/v1/data_pelanggan?id_pelanggan=in.(" + chunk.join(",") + ")&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude";
+        var options = {
+            method: "get",
+            headers: {
+                "apikey": SUPABASE_KEY,
+                "Authorization": "Bearer " + SUPABASE_KEY
+            },
+            muteHttpExceptions: true
+        };
+
+        try {
+            var res = UrlFetchApp.fetch(url, options);
+            if (res.getResponseCode() === 200) {
+                var found = JSON.parse(res.getContentText());
+                for (var f = 0; f < found.length; f++) {
+                    if (found[f] && found[f].id_pelanggan) {
+                        var cId = found[f].id_pelanggan.toString().trim();
+                        existingMap[cId] = found[f];
+                        existingMap[cId.toUpperCase()] = found[f];
+                    }
+                }
+            }
+        } catch (err) {
+            Logger.log("⚠️ Peringatan cek existing Supabase: " + err.message);
+        }
+    }
+}
 // =========================================================================
 // 1. FUNGSI PENARIKAN DATA AKTIF (PER BATCH - COCOK UNTUK PEMICU OTOMATIS)
 // =========================================================================
@@ -141,8 +191,15 @@ function tarikPelangganDismantledSatuStasiunCustom() {
 
 function tarikPelangganBaruMulti() {
     Logger.log("--- MENARIK PELANGGAN BARU (REGISTRASI) SEMUA STASIUN ---");
-    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"]);
+    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], null, null, false, false);
 }
+
+function tarikPelangganBaruSatuStasiunCustom() {
+    var targetStasiun = "Wadu"; // Ganti nama stasiun target sesuai kebutuhan
+    Logger.log("--- MENARIK PELANGGAN BARU KHUSUS STASIUN: " + targetStasiun + " ---");
+    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], targetStasiun, null, false, false);
+}
+
 function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, skipSupabase = false, onlyUpdateExisting = true, startPage = 1) {
     let stations = Object.keys(PARTNER_STATION_IDS);
 
@@ -218,7 +275,7 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                 var idValues = sheet.getRange(2, 1, realLastRow - 1, 1).getValues();
                 for (var r = 0; r < idValues.length; r++) {
                     var id = idValues[r][0].toString().trim();
-                    if (id !== "") existingIds[id] = r + 2;
+                    if (id !== "") { existingIds[id] = r + 2; existingIds[id.toUpperCase()] = r + 2; }
                 }
             }
 
@@ -248,7 +305,9 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
             var totalUpdateTanggal = 0;
             var totalBaru = 0;
 
+            var existingSupabaseMap = {};
             var supabasePayloadUpdateWithStatus = [];
+            var supabasePayloadExistingNoStatus = [];
             var supabasePayloadNew = [];
             var newRowsSheet = [];
 
@@ -320,18 +379,117 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                         var customers = jsonList.data;
                         Logger.log("-> " + stationName + " [" + currentStatus + "] Hal " + page + ": memproses " + customers.length + " data...");
 
+                        var isTarikPelangganBaru = currentStatus.startsWith("new") || currentStatus === "new";
+
+                        // Cek apakah data pelanggan di halaman ini sudah ada di Supabase
+                        if (!skipSupabase) {
+                            var pageCustomerIds = [];
+                            for (var pIdx = 0; pIdx < customers.length; pIdx++) {
+                                var custObj = customers[pIdx];
+                                if (!custObj) continue;
+                                var rawPId = custObj.customer_id && typeof custObj.customer_id === 'string' ? custObj.customer_id : (custObj.customer_id ? custObj.customer_id.customer_id : "");
+                                var pId = String(rawPId || "").trim();
+                                if (pId) {
+                                    pageCustomerIds.push(pId);
+                                    pageCustomerIds.push(pId.toUpperCase());
+                                }
+                            }
+                            if (pageCustomerIds.length > 0) {
+                                checkExistingInSupabase(pageCustomerIds, existingSupabaseMap);
+                            }
+                        }
+
                         for (var i = 0; i < customers.length; i++) {
                             var customer = customers[i];
                             if (!customer) continue;
 
-                            var idPelanggan = customer.customer_id && typeof customer.customer_id === 'string' ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
+                            var rawCustId = customer.customer_id && typeof customer.customer_id === 'string' ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
+                            var idPelanggan = String(rawCustId || "").trim();
+                            if (!idPelanggan) continue;
+                            var idPelangganUpper = idPelanggan.toUpperCase();
+
+                            // --- PENGECEKAN DATA EXISTING (DEKLARASI DI AWAL) ---
+                            var existsInSupabase = (existingSupabaseMap.hasOwnProperty(idPelanggan) && existingSupabaseMap[idPelanggan] !== false) ||
+                                                   (existingSupabaseMap.hasOwnProperty(idPelangganUpper) && existingSupabaseMap[idPelangganUpper] !== false);
+                            var existsInSheet = existingIds.hasOwnProperty(idPelanggan) || existingIds.hasOwnProperty(idPelangganUpper);
+                            var alreadyExists = existsInSupabase || existsInSheet;
+                            var targetRow = existsInSheet ? (existingIds[idPelanggan] || existingIds[idPelangganUpper]) : null; // 1-indexed
+                            var sbData = existingSupabaseMap[idPelanggan] || existingSupabaseMap[idPelangganUpper];
+
                             var nama = customer.name || (customer.customer_id ? customer.customer_id.name : "");
                             var telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
                             var alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
                             var patokan = customer.notes || "";
 
-                            var lat = customer.latitude || "";
-                            var lng = customer.longitude || "";
+                            // --- EKSTRAKSI LATITUDE & LONGITUDE LENGKAP & DEFENSIVE ---
+                            var lat = "";
+                            var lng = "";
+
+                            // 1. Cek di customer_id jika berupa objek (prioritas utama endpoint /new)
+                            if (customer.customer_id && typeof customer.customer_id === 'object') {
+                                if (customer.customer_id.latitude !== undefined && customer.customer_id.latitude !== null && customer.customer_id.latitude !== "") {
+                                    lat = String(customer.customer_id.latitude).trim().replace(",", ".");
+                                }
+                                if (customer.customer_id.longitude !== undefined && customer.customer_id.longitude !== null && customer.customer_id.longitude !== "") {
+                                    lng = String(customer.customer_id.longitude).trim().replace(",", ".");
+                                }
+                                if (!lat && customer.customer_id.lat) lat = String(customer.customer_id.lat).trim().replace(",", ".");
+                                if (!lng && (customer.customer_id.lng || customer.customer_id.long)) lng = String(customer.customer_id.lng || customer.customer_id.long).trim().replace(",", ".");
+                            }
+
+                            // 2. Cek di root object
+                            if (!lat && customer.latitude !== undefined && customer.latitude !== null && customer.latitude !== "") {
+                                lat = String(customer.latitude).trim().replace(",", ".");
+                            }
+                            if (!lng && customer.longitude !== undefined && customer.longitude !== null && customer.longitude !== "") {
+                                lng = String(customer.longitude).trim().replace(",", ".");
+                            }
+                            if (!lat && customer.lat !== undefined && customer.lat !== null && customer.lat !== "") {
+                                lat = String(customer.lat).trim().replace(",", ".");
+                            }
+                            if (!lng && (customer.lng !== undefined || customer.long !== undefined)) {
+                                lng = String(customer.lng || customer.long).trim().replace(",", ".");
+                            }
+
+                            // 3. Cek di installation_info_id
+                            if ((!lat || !lng) && customer.installation_info_id) {
+                                var instList = Array.isArray(customer.installation_info_id) ? customer.installation_info_id : [customer.installation_info_id];
+                                for (var ii = 0; ii < instList.length; ii++) {
+                                    var instItem = instList[ii];
+                                    if (!instItem) continue;
+                                    if (!lat && (instItem.latitude || instItem.lat)) {
+                                        lat = String(instItem.latitude || instItem.lat).trim().replace(",", ".");
+                                    }
+                                    if (!lng && (instItem.longitude || instItem.lng || instItem.long)) {
+                                        lng = String(instItem.longitude || instItem.lng || instItem.long).trim().replace(",", ".");
+                                    }
+                                    if (lat && lng) break;
+                                }
+                            }
+
+                            // Cek di sales_visit_id jika ada
+                            if ((!lat || !lng) && customer.sales_visit_id && typeof customer.sales_visit_id === 'object') {
+                                if (!lat && (customer.sales_visit_id.latitude || customer.sales_visit_id.lat)) {
+                                    lat = String(customer.sales_visit_id.latitude || customer.sales_visit_id.lat).trim().replace(",", ".");
+                                }
+                                if (!lng && (customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long)) {
+                                    lng = String(customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long).trim().replace(",", ".");
+                                }
+                            }
+
+                            // Fallback ke koordinat yang sudah ada di Supabase jika API Partner tidak ada koordinat
+                            if ((!lat || !lng) && sbData && typeof sbData === 'object') {
+                                if (!lat && sbData.latitude) lat = String(sbData.latitude).trim().replace("'", "").replace(",", ".");
+                                if (!lng && sbData.longitude) lng = String(sbData.longitude).trim().replace("'", "").replace(",", ".");
+                            }
+
+                            // Fallback jika API Partner tidak ada koordinat tapi di Google Sheet sudah terisi
+                            if ((!lat || !lng) && targetRow && targetRow <= realLastRow) {
+                                var sheetLatVal = latColValues[targetRow - 1] ? String(latColValues[targetRow - 1][0] || '').trim().replace("'", "").replace(",", ".") : "";
+                                var sheetLngVal = lngColValues[targetRow - 1] ? String(lngColValues[targetRow - 1][0] || '').trim().replace("'", "").replace(",", ".") : "";
+                                if (!lat && sheetLatVal) lat = sheetLatVal;
+                                if (!lng && sheetLngVal) lng = sheetLngVal;
+                            }
 
                             // Sedot ODP & Port ODP dari Partner API (Mendukung struktur installation_info_id & fallback)
                             var odp = "";
@@ -353,8 +511,11 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                             if (!portOdp) portOdp = customer.port_odp || customer.port || customer.fat_port || customer.odp_port || (customer.customer_id && typeof customer.customer_id === 'object' ? (customer.customer_id.port_odp || customer.customer_id.port) : "") || "";
 
                             var tglRegistrasi = "";
-                            if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
-                            else if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+                            if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+                            else if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
+                            else if (customer.sales_visit_id && customer.sales_visit_id.visit_date) tglRegistrasi = formatKeWIB(customer.sales_visit_id.visit_date);
+                            else if (customer.customer_id && typeof customer.customer_id === 'object' && customer.customer_id.registration_date) tglRegistrasi = formatKeWIB(customer.customer_id.registration_date);
+                            else if (customer.created_at) tglRegistrasi = formatKeWIB(customer.created_at);
 
                             // --- EKSTRAK TANGGAL BERAKHIR & TELAT BAYAR ---
                             var tanggalBerakhir = "";
@@ -387,36 +548,105 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                 tIkr = "Belum";
                             }
 
-                            if (idPelanggan !== "" && existingIds.hasOwnProperty(idPelanggan)) {
-                                // DATA LAMA -> Update Status IKR & Status Aktivasi & Tanggal Berakhir & Telat Bayar
-                                var targetRow = existingIds[idPelanggan]; // 1-indexed
-                                if (targetRow <= realLastRow) {
-                                    ikrColValues[targetRow - 1][0] = tIkr;
-                                    statusColValues[targetRow - 1][0] = tStatus;
-                                    isColValuesModified = true;
-                                } else {
-                                    // Jika data baru saja ditambahkan di siklus ini (newRowsSheet)
+                            // 1. Cek nilai status eksisting di Google Sheet saat ini
+                            var isCurrentlyKendalaInSheet = false;
+                            if (targetRow && targetRow <= realLastRow) {
+                                var currIkrVal = String(ikrColValues[targetRow - 1][0] || '').trim().toUpperCase();
+                                var currStatVal = String(statusColValues[targetRow - 1][0] || '').trim().toUpperCase();
+                                if (currIkrVal.includes("KENDALA") || currStatVal.includes("KENDALA") || currIkrVal.includes("CANCEL") || currStatVal.includes("CANCEL")) {
+                                    isCurrentlyKendalaInSheet = true;
+                                }
+                            }
+
+                            // 2. Cek nilai status eksisting di Supabase saat ini
+                            var isCurrentlyKendalaInSupabase = false;
+                            if (sbData && typeof sbData === 'object') {
+                                var sbIkr = String(sbData.status_ikr || '').trim().toUpperCase();
+                                var sbStat = String(sbData.status_aktivasi || '').trim().toUpperCase();
+                                if (sbIkr.includes("KENDALA") || sbStat.includes("KENDALA") || (sbData.issue_kendala && String(sbData.issue_kendala).trim() !== '')) {
+                                    isCurrentlyKendalaInSupabase = true;
+                                }
+                            }
+
+                            var isProtectedKendala = isCurrentlyKendalaInSheet || isCurrentlyKendalaInSupabase;
+
+                            if (alreadyExists) {
+                                // DATA LAMA / SUDAH ADA DI DATABASE
+
+                                // 1. UPDATE GOOGLE SHEET
+                                if (targetRow && targetRow <= realLastRow) {
+                                    // Update Latitude & Longitude di Google Sheet jika kosong atau ada data baru
+                                    var currSheetLat = latColValues[targetRow - 1][0] ? String(latColValues[targetRow - 1][0]).trim() : "";
+                                    var currSheetLng = lngColValues[targetRow - 1][0] ? String(lngColValues[targetRow - 1][0]).trim() : "";
+                                    if (lat && (!currSheetLat || currSheetLat === "-" || currSheetLat === "''")) {
+                                        latColValues[targetRow - 1][0] = "'" + lat;
+                                        isLatLngModified = true;
+                                    }
+                                    if (lng && (!currSheetLng || currSheetLng === "-" || currSheetLng === "''")) {
+                                        lngColValues[targetRow - 1][0] = "'" + lng;
+                                        isLatLngModified = true;
+                                    }
+
+                                    // [!] PROTEKSI MUTLAK:
+                                    // - JANGAN timpa jika isTarikPelangganBaru = true
+                                    // - JANGAN timpa jika data saat ini sudah berstatus KENDALA di Sheet/Supabase
+                                    if (!isTarikPelangganBaru && !isProtectedKendala) {
+                                        ikrColValues[targetRow - 1][0] = tIkr;
+                                        statusColValues[targetRow - 1][0] = tStatus;
+                                        isColValuesModified = true;
+                                    }
+                                } else if (targetRow) {
                                     var newRowIndex = targetRow - realLastRow - 2;
                                     if (newRowIndex >= 0 && newRowIndex < newRowsSheet.length) {
-                                        newRowsSheet[newRowIndex][7] = tIkr;
-                                        newRowsSheet[newRowIndex][8] = tStatus;
+                                        if (!isTarikPelangganBaru && !isProtectedKendala) {
+                                            newRowsSheet[newRowIndex][7] = tIkr;
+                                            newRowsSheet[newRowIndex][8] = tStatus;
+                                        }
                                     }
                                 }
 
-                                var updatePayload = {
-                                    id_pelanggan: idPelanggan,
-                                    status_ikr: tIkr,
-                                    status_aktivasi: tStatus,
-                                    tanggal_berakhir: tanggalBerakhir || null,
-                                    telat_bayar_hari: telatBayarHari
-                                };
-
-                                supabasePayloadUpdateWithStatus.push(updatePayload);
-                                totalUpdateTanggal++;
-                            } else if (idPelanggan !== "" && !onlyUpdateExisting) {
-                                // DATA BARU
+                                // 2. UPDATE KE SUPABASE
+                                if (!isTarikPelangganBaru && !isProtectedKendala) {
+                                    // Normal status update (Active, Suspend, Dismantle)
+                                    var updatePayload = {
+                                        id_pelanggan: idPelanggan,
+                                        status_ikr: tIkr,
+                                        status_aktivasi: tStatus,
+                                        tanggal_berakhir: tanggalBerakhir || null,
+                                        telat_bayar_hari: telatBayarHari
+                                    };
+                                    if (lat) updatePayload.latitude = lat;
+                                    if (lng) updatePayload.longitude = lng;
+                                    supabasePayloadUpdateWithStatus.push(updatePayload);
+                                    totalUpdateTanggal++;
+                                } else {
+                                    // [!] KHUSUS TARIK PELANGGAN BARU ATAU STATUS KENDALA:
+                                    // Sertakan data umum + koordinat (TANPA menimpa status_ikr & status_aktivasi)
+                                    var existingUpdatePayload = {
+                                        id_pelanggan: idPelanggan,
+                                        nama_pelanggan: nama,
+                                        nomor_hp: telepon,
+                                        alamat: alamat,
+                                        catatan: patokan,
+                                        tanggal_registrasi: tglRegistrasi,
+                                        tanggal_berakhir: tanggalBerakhir || null,
+                                        telat_bayar_hari: telatBayarHari,
+                                        stasiun: stationName,
+                                        odp: odp,
+                                        port_odp: portOdp
+                                    };
+                                    if (lat) existingUpdatePayload.latitude = lat;
+                                    if (lng) existingUpdatePayload.longitude = lng;
+                                    supabasePayloadExistingNoStatus.push(existingUpdatePayload);
+                                    totalUpdateTanggal++;
+                                }
+                            } else if (!onlyUpdateExisting) {
+                                // DATA BENAR-BENAR BARU
                                 totalBaru++;
                                 existingIds[idPelanggan] = realLastRow + totalBaru + 1;
+                                existingIds[idPelangganUpper] = realLastRow + totalBaru + 1;
+                                existingSupabaseMap[idPelanggan] = true;
+                                existingSupabaseMap[idPelangganUpper] = true;
 
                                 var newRow = new Array(38).fill("");
                                 newRow[0] = idPelanggan;
@@ -440,8 +670,8 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                     nomor_hp: telepon,
                                     alamat: alamat,
                                     catatan: patokan,
-                                    latitude: lat.toString().replace(",", "."),
-                                    longitude: lng.toString().replace(",", "."),
+                                    latitude: lat ? lat.toString().replace(",", ".") : "",
+                                    longitude: lng ? lng.toString().replace(",", ".") : "",
                                     status_ikr: tIkr,
                                     status_aktivasi: tStatus,
                                     tanggal_registrasi: tglRegistrasi,
@@ -489,6 +719,7 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
 
             // --- PUSH KE SUPABASE (Memanggil Fungsi upsertToSupabase yg ada di file lain) ---
             if (!skipSupabase) {
+                // 1. Pelanggan existing dengan update status (Active, Suspend, Dismantle)
                 if (supabasePayloadUpdateWithStatus.length > 0) {
                     var uniqueMapUpdateStatus = {};
                     for (var k = 0; k < supabasePayloadUpdateWithStatus.length; k++) {
@@ -497,6 +728,16 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                     if (typeof upsertToSupabase === "function") upsertToSupabase(Object.values(uniqueMapUpdateStatus));
                 }
 
+                // 2. Pelanggan existing saat tarik baru (TANPA menimpa status_ikr & status_aktivasi)
+                if (supabasePayloadExistingNoStatus.length > 0) {
+                    var uniqueMapExistingNoStatus = {};
+                    for (var k = 0; k < supabasePayloadExistingNoStatus.length; k++) {
+                        uniqueMapExistingNoStatus[supabasePayloadExistingNoStatus[k].id_pelanggan] = supabasePayloadExistingNoStatus[k];
+                    }
+                    if (typeof upsertToSupabase === "function") upsertToSupabase(Object.values(uniqueMapExistingNoStatus));
+                }
+
+                // 3. Pelanggan baru murni (belum ada di database)
                 if (supabasePayloadNew.length > 0) {
                     var uniqueMapNew = {};
                     for (var k = 0; k < supabasePayloadNew.length; k++) {
@@ -541,7 +782,8 @@ function upsertToSupabase(payloadArray) {
 
     var nowIso = new Date().toISOString();
     payloadArray.forEach(function(item) {
-        if (!item.created_at) item.created_at = nowIso;
+        // Hanya sertakan created_at untuk data yang memang memilikinya agar tidak menimpa timestamp data lama
+        if (!item.created_at) delete item.created_at;
         item.updated_at = nowIso;
     });
 

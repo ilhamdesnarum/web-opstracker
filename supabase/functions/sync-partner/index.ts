@@ -97,7 +97,9 @@ Deno.serve(async (req: Request) => {
       if (!partnerId) continue;
 
       let stationCount = 0;
-      const allStationRows: any[] = [];
+      const allStationRowsWithStatus: any[] = [];
+      const allStationRowsExistingNoStatus: any[] = [];
+      const existingSupabaseSet = new Set<string>();
 
       for (const currentStatus of statusesToFetch) {
         let page = 1;
@@ -148,18 +150,94 @@ Deno.serve(async (req: Request) => {
               break;
             }
 
+            const isTarikPelangganBaru = currentStatus.startsWith("new") || currentStatus === "new";
+
+            // Cek existing customer di Supabase untuk daftar pelanggan di halaman ini
+            if (isTarikPelangganBaru) {
+              const pageIds: string[] = [];
+              for (const c of customers) {
+                const rawCId = c.customer_id && typeof c.customer_id === "string" ? c.customer_id : (c.customer_id ? c.customer_id.customer_id : "");
+                const pId = String(rawCId || "").trim();
+                if (pId && !existingSupabaseSet.has(pId) && !existingSupabaseSet.has(pId.toUpperCase())) {
+                  pageIds.push(pId);
+                }
+              }
+
+              if (pageIds.length > 0) {
+                try {
+                  const { data: existingRows } = await supabase
+                    .from("data_pelanggan")
+                    .select("id_pelanggan, status_ikr, status_aktivasi, issue_kendala")
+                    .in("id_pelanggan", pageIds);
+
+                  if (existingRows) {
+                    for (const row of existingRows) {
+                      if (row.id_pelanggan) {
+                        const trimmed = String(row.id_pelanggan).trim();
+                        existingSupabaseSet.add(trimmed);
+                        existingSupabaseSet.add(trimmed.toUpperCase());
+                      }
+                    }
+                  }
+                } catch (chkErr) {
+                  console.warn("Peringatan cek existing Supabase:", chkErr);
+                }
+              }
+            }
+
             for (const customer of customers) {
               if (!customer) continue;
 
-              const idPelanggan = customer.customer_id && typeof customer.customer_id === "string" ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
+              const rawCustId = customer.customer_id && typeof customer.customer_id === "string" ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
+              const idPelanggan = String(rawCustId || "").trim();
               if (!idPelanggan) continue;
+              const idPelangganUpper = idPelanggan.toUpperCase();
 
               const nama = customer.name || (customer.customer_id ? customer.customer_id.name : "");
               const telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
               const alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
               const patokan = customer.notes || "";
-              const lat = customer.latitude ? String(customer.latitude).replace(",", ".") : "";
-              const lng = customer.longitude ? String(customer.longitude).replace(",", ".") : "";
+              let lat = "";
+              let lng = "";
+
+              // 1. Cek di customer_id jika berupa object (prioritas utama endpoint /new)
+              if (customer.customer_id && typeof customer.customer_id === "object") {
+                if (customer.customer_id.latitude !== undefined && customer.customer_id.latitude !== null && customer.customer_id.latitude !== "") {
+                  lat = String(customer.customer_id.latitude).trim().replace(",", ".");
+                }
+                if (customer.customer_id.longitude !== undefined && customer.customer_id.longitude !== null && customer.customer_id.longitude !== "") {
+                  lng = String(customer.customer_id.longitude).trim().replace(",", ".");
+                }
+                if (!lat && customer.customer_id.lat) lat = String(customer.customer_id.lat).trim().replace(",", ".");
+                if (!lng && (customer.customer_id.lng || customer.customer_id.long)) lng = String(customer.customer_id.lng || customer.customer_id.long).trim().replace(",", ".");
+              }
+
+              // 2. Cek di root object
+              if (!lat && customer.latitude !== undefined && customer.latitude !== null && customer.latitude !== "") {
+                lat = String(customer.latitude).trim().replace(",", ".");
+              }
+              if (!lng && customer.longitude !== undefined && customer.longitude !== null && customer.longitude !== "") {
+                lng = String(customer.longitude).trim().replace(",", ".");
+              }
+              if (!lat && customer.lat) lat = String(customer.lat).trim().replace(",", ".");
+              if (!lng && (customer.lng || customer.long)) lng = String(customer.lng || customer.long).trim().replace(",", ".");
+
+              // 3. Cek di sales_visit_id
+              if ((!lat || !lng) && customer.sales_visit_id && typeof customer.sales_visit_id === "object") {
+                if (!lat && (customer.sales_visit_id.latitude || customer.sales_visit_id.lat)) lat = String(customer.sales_visit_id.latitude || customer.sales_visit_id.lat).trim().replace(",", ".");
+                if (!lng && (customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long)) lng = String(customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long).trim().replace(",", ".");
+              }
+
+              // 4. Cek di installation_info_id
+              if ((!lat || !lng) && customer.installation_info_id) {
+                const instArr = Array.isArray(customer.installation_info_id) ? customer.installation_info_id : [customer.installation_info_id];
+                for (const inst of instArr) {
+                  if (!inst) continue;
+                  if (!lat && (inst.latitude || inst.lat)) lat = String(inst.latitude || inst.lat).trim().replace(",", ".");
+                  if (!lng && (inst.longitude || inst.lng || inst.long)) lng = String(inst.longitude || inst.lng || inst.long).trim().replace(",", ".");
+                  if (lat && lng) break;
+                }
+              }
 
               // Ekstrak ODP & Port ODP
               let odp = "";
@@ -178,8 +256,11 @@ Deno.serve(async (req: Request) => {
               if (!portOdp) portOdp = customer.port_odp || customer.port || customer.fat_port || customer.odp_port || (customer.customer_id && typeof customer.customer_id === "object" ? (customer.customer_id.port_odp || customer.customer_id.port) : "") || "";
 
               let tglRegistrasi = "";
-              if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
-              else if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+              if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+              else if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
+              else if (customer.sales_visit_id && customer.sales_visit_id.visit_date) tglRegistrasi = formatKeWIB(customer.sales_visit_id.visit_date);
+              else if (customer.customer_id && typeof customer.customer_id === "object" && customer.customer_id.registration_date) tglRegistrasi = formatKeWIB(customer.customer_id.registration_date);
+              else if (customer.created_at) tglRegistrasi = formatKeWIB(customer.created_at);
 
               // Ekstrak Tanggal Berakhir & Telat Bayar
               let tanggalBerakhir = "";
@@ -211,25 +292,50 @@ Deno.serve(async (req: Request) => {
                 tIkr = "Belum";
               }
 
-              const rowPayload: Record<string, any> = {
-                id_pelanggan: idPelanggan,
-                nama_pelanggan: nama,
-                nomor_hp: telepon,
-                alamat: alamat,
-                catatan: patokan,
-                // [!] Latitude & Longitude sengaja TIDAK ditarik agar tidak menimpa data koordinat akurat dari Reporting Bot
-                status_ikr: tIkr,
-                status_aktivasi: tStatus,
-                tanggal_registrasi: tglRegistrasi,
-                tanggal_berakhir: tanggalBerakhir || null,
-                telat_bayar_hari: telatBayarHari,
-                stasiun: stationName,
-                odp: odp,
-                port_odp: portOdp,
-                updated_at: new Date().toISOString()
-              };
+              const existsInSupabase = existingSupabaseSet.has(idPelanggan) || existingSupabaseSet.has(idPelangganUpper);
 
-              allStationRows.push(rowPayload);
+              if (isTarikPelangganBaru && existsInSupabase) {
+                // [!] JANGAN update status_ikr & status_aktivasi untuk pelanggan yang sudah ada di Supabase
+                const existingRowPayload: Record<string, any> = {
+                  id_pelanggan: idPelanggan,
+                  nama_pelanggan: nama,
+                  nomor_hp: telepon,
+                  alamat: alamat,
+                  catatan: patokan,
+                  tanggal_registrasi: tglRegistrasi,
+                  tanggal_berakhir: tanggalBerakhir || null,
+                  telat_bayar_hari: telatBayarHari,
+                  stasiun: stationName,
+                  odp: odp,
+                  port_odp: portOdp,
+                  ...(lat ? { latitude: lat } : {}),
+                  ...(lng ? { longitude: lng } : {}),
+                  updated_at: new Date().toISOString()
+                };
+                allStationRowsExistingNoStatus.push(existingRowPayload);
+              } else {
+                const rowPayload: Record<string, any> = {
+                  id_pelanggan: idPelanggan,
+                  nama_pelanggan: nama,
+                  nomor_hp: telepon,
+                  alamat: alamat,
+                  catatan: patokan,
+                  status_ikr: tIkr,
+                  status_aktivasi: tStatus,
+                  tanggal_registrasi: tglRegistrasi,
+                  tanggal_berakhir: tanggalBerakhir || null,
+                  telat_bayar_hari: telatBayarHari,
+                  stasiun: stationName,
+                  odp: odp,
+                  port_odp: portOdp,
+                  ...(lat ? { latitude: lat } : {}),
+                  ...(lng ? { longitude: lng } : {}),
+                  updated_at: new Date().toISOString()
+                };
+                allStationRowsWithStatus.push(rowPayload);
+                existingSupabaseSet.add(idPelanggan);
+              }
+
               stationCount++;
               totalFetched++;
             }
@@ -248,9 +354,10 @@ Deno.serve(async (req: Request) => {
       }
 
       // UPSERT BATCH KE SUPABASE PER STASIUN (Chunk 300 rows)
-      if (allStationRows.length > 0) {
+      // 1. Data dengan status
+      if (allStationRowsWithStatus.length > 0) {
         const uniqueMap = new Map();
-        for (const row of allStationRows) {
+        for (const row of allStationRowsWithStatus) {
           uniqueMap.set(row.id_pelanggan, row);
         }
         const dedupedRows = Array.from(uniqueMap.values());
@@ -270,6 +377,33 @@ Deno.serve(async (req: Request) => {
             }
           } catch (upsertErr: any) {
             console.error(`❌ Error upsert di ${stationName}:`, upsertErr?.message || upsertErr);
+          }
+        }
+      }
+
+      // 2. Data existing saat tarik baru (TANPA status_ikr & status_aktivasi)
+      if (allStationRowsExistingNoStatus.length > 0) {
+        const uniqueMapNoStatus = new Map();
+        for (const row of allStationRowsExistingNoStatus) {
+          uniqueMapNoStatus.set(row.id_pelanggan, row);
+        }
+        const dedupedNoStatusRows = Array.from(uniqueMapNoStatus.values());
+
+        const CHUNK_SIZE = 300;
+        for (let i = 0; i < dedupedNoStatusRows.length; i += CHUNK_SIZE) {
+          const chunk = dedupedNoStatusRows.slice(i, i + CHUNK_SIZE);
+          try {
+            const upsertRes = await supabase
+              .from("data_pelanggan")
+              .upsert(chunk, { onConflict: "id_pelanggan" });
+
+            if (upsertRes && upsertRes.error) {
+              console.error(`❌ Gagal upsert chunk no-status di ${stationName}:`, upsertRes.error.message);
+            } else {
+              totalUpserted += chunk.length;
+            }
+          } catch (upsertErr: any) {
+            console.error(`❌ Error upsert no-status di ${stationName}:`, upsertErr?.message || upsertErr);
           }
         }
       }
