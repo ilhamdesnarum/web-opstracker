@@ -2273,6 +2273,18 @@ export function OkupansiView({ data, setData }) {
   const [manageTahapFilter, setManageTahapFilter] = useState('');
   const [manageSearch, setManageSearch] = useState('');
   const [managePage, setManagePage] = useState(1);
+  const [manageSortKey, setManageSortKey] = useState('kodeOdp'); // 'kodeOdp' | 'kodeOdc' | 'port'
+  const [manageSortOrder, setManageSortOrder] = useState('asc'); // 'asc' | 'desc'
+
+  const handleManageSort = (key) => {
+    if (manageSortKey === key) {
+      setManageSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setManageSortKey(key);
+      setManageSortOrder(key === 'port' ? 'desc' : 'asc');
+    }
+    setManagePage(1);
+  };
   const [editingOdp, setEditingOdp] = useState(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [deletingOdp, setDeletingOdp] = useState(null);
@@ -2353,10 +2365,16 @@ export function OkupansiView({ data, setData }) {
   const filteredManageOdps = useMemo(() => {
     let list = data?.odpData || [];
     if (manageStationFilter) {
-      list = list.filter(o => String(o.stasiun || '').trim().toLowerCase() === manageStationFilter.toLowerCase());
+      const target = manageStationFilter.trim().toLowerCase();
+      list = list.filter(o => {
+        const st = String(o.stasiun || '').trim().toLowerCase();
+        return st === target || 
+          (target === 'semarang tawang' && st === 'tawang') || 
+          (target === 'tawang' && st === 'semarang tawang');
+      });
     }
     if (manageTahapFilter) {
-      list = list.filter(o => String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim().toLowerCase() === manageTahapFilter.toLowerCase());
+      list = list.filter(o => String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim().toLowerCase() === manageTahapFilter.trim().toLowerCase());
     }
     if (manageSearch.trim()) {
       const q = manageSearch.trim().toLowerCase();
@@ -2365,11 +2383,34 @@ export function OkupansiView({ data, setData }) {
         String(o.label || '').toLowerCase().includes(q) ||
         String(o.kodeOdc || o.kode_odc || '').toLowerCase().includes(q) ||
         String(o.stasiun || '').toLowerCase().includes(q) ||
-        String(o.tahapPembangunan || o.tahap_pembangunan || '').toLowerCase().includes(q)
+        String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').toLowerCase().includes(q)
       );
     }
+    if (manageSortKey) {
+      list = [...list].sort((a, b) => {
+        let comp = 0;
+        if (manageSortKey === 'kodeOdp') {
+          const valA = String(a.kodeOdp || a.label || a.kode_odp || '');
+          const valB = String(b.kodeOdp || b.label || b.kode_odp || '');
+          comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        } else if (manageSortKey === 'kodeOdc') {
+          const valA = String(a.kodeOdc || a.kode_odc || '');
+          const valB = String(b.kodeOdc || b.kode_odc || '');
+          comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        } else if (manageSortKey === 'port') {
+          const aTerpakai = Number(a.portTerpakai ?? a.port_terpakai) || 0;
+          const bTerpakai = Number(b.portTerpakai ?? b.port_terpakai) || 0;
+          const aKap = Number(a.kapasitas) || 8;
+          const bKap = Number(b.kapasitas) || 8;
+          const aPct = aKap > 0 ? (aTerpakai / aKap) : 0;
+          const bPct = bKap > 0 ? (bTerpakai / bKap) : 0;
+          comp = (aPct - bPct) || (aTerpakai - bTerpakai);
+        }
+        return manageSortOrder === 'desc' ? -comp : comp;
+      });
+    }
     return list;
-  }, [data?.odpData, manageStationFilter, manageTahapFilter, manageSearch]);
+  }, [data?.odpData, manageStationFilter, manageTahapFilter, manageSearch, manageSortKey, manageSortOrder]);
 
   const MANAGE_ITEMS_PER_PAGE = 12;
   const totalManagePages = Math.max(1, Math.ceil(filteredManageOdps.length / MANAGE_ITEMS_PER_PAGE));
@@ -2382,6 +2423,8 @@ export function OkupansiView({ data, setData }) {
     setManageStationFilter(selectedStation || '');
     setManageTahapFilter('');
     setManageSearch('');
+    setManageSortKey('kodeOdp');
+    setManageSortOrder('asc');
     setManagePage(1);
     setShowManageOdpModal(true);
   };
@@ -3568,11 +3611,62 @@ export function OkupansiView({ data, setData }) {
                   <thead className="bg-slate-100/80 text-slate-500 uppercase text-[10px] font-bold tracking-wider sticky top-0 z-10 border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-3.5 text-center w-12 whitespace-nowrap">No</th>
-                      <th className="py-3 px-3.5 whitespace-nowrap">Kode ODP</th>
+                      <th
+                        onClick={() => handleManageSort('kodeOdp')}
+                        className="py-3 px-3.5 whitespace-nowrap cursor-pointer hover:bg-slate-200/80 transition-colors select-none group"
+                        title="Klik untuk mengurutkan Kode ODP"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Kode ODP</span>
+                          {manageSortKey === 'kodeOdp' ? (
+                            manageSortOrder === 'asc' ? (
+                              <Icon name="chevron-up" size={13} className="text-blue-600" />
+                            ) : (
+                              <Icon name="chevron-down" size={13} className="text-blue-600" />
+                            )
+                          ) : (
+                            <Icon name="chevrons-up-down" size={13} className="text-slate-400 group-hover:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-3 px-3.5 whitespace-nowrap">Stasiun</th>
-                      <th className="py-3 px-3.5 whitespace-nowrap">ODC</th>
+                      <th
+                        onClick={() => handleManageSort('kodeOdc')}
+                        className="py-3 px-3.5 whitespace-nowrap cursor-pointer hover:bg-slate-200/80 transition-colors select-none group"
+                        title="Klik untuk mengurutkan ODC"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>ODC</span>
+                          {manageSortKey === 'kodeOdc' ? (
+                            manageSortOrder === 'asc' ? (
+                              <Icon name="chevron-up" size={13} className="text-blue-600" />
+                            ) : (
+                              <Icon name="chevron-down" size={13} className="text-blue-600" />
+                            )
+                          ) : (
+                            <Icon name="chevrons-up-down" size={13} className="text-slate-400 group-hover:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-3 px-3.5 whitespace-nowrap min-w-[190px]">Tahap Pembangunan</th>
-                      <th className="py-3 px-3.5 text-center whitespace-nowrap">Port</th>
+                      <th
+                        onClick={() => handleManageSort('port')}
+                        className="py-3 px-3.5 text-center whitespace-nowrap cursor-pointer hover:bg-slate-200/80 transition-colors select-none group"
+                        title="Klik untuk mengurutkan Keterisian Port"
+                      >
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span>Port</span>
+                          {manageSortKey === 'port' ? (
+                            manageSortOrder === 'asc' ? (
+                              <Icon name="chevron-up" size={13} className="text-blue-600" />
+                            ) : (
+                              <Icon name="chevron-down" size={13} className="text-blue-600" />
+                            )
+                          ) : (
+                            <Icon name="chevrons-up-down" size={13} className="text-slate-400 group-hover:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-3 px-3.5 whitespace-nowrap min-w-[160px]">Koordinat</th>
                       <th className="py-3 px-3.5 text-center w-24 whitespace-nowrap">Aksi</th>
                     </tr>
