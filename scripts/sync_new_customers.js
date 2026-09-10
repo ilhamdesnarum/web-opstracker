@@ -213,12 +213,11 @@ async function main() {
   }
   console.log(`📍 Stasiun Target: ${targetStations.join(', ')}`);
 
-  // Status pelanggan baru di API Partner
+  // Status pelanggan baru di API Partner (tanpa status cancel)
   const newStatuses = [
     "waiting-for-installation",
     "process-installation",
-    "process-activate-internet",
-    "cancel"
+    "process-activate-internet"
   ];
 
   let totalNewInserted = 0;
@@ -341,8 +340,8 @@ async function main() {
         rowsExistingNoStatus.push(payloadExisting);
       } else {
         // [!] DATA BARU MURNI:
-        // Status awal: jika ikr_status == cancel -> Kendala, jika lainnya -> Belum
-        const initialStatus = ikrStatus === "cancel" ? "Kendala" : "Belum";
+        // Status awal untuk pendaftaran baru adalah Belum
+        const initialStatus = "Belum";
         const payloadNew = {
           id_pelanggan: idPelanggan,
           nama_pelanggan: nama,

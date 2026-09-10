@@ -191,13 +191,13 @@ function tarikPelangganDismantledSatuStasiunCustom() {
 
 function tarikPelangganBaruMulti() {
     Logger.log("--- MENARIK PELANGGAN BARU (REGISTRASI) SEMUA STASIUN ---");
-    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], null, null, false, false);
+    syncPartnerData(["new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], null, null, false, false);
 }
 
 function tarikPelangganBaruSatuStasiunCustom() {
     var targetStasiun = "Wadu"; // Ganti nama stasiun target sesuai kebutuhan
     Logger.log("--- MENARIK PELANGGAN BARU KHUSUS STASIUN: " + targetStasiun + " ---");
-    syncPartnerData(["new-cancel", "new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], targetStasiun, null, false, false);
+    syncPartnerData(["new-waiting-for-installation", "new-process-installation", "new-process-activate-internet"], targetStasiun, null, false, false);
 }
 
 function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, skipSupabase = false, onlyUpdateExisting = true, startPage = 1) {
@@ -539,10 +539,6 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                             if (currentStatus === "suspend") tStatus = "Suspend";
                             else if (currentStatus === "dismantle") tStatus = "Dismantled";
                             else if (currentStatus === "ready-to-dismantle") tStatus = "Ready To Dismantle";
-                            else if (currentStatus === "new-cancel") {
-                                tStatus = "Kendala";
-                                tIkr = "Kendala";
-                            }
                             else if (currentStatus.startsWith("new")) {
                                 tStatus = "Belum";
                                 tIkr = "Belum";

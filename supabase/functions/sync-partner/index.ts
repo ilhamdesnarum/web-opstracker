@@ -284,10 +284,7 @@ Deno.serve(async (req: Request) => {
               if (currentStatus === "suspend") tStatus = "Suspend";
               else if (currentStatus === "dismantle") tStatus = "Dismantled";
               else if (currentStatus === "ready-to-dismantle") tStatus = "Ready To Dismantle";
-              else if (currentStatus === "new-cancel") {
-                tStatus = "Kendala";
-                tIkr = "Kendala";
-              } else if (currentStatus.startsWith("new")) {
+              else if (currentStatus.startsWith("new")) {
                 tStatus = "Belum";
                 tIkr = "Belum";
               }
