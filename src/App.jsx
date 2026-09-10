@@ -2045,6 +2045,9 @@ function MiniOdpMap({ targetOdp, allOdps = [], customers = [] }) {
 }
 
 
+// Helper pembersih karakter tersembunyi / unicode pada nama ODP
+export const cleanOdpStr = (str) => String(str || '').replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '').trim().toUpperCase();
+
 // ==========================================
 // MODALS & POP-UPS
 // ==========================================
@@ -2058,17 +2061,18 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
 
   const realCustomers = useMemo(() => {
     if (!pelangganData || !odp) return [];
-    const targetOdpLabel = String(odp.originalLabel || odp.label || '').trim().toLowerCase();
-    const targetKodeOdp = String(odp.kodeOdp || '').trim().toLowerCase();
+    const targetOdpClean = cleanOdpStr(odp.originalLabel || odp.label || odp.kodeOdp || odp.kode_odp);
     const targetStasiun = String(odp.stasiun || '').trim().toLowerCase();
 
     const customersInOdp = pelangganData.filter(item => {
-      const custOdp = String(item.odpAktual || item.kodeOdp || '').trim().toLowerCase();
+      const custOdp = cleanOdpStr(item.odpAktual || item.odp || item.kodeOdp);
       const custStasiun = String(item.stasiun || '').trim().toLowerCase();
 
-      const isStasiunMatch = !targetStasiun || !custStasiun || custStasiun === targetStasiun;
-      const isOdpMatch = (custOdp === targetOdpLabel && targetOdpLabel !== '') ||
-        (custOdp === targetKodeOdp && targetKodeOdp !== '');
+      const isStasiunMatch = !targetStasiun || !custStasiun || custStasiun === targetStasiun ||
+        (targetStasiun === 'semarang tawang' && custStasiun === 'tawang') ||
+        (targetStasiun === 'tawang' && custStasiun === 'semarang tawang');
+
+      const isOdpMatch = targetOdpClean !== '' && custOdp === targetOdpClean;
 
       return isStasiunMatch && isOdpMatch;
     });
@@ -2289,6 +2293,87 @@ export function OkupansiView({ data, setData }) {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [deletingOdp, setDeletingOdp] = useState(null);
   const [isDeletingOdp, setIsDeletingOdp] = useState(false);
+  const [isSyncingPorts, setIsSyncingPorts] = useState(false);
+
+  // Peta dinamis jumlah pelanggan per ODP (dibersihkan dari karakter tersembunyi)
+  const customerCountByOdp = useMemo(() => {
+    const map = {};
+    (data?.pelangganData || []).forEach(p => {
+      const k = cleanOdpStr(p.odpAktual || p.odp || p.kodeOdp);
+      if (k) {
+        map[k] = (map[k] || 0) + 1;
+      }
+    });
+    return map;
+  }, [data?.pelangganData]);
+
+  // Handler sinkronisasi port terpakai massal ke database Supabase
+  const handleSyncPortsFromPelanggan = async () => {
+    setIsSyncingPorts(true);
+    try {
+      const allOdps = data?.odpData || [];
+      const toUpdate = [];
+
+      allOdps.forEach(o => {
+        const k = cleanOdpStr(o.kodeOdp || o.label || o.kode_odp);
+        const actualCount = customerCountByOdp[k] || 0;
+        const currentCount = Number(o.portTerpakai ?? o.port_terpakai) || 0;
+        if (actualCount !== currentCount && o.id) {
+          toUpdate.push({ id: o.id, port_terpakai: actualCount });
+        }
+      });
+
+      // Update ke database Supabase dalam chunk
+      if (toUpdate.length > 0) {
+        const chunkSize = 15;
+        for (let i = 0; i < toUpdate.length; i += chunkSize) {
+          const chunk = toUpdate.slice(i, i + chunkSize);
+          await Promise.all(
+            chunk.map(item =>
+              supabase
+                .from('odp')
+                .update({ port_terpakai: item.port_terpakai })
+                .eq('id', item.id)
+            )
+          );
+        }
+      }
+
+      // Update state lokal secara instan
+      if (typeof setData === 'function') {
+        setData(prev => {
+          const updated = (prev.odpData || []).map(o => {
+            const k = cleanOdpStr(o.kodeOdp || o.label || o.kode_odp);
+            const actualCount = customerCountByOdp[k] || 0;
+            return {
+              ...o,
+              portTerpakai: actualCount,
+              port_terpakai: actualCount
+            };
+          });
+          setCachedData('otas_odp_cache', updated);
+          return { ...prev, odpData: updated };
+        });
+      }
+
+      setSyncToast({
+        show: true,
+        type: 'success',
+        message: `Sinkronisasi selesai! ${toUpdate.length} ODP berhasil diperbarui dengan data pelanggan riil.`
+      });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 4000);
+    } catch (err) {
+      console.error('Error syncing ports:', err);
+      setSyncToast({
+        show: true,
+        type: 'error',
+        message: 'Gagal menyinkronkan port: ' + err.message
+      });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 5000);
+    } finally {
+      setIsSyncingPorts(false);
+    }
+  };
 
   // State untuk lipat/buka (collapse/expand) grup Tahap Pembangunan
   const [collapsedTahap, setCollapsedTahap] = useState({});
@@ -2571,7 +2656,9 @@ export function OkupansiView({ data, setData }) {
       const odcCode = odp.kodeOdc || odp['Kode ODC'] || odp.KodeOdc || 'TANPA-ODC';
       const odpLabel = odp.kodeOdp || odp['Kode ODP'] || odp.label || odp.Label || 'ODP-UNKNOWN';
       const kapasitas = Number(odp.kapasitas || odp.Kapasitas) || 0;
-      const terpakai = Number(odp.portTerpakai || odp['Port Terpakai'] || odp.port_terpakai) || 0;
+      const odpCleanKey = cleanOdpStr(odpLabel || odp.kodeOdp || odp.label);
+      const countFromCust = customerCountByOdp[odpCleanKey];
+      const terpakai = countFromCust !== undefined ? countFromCust : (Number(odp.portTerpakai || odp['Port Terpakai'] || odp.port_terpakai) || 0);
 
       // Short Label ODC
       let shortOdcLabel = odcCode;
@@ -3592,11 +3679,20 @@ export function OkupansiView({ data, setData }) {
                 </div>
               </div>
 
-              {/* Tombol Tambah ODP (Pindah ke sini) */}
+              {/* Tombol Aksi Toolbar */}
               <div className="flex items-center gap-2 shrink-0">
                 <button
+                  onClick={handleSyncPortsFromPelanggan}
+                  disabled={isSyncingPorts}
+                  className={`px-3 sm:px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs sm:text-sm font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isSyncingPorts ? 'opacity-70 cursor-wait' : ''}`}
+                  title="Sinkronkan keterisian port dari data pelanggan riil"
+                >
+                  <Icon name="refresh-cw" size={14} className={isSyncingPorts ? 'animate-spin text-blue-600' : 'text-blue-600'} />
+                  <span>{isSyncingPorts ? 'Menyinkronkan...' : 'Sinkronkan Port'}</span>
+                </button>
+                <button
                   onClick={() => setShowBulkModal(true)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
+                  className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
                 >
                   <Icon name="upload-cloud" size={16} />
                   <span>+ Tambah / Upload ODP</span>
@@ -3683,7 +3779,9 @@ export function OkupansiView({ data, setData }) {
                     ) : (
                       paginatedManageOdps.map((odp, idx) => {
                         const rowNum = (managePage - 1) * MANAGE_ITEMS_PER_PAGE + idx + 1;
-                        const terpakai = Number(odp.portTerpakai ?? odp.port_terpakai) || 0;
+                        const odpKey = cleanOdpStr(odp.kodeOdp || odp.label || odp.kode_odp);
+                        const countFromCust = customerCountByOdp[odpKey];
+                        const terpakai = countFromCust !== undefined ? countFromCust : (Number(odp.portTerpakai ?? odp.port_terpakai) || 0);
                         const kapasitas = Number(odp.kapasitas) || 8;
                         const pct = kapasitas > 0 ? (terpakai / kapasitas) * 100 : 0;
                         const hasCoords = odp.latitude && odp.longitude && odp.latitude !== '0' && odp.longitude !== '0';
