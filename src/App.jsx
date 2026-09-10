@@ -1377,7 +1377,7 @@ function App({ onLogout }) {
     try {
       if (isForce) {
         setCachedData('otas_pelanggan_cache_v3', null);
-        setCachedData('otas_odp_cache', null);
+        setCachedData('otas_odp_cache_v3', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_detail_po_cache', null);
         setCachedData('otas_visit_cache', null);
@@ -1385,7 +1385,7 @@ function App({ onLogout }) {
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
       let parsedPelanggan = getCachedData('otas_pelanggan_cache_v3');
-      let parsedOdp = getCachedData('otas_odp_cache');
+      let parsedOdp = getCachedData('otas_odp_cache_v3');
       let cachedStation = getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
@@ -1428,8 +1428,14 @@ function App({ onLogout }) {
           setCachedData('otas_pelanggan_cache_v3', parsedPelanggan);
         }
         if (supabaseOdp) {
-          parsedOdp = supabaseOdp.map(parseSupabaseOdpDocument);
-          setCachedData('otas_odp_cache', parsedOdp);
+          const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
+          const uniq = new Map();
+          rawParsed.forEach(o => {
+            const k = cleanOdpStr(o.kodeOdp || o.label);
+            if (k && !uniq.has(k)) uniq.set(k, o);
+          });
+          parsedOdp = Array.from(uniq.values());
+          setCachedData('otas_odp_cache_v3', parsedOdp);
         }
         if (supabaseVisit) {
           cachedVisit = supabaseVisit.map(parseSupabaseVisitDocument);
@@ -1621,7 +1627,7 @@ function App({ onLogout }) {
               const deletedLabel = payload.old?.label || payload.old?.kode_odp;
               newOdpData = newOdpData.filter(o => String(o.label || o.kodeOdp || '').trim().toUpperCase() !== String(deletedLabel || '').trim().toUpperCase());
             }
-            setCachedData('otas_odp_cache', newOdpData);
+            setCachedData('otas_odp_cache_v3', newOdpData);
             return {
               ...prev,
               odpData: newOdpData
@@ -2351,7 +2357,7 @@ export function OkupansiView({ data, setData }) {
               port_terpakai: actualCount
             };
           });
-          setCachedData('otas_odp_cache', updated);
+          setCachedData('otas_odp_cache_v3', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -2561,7 +2567,7 @@ export function OkupansiView({ data, setData }) {
             kodeOdc: payload.kode_odc,
             tahapPembangunan: payload.tahap_pembangunan
           } : o);
-          setCachedData('otas_odp_cache', updated);
+          setCachedData('otas_odp_cache_v3', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -2592,7 +2598,7 @@ export function OkupansiView({ data, setData }) {
       if (typeof setData === 'function') {
         setData(prev => {
           const filtered = (prev.odpData || []).filter(o => o.id !== deletingOdp.id);
-          setCachedData('otas_odp_cache', filtered);
+          setCachedData('otas_odp_cache_v3', filtered);
           return { ...prev, odpData: filtered };
         });
       }
@@ -2651,8 +2657,19 @@ export function OkupansiView({ data, setData }) {
     let totalOdcKapasitas = 0;
     let totalOdcTerpakai = 0;
 
-    // 2. Mapping & Grouping berdasarkan Kode ODC
+    // Deduplikasi ODP stasiun agar tidak pernah ada ODP ganda yang menambah kapasitas ODC
+    const seenOdpCodes = new Set();
+    const uniqueStationOdps = [];
     stationOdps.forEach(odp => {
+      const k = cleanOdpStr(odp.kodeOdp || odp.label || odp['Kode ODP'] || odp.kode_odp);
+      if (k && !seenOdpCodes.has(k)) {
+        seenOdpCodes.add(k);
+        uniqueStationOdps.push(odp);
+      }
+    });
+
+    // 2. Mapping & Grouping berdasarkan Kode ODC
+    uniqueStationOdps.forEach(odp => {
       const odcCode = odp.kodeOdc || odp['Kode ODC'] || odp.KodeOdc || 'TANPA-ODC';
       const odpLabel = odp.kodeOdp || odp['Kode ODP'] || odp.label || odp.Label || 'ODP-UNKNOWN';
       const kapasitas = Number(odp.kapasitas || odp.Kapasitas) || 0;
@@ -2732,13 +2749,13 @@ export function OkupansiView({ data, setData }) {
 
     const kpi = {
       totalOdc: odcs.length,
-      totalOdp: stationOdps.length,
+      totalOdp: uniqueStationOdps.length,
       totalKapasitas: totalOdcKapasitas,
       totalTerpakai: totalOdcTerpakai,
       occupancyRate: totalOdcKapasitas > 0 ? ((totalOdcTerpakai / totalOdcKapasitas) * 100).toFixed(1) : 0
     };
 
-    const existingTahapList = [...new Set(stationOdps.map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').filter(t => String(t).trim() !== ''))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    const existingTahapList = [...new Set(uniqueStationOdps.map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').filter(t => String(t).trim() !== ''))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
     return { odcs, kpi, existingTahapList };
   }, [selectedStation, data.odpData]);
