@@ -94,6 +94,7 @@ const parseSupabaseDocument = (fields) => {
 // Helper untuk parse dokumen ODP dari Supabase ke camelCase React
 const parseSupabaseOdpDocument = (fields) => {
   return {
+    id: fields.id || null,
     label: fields.label || fields.Label || "",
     latitude: fields.latitude || fields.Latitude || "",
     longitude: fields.longitude || fields.Longitude || "",
@@ -963,7 +964,7 @@ const MobileApp = () => {
 
       // 2. ODP Data
       if (!cachedOdp) {
-        const odpCols = 'label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
+        const odpCols = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
         fetchPromises.push(
           fetchAllSupabaseData('odp', odpCols, 'label')
             .then((sbData) => {

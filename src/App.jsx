@@ -69,6 +69,7 @@ const parseSupabaseDocument = (fields) => {
 // Helper untuk parse dokumen ODP dari Supabase ke camelCase React
 const parseSupabaseOdpDocument = (fields) => {
   return {
+    id: fields.id || null,
     label: fields.label || fields.Label || "",
     latitude: fields.latitude || fields.Latitude || "",
     longitude: fields.longitude || fields.Longitude || "",
@@ -1414,7 +1415,7 @@ function App({ onLogout }) {
       if (!parsedPelanggan || !parsedOdp || !cachedVisit) {
         // Ambil data langsung dari tabel Supabase
         const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari';
-        const odpColumns = 'label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
+        const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
         const [supabasePelanggan, supabaseOdp, supabaseVisit] = await Promise.all([
           parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
@@ -2276,6 +2277,37 @@ export function OkupansiView({ data }) {
     }));
   };
 
+  const handleUploadPayload = async (payloadToSend) => {
+    if (!payloadToSend || payloadToSend.length === 0) return;
+    setIsUploading(true);
+    try {
+      const res = await api.run('uploadMassalOdp', payloadToSend);
+      if (!res || res.success === false || res.error) {
+        throw new Error(res?.error || res?.message || 'Gagal mengupload data.');
+      }
+      setIsUploadSuccess(true);
+      setSyncToast({
+        show: true,
+        type: 'success',
+        message: res.message || `Berhasil mengunggah ${payloadToSend.length} data ODP!`
+      });
+      setTimeout(() => {
+        setIsUploadSuccess(false);
+        setParsedExcelData([]);
+        setInputTahap('');
+        setIsNewTahap(false);
+        setShowBulkModal(false);
+        window.location.reload();
+      }, 2000);
+    } catch (error) {
+      console.error("Upload ODP error:", error);
+      setSyncToast({ show: true, type: 'error', message: 'Gagal mengupload data: ' + error.message });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 5000);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // 1. Dapatkan daftar Stasiun Unik
   const uniqueStations = useMemo(() => {
     let rawStations = [];
@@ -2917,6 +2949,18 @@ export function OkupansiView({ data }) {
                             }
                           }
 
+                          // Bersihkan nama stasiun dari karakter ":", "Stasiun ", dsb
+                          if (stationName) {
+                            stationName = stationName
+                              .replace(/^[:\s-]+/, '')
+                              .replace(/^stasiun\s+/i, '')
+                              .trim();
+                            stationName = toProperCase(stationName);
+                          }
+                          if (!stationName) {
+                            stationName = selectedStation;
+                          }
+
                           // Cari baris header tabel secara dinamis
                           let headerRowIdx = -1;
                           let colIdx = { odp: -1, port: -1, lat: -1, lng: -1, keterangan: -1 };
@@ -3101,38 +3145,31 @@ export function OkupansiView({ data }) {
                   if (parsedExcelData.length === 0) return;
                   if (!inputTahap.trim()) return;
 
-                  // Terapkan nilai inputTahap ke semua odp sebelum dikirim
-                  const finalPayload = parsedExcelData.map(odp => ({
-                    ...odp,
-                    tahap_pembangunan: inputTahap.trim()
-                  }));
+                  const existingOdpMap = new Map();
+                  (data.odpData || []).forEach(o => {
+                    const key = String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase();
+                    if (key) existingOdpMap.set(key, o);
+                  });
 
-                  const handleUploadPayload = async (payloadToSend) => {
-                    setIsUploading(true);
-                    try {
-                      await api.run('uploadMassalOdp', payloadToSend);
-                      setIsUploadSuccess(true);
-                      setTimeout(() => {
-                        setIsUploadSuccess(false);
-                        setParsedExcelData([]);
-                        setInputTahap('');
-                        setIsNewTahap(false);
-                        setShowBulkModal(false);
-                        window.location.reload();
-                      }, 2000);
-                    } catch (error) {
-                      console.error(error);
-                      setSyncToast({ show: true, type: 'error', message: 'Gagal mengupload data: ' + error.message });
-                      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
-                      setIsUploading(false);
-                    }
-                  };
+                  let currentMaxId = (data.odpData || []).reduce((max, o) => {
+                    const num = Number(o.id);
+                    return !isNaN(num) && num > max ? num : max;
+                  }, 12785);
+
+                  // Terapkan nilai inputTahap ke semua odp sebelum dikirim dan pastikan memiliki ID integer untuk Supabase
+                  const finalPayload = parsedExcelData.map(odp => {
+                    const key = String(odp.kode_odp || odp.label || '').trim().toLowerCase();
+                    const existing = existingOdpMap.get(key);
+                    return {
+                      ...odp,
+                      id: existing?.id || ++currentMaxId,
+                      tahap_pembangunan: inputTahap.trim()
+                    };
+                  });
 
                   // DETEKSI DUPLIKAT
-                  const existingKodeOdps = new Set((data.odpData || []).map(o => String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase()));
-
-                  const duplicates = finalPayload.filter(o => existingKodeOdps.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-                  const newItems = finalPayload.filter(o => !existingKodeOdps.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+                  const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+                  const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
 
                   if (duplicates.length > 0) {
                     setConflictModalData({
@@ -3203,7 +3240,8 @@ export function OkupansiView({ data }) {
                     setConflictModalData(null);
                     await handleUploadPayload(payload);
                   }}
-                  className="w-full text-left p-3 rounded-xl border border-rose-200 hover:border-rose-400 hover:bg-rose-50 transition-colors flex items-start gap-3 group"
+                  disabled={isUploading}
+                  className="w-full text-left p-3 rounded-xl border border-rose-200 hover:border-rose-400 hover:bg-rose-50 transition-colors flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="mt-0.5 text-rose-500 group-hover:scale-110 transition-transform"><Icon name="copy" size={18} /></div>
                   <div>
@@ -3223,7 +3261,8 @@ export function OkupansiView({ data }) {
                     }
                     await handleUploadPayload(payload);
                   }}
-                  className="w-full text-left p-3 rounded-xl border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors flex items-start gap-3 group"
+                  disabled={isUploading}
+                  className="w-full text-left p-3 rounded-xl border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="mt-0.5 text-emerald-500 group-hover:scale-110 transition-transform"><Icon name="fast-forward" size={18} /></div>
                   <div>
