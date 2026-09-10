@@ -1807,7 +1807,7 @@ function App({ onLogout }) {
             {activeTab === 'dashboard' && <DashboardView data={data} isSyncing={isLoading} />}
             {activeTab === 'overview' && <OverviewView data={data} onGoToDatabase={(statusFilter, stationFilter = '') => { setInitialDatabaseStatusFilter(statusFilter); setInitialDatabaseStationFilter(stationFilter); setActiveTab('database'); }} />}
             {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
-            {activeTab === 'okupansi' && <OkupansiView data={data} />}
+            {activeTab === 'okupansi' && <OkupansiView data={data} setData={setData} />}
             {activeTab === 'gangguan' && <DataGangguanView visitData={data.visitData} pelangganData={data.pelangganData} petugasList={data.teknisiData} onRefresh={() => fetchData(true)} onLocalVisitUpdate={handleLocalVisitAction} />}
             {activeTab === 'gamas' && <MonitoringGamasView />}
             {activeTab === 'team' && <OfficerManagementView teknisiList={data.teknisiData} onRefresh={() => fetchData(true)} onRefreshSilent={fetchDataSilent} />}
@@ -2249,7 +2249,7 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
 // ==========================================
 // HALAMAN BARU: DATA OKUPANSI
 // ==========================================
-export function OkupansiView({ data }) {
+export function OkupansiView({ data, setData }) {
   const [selectedStation, setSelectedStation] = useState('');
   const [selectedOdc, setSelectedOdc] = useState(null);
   const [isStationDropdownOpen, setIsStationDropdownOpen] = useState(false);
@@ -2266,6 +2266,17 @@ export function OkupansiView({ data }) {
 
   // State baru untuk kontrol modal Detail Pelanggan ODP
   const [selectedOdpDetail, setSelectedOdpDetail] = useState(null);
+
+  // State untuk modal Kelola ODP
+  const [showManageOdpModal, setShowManageOdpModal] = useState(false);
+  const [manageStationFilter, setManageStationFilter] = useState('');
+  const [manageTahapFilter, setManageTahapFilter] = useState('');
+  const [manageSearch, setManageSearch] = useState('');
+  const [managePage, setManagePage] = useState(1);
+  const [editingOdp, setEditingOdp] = useState(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingOdp, setDeletingOdp] = useState(null);
+  const [isDeletingOdp, setIsDeletingOdp] = useState(false);
 
   // State untuk lipat/buka (collapse/expand) grup Tahap Pembangunan
   const [collapsedTahap, setCollapsedTahap] = useState({});
@@ -2305,6 +2316,144 @@ export function OkupansiView({ data }) {
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 5000);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Daftar seluruh tahap pembangunan unik
+  const allTahapList = useMemo(() => {
+    const list = (data?.odpData || []).map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').filter(Boolean);
+    return [...new Set(list)].sort();
+  }, [data?.odpData]);
+
+  // Data ODP terfilter untuk modal Kelola ODP
+  const filteredManageOdps = useMemo(() => {
+    let list = data?.odpData || [];
+    if (manageStationFilter) {
+      list = list.filter(o => String(o.stasiun || '').trim().toLowerCase() === manageStationFilter.toLowerCase());
+    }
+    if (manageTahapFilter) {
+      list = list.filter(o => String(o.tahapPembangunan || o.tahap_pembangunan || '').trim().toLowerCase() === manageTahapFilter.toLowerCase());
+    }
+    if (manageSearch.trim()) {
+      const q = manageSearch.trim().toLowerCase();
+      list = list.filter(o =>
+        String(o.kodeOdp || o.kode_odp || '').toLowerCase().includes(q) ||
+        String(o.label || '').toLowerCase().includes(q) ||
+        String(o.kodeOdc || o.kode_odc || '').toLowerCase().includes(q) ||
+        String(o.stasiun || '').toLowerCase().includes(q) ||
+        String(o.tahapPembangunan || o.tahap_pembangunan || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [data?.odpData, manageStationFilter, manageTahapFilter, manageSearch]);
+
+  const MANAGE_ITEMS_PER_PAGE = 12;
+  const totalManagePages = Math.max(1, Math.ceil(filteredManageOdps.length / MANAGE_ITEMS_PER_PAGE));
+  const paginatedManageOdps = useMemo(() => {
+    const start = (managePage - 1) * MANAGE_ITEMS_PER_PAGE;
+    return filteredManageOdps.slice(start, start + MANAGE_ITEMS_PER_PAGE);
+  }, [filteredManageOdps, managePage]);
+
+  const handleOpenManageModal = () => {
+    setManageStationFilter(selectedStation || '');
+    setManageTahapFilter('');
+    setManageSearch('');
+    setManagePage(1);
+    setShowManageOdpModal(true);
+  };
+
+  const handleOpenEdit = (odp) => {
+    setEditingOdp({
+      id: odp.id,
+      label: odp.label || odp.kodeOdp || '',
+      kode_odp: odp.kodeOdp || odp.kode_odp || odp.label || '',
+      kode_odc: odp.kodeOdc || odp.kode_odc || '',
+      tahap_pembangunan: odp.tahapPembangunan || odp.tahap_pembangunan || '',
+      kapasitas: Number(odp.kapasitas) || 8,
+      port_terpakai: Number(odp.portTerpakai ?? odp.port_terpakai) || 0,
+      latitude: odp.latitude || '',
+      longitude: odp.longitude || '',
+      stasiun: odp.stasiun || selectedStation || ''
+    });
+  };
+
+  const handleSaveEditOdp = async (e) => {
+    e?.preventDefault();
+    if (!editingOdp || !editingOdp.id) return;
+    setIsSavingEdit(true);
+    try {
+      const payload = {
+        label: editingOdp.label.trim(),
+        kode_odp: editingOdp.kode_odp.trim(),
+        kode_odc: editingOdp.kode_odc.trim(),
+        tahap_pembangunan: editingOdp.tahap_pembangunan.trim(),
+        kapasitas: Number(editingOdp.kapasitas) || 8,
+        latitude: String(editingOdp.latitude || '').trim(),
+        longitude: String(editingOdp.longitude || '').trim(),
+        stasiun: toProperCase(editingOdp.stasiun.trim())
+      };
+
+      const { error } = await supabase
+        .from('odp')
+        .update(payload)
+        .eq('id', editingOdp.id);
+
+      if (error) throw error;
+
+      if (typeof setData === 'function') {
+        setData(prev => {
+          const updated = (prev.odpData || []).map(o => o.id === editingOdp.id ? {
+            ...o,
+            ...payload,
+            kodeOdp: payload.kode_odp,
+            kodeOdc: payload.kode_odc,
+            tahapPembangunan: payload.tahap_pembangunan
+          } : o);
+          setCachedData('otas_odp_cache', updated);
+          return { ...prev, odpData: updated };
+        });
+      }
+
+      setSyncToast({ show: true, type: 'success', message: `ODP ${payload.kode_odp} berhasil diperbarui!` });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
+      setEditingOdp(null);
+    } catch (err) {
+      console.error("Gagal update ODP:", err);
+      setSyncToast({ show: true, type: 'error', message: 'Gagal update ODP: ' + err.message });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteOdp = async () => {
+    if (!deletingOdp || !deletingOdp.id) return;
+    setIsDeletingOdp(true);
+    try {
+      const { error } = await supabase
+        .from('odp')
+        .delete()
+        .eq('id', deletingOdp.id);
+
+      if (error) throw error;
+
+      if (typeof setData === 'function') {
+        setData(prev => {
+          const filtered = (prev.odpData || []).filter(o => o.id !== deletingOdp.id);
+          setCachedData('otas_odp_cache', filtered);
+          return { ...prev, odpData: filtered };
+        });
+      }
+
+      setSyncToast({ show: true, type: 'success', message: `ODP ${deletingOdp.kodeOdp || deletingOdp.label} berhasil dihapus!` });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
+      setDeletingOdp(null);
+    } catch (err) {
+      console.error("Gagal hapus ODP:", err);
+      setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus ODP: ' + err.message });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+    } finally {
+      setIsDeletingOdp(false);
     }
   };
 
@@ -2580,11 +2729,11 @@ export function OkupansiView({ data }) {
           </div>
 
           <button
-            onClick={() => setShowBulkModal(true)}
-            className="w-auto shrink-0 px-3 py-2 sm:px-4 sm:py-2.5 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 font-bold flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-95"
+            onClick={handleOpenManageModal}
+            className="w-auto shrink-0 px-3 py-2 sm:px-4 sm:py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 font-bold flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-95 cursor-pointer"
           >
-            <Icon name="upload" size={14} className="sm:w-4 sm:h-4" />
-            <span className="text-xs sm:text-sm">Tambah ODP</span>
+            <Icon name="sliders" size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Kelola ODP</span>
           </button>
         </div>
       </div>
@@ -3279,6 +3428,439 @@ export function OkupansiView({ data }) {
                 className="px-5 py-2 text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
               >
                 Batal Upload
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL KELOLA ODP */}
+      {showManageOdpModal && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col relative animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
+
+            {/* HEADER MODAL */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner shrink-0">
+                  <Icon name="sliders" size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-black text-slate-800">Kelola Data ODP</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {filteredManageOdps.length} ODP
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">Filter, cari, edit data koordinat/tahap, atau hapus ODP stasiun</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowManageOdpModal(false)}
+                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+              >
+                <Icon name="x" size={20} />
+              </button>
+            </div>
+
+            {/* TOOLBAR FILTER & AKSI */}
+            <div className="p-4 border-b border-slate-100 bg-white flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0">
+              <div className="flex flex-wrap items-center gap-2 flex-1">
+                {/* Filter Stasiun */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <Icon name="map-pin" size={14} className="text-slate-400 shrink-0" />
+                  <select
+                    value={manageStationFilter}
+                    onChange={(e) => {
+                      setManageStationFilter(e.target.value);
+                      setManagePage(1);
+                    }}
+                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                  >
+                    <option value="">Semua Stasiun</option>
+                    {uniqueStations.map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter Tahap Pembangunan */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <Icon name="tag" size={14} className="text-slate-400 shrink-0" />
+                  <select
+                    value={manageTahapFilter}
+                    onChange={(e) => {
+                      setManageTahapFilter(e.target.value);
+                      setManagePage(1);
+                    }}
+                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[160px]"
+                  >
+                    <option value="">Semua Tahap</option>
+                    {allTahapList.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Search Box */}
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-1 min-w-[180px] shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+                  <Icon name="search" size={14} className="text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={manageSearch}
+                    onChange={(e) => {
+                      setManageSearch(e.target.value);
+                      setManagePage(1);
+                    }}
+                    placeholder="Cari ODP, ODC, atau Stasiun..."
+                    className="w-full text-xs bg-transparent text-slate-700 placeholder:text-slate-400 focus:outline-none font-medium"
+                  />
+                  {manageSearch && (
+                    <button onClick={() => { setManageSearch(''); setManagePage(1); }} className="text-slate-400 hover:text-slate-600">
+                      <Icon name="x" size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tombol Tambah ODP (Pindah ke sini) */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowBulkModal(true)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  <Icon name="upload-cloud" size={16} />
+                  <span>+ Tambah / Upload ODP</span>
+                </button>
+              </div>
+            </div>
+
+            {/* TABEL DAFTAR ODP */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-100/80 text-slate-500 uppercase text-[10px] font-bold tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-3.5 text-center w-12">No</th>
+                      <th className="py-3 px-3.5">Kode ODP</th>
+                      <th className="py-3 px-3.5">Stasiun</th>
+                      <th className="py-3 px-3.5">ODC</th>
+                      <th className="py-3 px-3.5">Tahap Pembangunan</th>
+                      <th className="py-3 px-3.5 text-center">Port</th>
+                      <th className="py-3 px-3.5">Koordinat</th>
+                      <th className="py-3 px-3.5 text-center w-28">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {paginatedManageOdps.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" className="py-12 text-center text-slate-400">
+                          <Icon name="inbox" size={36} className="mx-auto mb-2 text-slate-300" />
+                          <p className="font-bold text-sm">Tidak ada data ODP yang sesuai</p>
+                          <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau filter stasiun/tahap</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedManageOdps.map((odp, idx) => {
+                        const rowNum = (managePage - 1) * MANAGE_ITEMS_PER_PAGE + idx + 1;
+                        const terpakai = Number(odp.portTerpakai ?? odp.port_terpakai) || 0;
+                        const kapasitas = Number(odp.kapasitas) || 8;
+                        const pct = kapasitas > 0 ? (terpakai / kapasitas) * 100 : 0;
+                        const hasCoords = odp.latitude && odp.longitude && odp.latitude !== '0' && odp.longitude !== '0';
+
+                        return (
+                          <tr key={odp.id || odp.kodeOdp || idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 px-3.5 text-center text-slate-400 font-bold text-[11px]">{rowNum}</td>
+                            <td className="py-2.5 px-3.5">
+                              <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                {odp.kodeOdp || odp.label}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3.5">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
+                                {odp.stasiun || '-'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3.5 text-slate-700 font-semibold">{odp.kodeOdc || '-'}</td>
+                            <td className="py-2.5 px-3.5">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-100">
+                                {odp.tahapPembangunan || odp.tahap_pembangunan || 'Tanpa Tahap'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3.5 text-center">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                                pct >= 100 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
+                                pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              }`}>
+                                {terpakai}/{kapasitas} ({pct.toFixed(0)}%)
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3.5 text-[11px] text-slate-500 font-mono">
+                              {hasCoords ? (
+                                <a
+                                  href={`https://www.google.com/maps?q=${odp.latitude},${odp.longitude}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  title="Lihat di Google Maps"
+                                >
+                                  <Icon name="map-pin" size={11} className="shrink-0" />
+                                  <span className="truncate max-w-[130px]">{odp.latitude}, {odp.longitude}</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-300 italic">-</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3.5 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenEdit(odp)}
+                                  className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                                  title="Edit ODP"
+                                >
+                                  <Icon name="edit-3" size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setDeletingOdp(odp)}
+                                  className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
+                                  title="Hapus ODP"
+                                >
+                                  <Icon name="trash-2" size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* FOOTER & PAGINATION */}
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-500 font-medium">
+                Menampilkan <strong className="text-slate-800">{filteredManageOdps.length === 0 ? 0 : (managePage - 1) * MANAGE_ITEMS_PER_PAGE + 1}</strong> - <strong className="text-slate-800">{Math.min(managePage * MANAGE_ITEMS_PER_PAGE, filteredManageOdps.length)}</strong> dari <strong className="text-slate-800">{filteredManageOdps.length}</strong> ODP
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setManagePage(p => Math.max(1, p - 1))}
+                  disabled={managePage === 1}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  Sebelumnya
+                </button>
+                <span className="text-xs font-bold text-slate-700 px-2">
+                  Halaman {managePage} / {totalManagePages}
+                </span>
+                <button
+                  onClick={() => setManagePage(p => Math.min(totalManagePages, p + 1))}
+                  disabled={managePage >= totalManagePages}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  Berikutnya
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL EDIT ODP */}
+      {editingOdp && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col relative animate-scale-up overflow-hidden border border-slate-100">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-blue-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                  <Icon name="edit-3" size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Edit Data ODP</h3>
+                  <p className="text-xs text-slate-500 font-mono font-medium">{editingOdp.kode_odp}</p>
+                </div>
+              </div>
+              <button onClick={() => !isSavingEdit && setEditingOdp(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer">
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditOdp} className="p-5 space-y-3.5 text-xs text-slate-700">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Kode ODP <span className="text-rose-500">*</span></label>
+                  <input
+                    required
+                    value={editingOdp.kode_odp}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, kode_odp: e.target.value, label: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Kode ODC</label>
+                  <input
+                    value={editingOdp.kode_odc}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, kode_odc: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Stasiun <span className="text-rose-500">*</span></label>
+                  <select
+                    required
+                    value={editingOdp.stasiun}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, stasiun: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold cursor-pointer"
+                  >
+                    {uniqueStations.map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Kapasitas (Port)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="144"
+                    value={editingOdp.kapasitas}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, kapasitas: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Tahap Pembangunan</label>
+                <input
+                  value={editingOdp.tahap_pembangunan}
+                  onChange={(e) => setEditingOdp({ ...editingOdp, tahap_pembangunan: e.target.value })}
+                  placeholder="Contoh: Percepatan 2080HP"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Latitude</label>
+                  <input
+                    value={editingOdp.latitude}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, latitude: e.target.value })}
+                    placeholder="-7.123456"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-[11px]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Longitude</label>
+                  <input
+                    value={editingOdp.longitude}
+                    onChange={(e) => setEditingOdp({ ...editingOdp, longitude: e.target.value })}
+                    placeholder="110.123456"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-[11px]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingOdp(null)}
+                  disabled={isSavingEdit}
+                  className="px-4 py-2 rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-all cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  {isSavingEdit ? (
+                    <><Icon name="loader" size={14} className="animate-spin" /> Menyimpan...</>
+                  ) : (
+                    <><Icon name="save" size={14} /> Simpan Perubahan</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS ODP */}
+      {deletingOdp && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col relative animate-scale-up overflow-hidden border border-slate-100">
+            <div className="p-5 border-b border-rose-100 flex items-center gap-3 bg-rose-50/70">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Icon name="trash-2" size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Hapus Data ODP?</h3>
+                <p className="text-xs text-rose-600 font-medium">Tindakan ini permanen dan tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-slate-600">
+              <p>Apakah Anda yakin ingin menghapus data ODP berikut dari database sistem?</p>
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Kode ODP:</span>
+                  <strong className="font-mono text-slate-800">{deletingOdp.kodeOdp || deletingOdp.label}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Stasiun:</span>
+                  <span className="font-bold text-blue-700">{deletingOdp.stasiun}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Tahap:</span>
+                  <span className="text-slate-700 font-medium">{deletingOdp.tahapPembangunan || deletingOdp.tahap_pembangunan || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Port Terpakai:</span>
+                  <span className={`font-bold ${Number(deletingOdp.portTerpakai ?? deletingOdp.port_terpakai) > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                    {deletingOdp.portTerpakai ?? deletingOdp.port_terpakai ?? 0} / {deletingOdp.kapasitas || 8} Port
+                  </span>
+                </div>
+              </div>
+
+              {Number(deletingOdp.portTerpakai ?? deletingOdp.port_terpakai) > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start gap-2">
+                  <Icon name="alert-triangle" size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <span><strong>Perhatian:</strong> ODP ini masih memiliki {deletingOdp.portTerpakai ?? deletingOdp.port_terpakai} port pelanggan terpakai! Pastikan pelanggan telah dipindahkan sebelum menghapus.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2.5 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={() => setDeletingOdp(null)}
+                disabled={isDeletingOdp}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-all text-xs cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteOdp}
+                disabled={isDeletingOdp}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-md flex items-center gap-1.5 transition-all text-xs cursor-pointer"
+              >
+                {isDeletingOdp ? (
+                  <><Icon name="loader" size={14} className="animate-spin" /> Menghapus...</>
+                ) : (
+                  <><Icon name="trash-2" size={14} /> Ya, Hapus ODP</>
+                )}
               </button>
             </div>
           </div>
