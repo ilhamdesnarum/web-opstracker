@@ -3438,7 +3438,7 @@ export function OkupansiView({ data, setData }) {
       {/* MODAL KELOLA ODP */}
       {showManageOdpModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col relative animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-7xl flex flex-col relative animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* HEADER MODAL */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
@@ -3538,18 +3538,18 @@ export function OkupansiView({ data, setData }) {
 
             {/* TABEL DAFTAR ODP */}
             <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full text-left text-xs text-slate-600">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
+                <table className="w-full text-left text-xs text-slate-600 min-w-[850px]">
                   <thead className="bg-slate-100/80 text-slate-500 uppercase text-[10px] font-bold tracking-wider sticky top-0 z-10 border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-3.5 text-center w-12">No</th>
-                      <th className="py-3 px-3.5">Kode ODP</th>
-                      <th className="py-3 px-3.5">Stasiun</th>
-                      <th className="py-3 px-3.5">ODC</th>
-                      <th className="py-3 px-3.5">Tahap Pembangunan</th>
-                      <th className="py-3 px-3.5 text-center">Port</th>
-                      <th className="py-3 px-3.5">Koordinat</th>
-                      <th className="py-3 px-3.5 text-center w-28">Aksi</th>
+                      <th className="py-3 px-3.5 text-center w-12 whitespace-nowrap">No</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">Kode ODP</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">Stasiun</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">ODC</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[190px]">Tahap Pembangunan</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap">Port</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[160px]">Koordinat</th>
+                      <th className="py-3 px-3.5 text-center w-24 whitespace-nowrap">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
@@ -3571,24 +3571,24 @@ export function OkupansiView({ data, setData }) {
 
                         return (
                           <tr key={odp.id || odp.kodeOdp || idx} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="py-2.5 px-3.5 text-center text-slate-400 font-bold text-[11px]">{rowNum}</td>
-                            <td className="py-2.5 px-3.5">
+                            <td className="py-2.5 px-3.5 text-center text-slate-400 font-bold text-[11px] whitespace-nowrap">{rowNum}</td>
+                            <td className="py-2.5 px-3.5 whitespace-nowrap">
                               <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                                 {odp.kodeOdp || odp.label}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3.5">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap">
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
                                 {odp.stasiun || '-'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3.5 text-slate-700 font-semibold">{odp.kodeOdc || '-'}</td>
-                            <td className="py-2.5 px-3.5">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-100">
+                            <td className="py-2.5 px-3.5 text-slate-700 font-semibold whitespace-nowrap">{odp.kodeOdc || '-'}</td>
+                            <td className="py-2.5 px-3.5 whitespace-nowrap min-w-[190px]">
+                              <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-100 whitespace-nowrap">
                                 {odp.tahapPembangunan || odp.tahap_pembangunan || 'Tanpa Tahap'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3.5 text-center">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
                                 pct >= 100 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
                                 pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
@@ -3597,7 +3597,7 @@ export function OkupansiView({ data, setData }) {
                                 {terpakai}/{kapasitas} ({pct.toFixed(0)}%)
                               </span>
                             </td>
-                            <td className="py-2.5 px-3.5 text-[11px] text-slate-500 font-mono">
+                            <td className="py-2.5 px-3.5 text-[11px] text-slate-500 font-mono whitespace-nowrap">
                               {hasCoords ? (
                                 <a
                                   href={`https://www.google.com/maps?q=${odp.latitude},${odp.longitude}`}
@@ -3607,13 +3607,13 @@ export function OkupansiView({ data, setData }) {
                                   title="Lihat di Google Maps"
                                 >
                                   <Icon name="map-pin" size={11} className="shrink-0" />
-                                  <span className="truncate max-w-[130px]">{odp.latitude}, {odp.longitude}</span>
+                                  <span>{odp.latitude}, {odp.longitude}</span>
                                 </a>
                               ) : (
                                 <span className="text-slate-300 italic">-</span>
                               )}
                             </td>
-                            <td className="py-2.5 px-3.5 text-center">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                               <div className="flex items-center justify-center gap-1.5">
                                 <button
                                   onClick={() => handleOpenEdit(odp)}
