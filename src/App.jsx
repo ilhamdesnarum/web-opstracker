@@ -3138,8 +3138,8 @@ export function OkupansiView({ data, setData }) {
             </div>
           </div>
 
-          <div className="bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-emerald-100 flex flex-col order-1 lg:order-2">
-            <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <div className="bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-emerald-100 flex flex-col order-1 lg:order-2 h-full">
+            <div className="flex items-center justify-between mb-3 sm:mb-4 shrink-0">
               <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center">
                 <Icon name="bar-chart" size={18} className="mr-2 text-emerald-600" />
                 Kapasitas ODP ({selectedOdc.shortLabel})
@@ -3150,17 +3150,17 @@ export function OkupansiView({ data, setData }) {
               </div>
             </div>
 
-            <div className={`flex-1 w-full min-h-[260px] sm:min-h-[350px] overflow-x-auto custom-scrollbar flex ${selectedOdc.odps.length < 6 ? 'justify-center' : 'justify-start'}`}>
+            <div className={`flex-1 min-h-[220px] lg:min-h-0 w-full overflow-x-auto custom-scrollbar flex ${selectedOdc.odps.length < 6 ? 'justify-center' : 'justify-start'}`}>
               <div style={{
                 width: selectedOdc.odps.length < 6 ? `${selectedOdc.odps.length * 70}px` : '100%',
                 minWidth: selectedOdc.odps.length >= 6 ? `${selectedOdc.odps.length * 50}px` : 'auto',
                 minHeight: '100%',
                 height: '100%'
               }}>
-                <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={260} debounce={50}>
-                  <BarChart data={selectedOdc.odps} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={10} debounce={50}>
+                  <BarChart data={selectedOdc.odps} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={10} interval={0} />
+                    <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={5} interval={0} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                     <Tooltip content={<CustomOkupansiTooltip />} cursor={{ fill: '#f8fafc' }} />
                     <Bar dataKey="terpakai" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} maxBarSize={50} />
