@@ -3072,7 +3072,7 @@ export function OkupansiView({ data, setData }) {
       {selectedOdc && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2 animate-in slide-in-from-bottom-4 duration-500">
 
-          <div className="bg-white rounded-xl shadow-sm border border-emerald-100 flex flex-col overflow-hidden order-2 lg:order-1 h-full">
+          <div className="bg-white rounded-xl shadow-sm border border-emerald-100 flex flex-col overflow-hidden order-2 lg:order-1 self-start w-full">
             <div className="px-5 py-4 bg-emerald-700 text-white flex items-center justify-between">
               <div className="flex items-center">
                 <Icon name="layers" size={16} className="mr-2 text-emerald-300" />
@@ -3083,7 +3083,7 @@ export function OkupansiView({ data, setData }) {
               </span>
             </div>
 
-            <div className="overflow-auto flex-1 w-full max-h-[320px] sm:max-h-[400px] pb-2 custom-scrollbar">
+            <div className="overflow-auto w-full max-h-[320px] sm:max-h-[400px] custom-scrollbar">
               <table className="w-full text-[10px] sm:text-xs text-left">
                 <thead className="bg-slate-50 text-slate-500 font-bold shadow-sm">
                   <tr>
