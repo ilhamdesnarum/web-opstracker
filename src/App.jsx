@@ -3291,8 +3291,22 @@ export function OkupansiView({ data, setData }) {
                   <Icon name="upload-cloud" size={20} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-extrabold text-slate-800">Upload Data ODP</h2>
-                  <p className="text-xs text-slate-500 font-medium">Membaca data dari Excel/Spreadsheet Template Summary Aset ODP</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg font-extrabold text-slate-800">Upload Data ODP</h2>
+                    {(manageStationFilter || selectedStation) && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
+                        <Icon name="map-pin" size={11} />
+                        Stasiun: {manageStationFilter || selectedStation}
+                      </span>
+                    )}
+                    {manageTahapFilter && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1">
+                        <Icon name="tag" size={11} />
+                        Tahap: {manageTahapFilter}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">Membaca data dari Excel/Spreadsheet Template Summary Aset ODP (Filter terkunci dari Kelola Data ODP)</p>
                 </div>
               </div>
               <button onClick={() => !isUploading && setShowBulkModal(false)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors">
@@ -3327,35 +3341,39 @@ export function OkupansiView({ data, setData }) {
                           // header: 1 returns 2D array
                           const data = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
 
-                          let stationName = selectedStation;
-                          // Coba cari nama stasiun secara dinamis di 10 baris pertama
-                          for (let i = 0; i < 10 && i < data.length; i++) {
-                            const row = data[i];
-                            if (!row) continue;
-                            for (let c = 0; c < row.length; c++) {
-                              if (String(row[c]).toLowerCase().includes('nama stasiun')) {
-                                // Ambil nilai pertama di sebelah kanan yang BUKAN titik dua (:) atau kosong
-                                for (let k = c + 1; k < row.length; k++) {
-                                  let val = String(row[k] || '').trim();
-                                  if (val && val !== ':') {
-                                    stationName = val;
-                                    break;
+                          // Kunci nama stasiun dari filter Kelola Data ODP
+                          const targetStation = manageStationFilter || selectedStation;
+                          let stationName = targetStation;
+                          // Coba cari nama stasiun secara dinamis di 10 baris pertama hanya jika manageStationFilter kosong
+                          if (!manageStationFilter) {
+                            for (let i = 0; i < 10 && i < data.length; i++) {
+                              const row = data[i];
+                              if (!row) continue;
+                              for (let c = 0; c < row.length; c++) {
+                                if (String(row[c]).toLowerCase().includes('nama stasiun')) {
+                                  // Ambil nilai pertama di sebelah kanan yang BUKAN titik dua (:) atau kosong
+                                  for (let k = c + 1; k < row.length; k++) {
+                                    let val = String(row[k] || '').trim();
+                                    if (val && val !== ':') {
+                                      stationName = val;
+                                      break;
+                                    }
                                   }
                                 }
                               }
                             }
-                          }
 
-                          // Bersihkan nama stasiun dari karakter ":", "Stasiun ", dsb
-                          if (stationName) {
-                            stationName = stationName
-                              .replace(/^[:\s-]+/, '')
-                              .replace(/^stasiun\s+/i, '')
-                              .trim();
-                            stationName = toProperCase(stationName);
-                          }
-                          if (!stationName) {
-                            stationName = selectedStation;
+                            // Bersihkan nama stasiun dari karakter ":", "Stasiun ", dsb
+                            if (stationName) {
+                              stationName = stationName
+                                .replace(/^[:\s-]+/, '')
+                                .replace(/^stasiun\s+/i, '')
+                                .trim();
+                              stationName = toProperCase(stationName);
+                            }
+                            if (!stationName) {
+                              stationName = selectedStation;
+                            }
                           }
 
                           // Cari baris header tabel secara dinamis
@@ -3390,9 +3408,11 @@ export function OkupansiView({ data, setData }) {
                             const row = data[i];
                             if (!row) continue;
 
-                            const odpName = String(row[colIdx.odp] || '').trim();
-                            if (!odpName || odpName === '' || odpName.toLowerCase() === 'jumlah') continue;
+                            const rawOdpName = String(row[colIdx.odp] || '').trim();
+                            if (!rawOdpName || rawOdpName === '' || rawOdpName.toLowerCase() === 'jumlah') continue;
 
+                            // Normalisasi kode ODP (misal _96_L1 -> _096_L1)
+                            const odpName = cleanOdpStr(rawOdpName);
                             const kapasitas = parseInt(row[colIdx.port]) || 8;
                             let val1 = parseFloat(row[colIdx.lat]);
                             let val2 = parseFloat(row[colIdx.lng]);
@@ -3411,8 +3431,8 @@ export function OkupansiView({ data, setData }) {
                               kodeOdc = odpName.substring(0, odpName.lastIndexOf('_L'));
                             }
 
-                            let tahap = "";
-                            if (colIdx.keterangan !== -1) {
+                            let tahap = manageTahapFilter || "";
+                            if (!tahap && colIdx.keterangan !== -1) {
                               tahap = String(row[colIdx.keterangan] || "").trim();
                             }
 
@@ -3421,7 +3441,7 @@ export function OkupansiView({ data, setData }) {
                               latitude: String(lat),
                               longitude: String(lng),
                               port_terpakai: 0,
-                              tahap_pembangunan: tahap, // Akan ditimpa oleh input user
+                              tahap_pembangunan: tahap, // Akan dikunci/ditimpa oleh input user
                               kapasitas: kapasitas,
                               kode_odp: odpName,
                               kode_odc: kodeOdc,
@@ -3434,7 +3454,7 @@ export function OkupansiView({ data, setData }) {
                             setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
                           } else {
                             setParsedExcelData(newPayload);
-                            setInputTahap('');
+                            setInputTahap(manageTahapFilter || '');
                             setIsNewTahap(false);
                           }
 
@@ -3457,7 +3477,13 @@ export function OkupansiView({ data, setData }) {
                       </div>
                       <div className="flex items-center gap-2 relative z-10">
                         <span className="text-sm font-bold text-slate-600">Tahap Pembangunan <span className="text-rose-500">*</span></span>
-                        {!isNewTahap ? (
+                        {manageTahapFilter ? (
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg text-sm font-bold text-purple-700 shadow-sm">
+                            <Icon name="lock" size={14} className="text-purple-600" />
+                            <span>{manageTahapFilter}</span>
+                            <span className="text-[10px] font-normal text-purple-500 ml-1">(Terkunci dari filter modal)</span>
+                          </div>
+                        ) : !isNewTahap ? (
                           <select
                             value={inputTahap}
                             onChange={(e) => {
@@ -3471,7 +3497,7 @@ export function OkupansiView({ data, setData }) {
                             className="text-sm px-3 py-1.5 w-64 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors cursor-pointer"
                           >
                             <option value="" disabled hidden>Pilih atau Tambah Baru</option>
-                            {okupansiData.existingTahapList && okupansiData.existingTahapList.map(t => (
+                            {allTahapList && allTahapList.map(t => (
                               <option key={t} value={t} className="text-slate-700">{t}</option>
                             ))}
                             <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Baru...</option>
@@ -3492,7 +3518,7 @@ export function OkupansiView({ data, setData }) {
                         )}
                       </div>
                     </div>
-                    <button onClick={() => { setParsedExcelData([]); setInputTahap(''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
+                    <button onClick={() => { setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
                       Ganti File
                     </button>
                   </div>
@@ -3531,7 +3557,7 @@ export function OkupansiView({ data, setData }) {
 
             <div className="p-5 border-t border-slate-100 bg-white rounded-b-2xl flex justify-end gap-3 shrink-0">
               <button
-                onClick={() => { setShowBulkModal(false); setParsedExcelData([]); setInputTahap(''); setIsNewTahap(false); }}
+                onClick={() => { setShowBulkModal(false); setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); }}
                 disabled={isUploading}
                 className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
               >
@@ -3540,7 +3566,8 @@ export function OkupansiView({ data, setData }) {
               <button
                 onClick={async () => {
                   if (parsedExcelData.length === 0) return;
-                  if (!inputTahap.trim()) return;
+                  const effectiveTahap = (manageTahapFilter || inputTahap).trim();
+                  if (!effectiveTahap) return;
 
                   const existingOdpMap = new Map();
                   (data.odpData || []).forEach(o => {
@@ -3553,14 +3580,17 @@ export function OkupansiView({ data, setData }) {
                     return !isNaN(num) && num > max ? num : max;
                   }, 12785);
 
-                  // Terapkan nilai inputTahap ke semua odp sebelum dikirim dan pastikan memiliki ID integer untuk Supabase
+                  const targetStation = manageStationFilter || selectedStation || '';
+
+                  // Terapkan nilai effectiveTahap dan targetStation ke semua odp sebelum dikirim dan pastikan memiliki ID integer untuk Supabase
                   const finalPayload = parsedExcelData.map(odp => {
                     const key = String(odp.kode_odp || odp.label || '').trim().toLowerCase();
                     const existing = existingOdpMap.get(key);
                     return {
                       ...odp,
                       id: existing?.id || ++currentMaxId,
-                      tahap_pembangunan: inputTahap.trim()
+                      stasiun: targetStation || odp.stasiun || '',
+                      tahap_pembangunan: effectiveTahap
                     };
                   });
 
@@ -3579,8 +3609,8 @@ export function OkupansiView({ data, setData }) {
 
                   await handleUploadPayload(finalPayload);
                 }}
-                disabled={isUploading || parsedExcelData.length === 0 || !inputTahap.trim()}
-                className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-colors flex items-center gap-2 ${parsedExcelData.length === 0 || !inputTahap.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                disabled={isUploading || parsedExcelData.length === 0 || !(manageTahapFilter || inputTahap).trim()}
+                className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-colors flex items-center gap-2 ${parsedExcelData.length === 0 || !(manageTahapFilter || inputTahap).trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
               >
                 {isUploading ? (
                   <><Icon name="loader" size={16} className="animate-spin" /> Memproses...</>
@@ -3785,7 +3815,11 @@ export function OkupansiView({ data, setData }) {
                   <span>{isSyncingPorts ? 'Menyinkronkan...' : 'Sinkronkan Port'}</span>
                 </button>
                 <button
-                  onClick={() => setShowBulkModal(true)}
+                  onClick={() => {
+                    setInputTahap(manageTahapFilter || '');
+                    setIsNewTahap(false);
+                    setShowBulkModal(true);
+                  }}
                   className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
                 >
                   <Icon name="upload-cloud" size={16} />
