@@ -1617,15 +1617,25 @@ function App({ onLogout }) {
             let newOdpData = [...(prev.odpData || [])];
             if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
               const updatedOdp = parseSupabaseOdpDocument(payload.new);
-              const idx = newOdpData.findIndex(o => String(o.label || o.kodeOdp || '').trim().toUpperCase() === String(updatedOdp.label || updatedOdp.kodeOdp || '').trim().toUpperCase());
+              const idx = newOdpData.findIndex(o => {
+                if (o.id && updatedOdp.id && String(o.id) === String(updatedOdp.id)) return true;
+                const oKey = cleanOdpStr(o.kodeOdp || o.label || o.kode_odp);
+                const uKey = cleanOdpStr(updatedOdp.kodeOdp || updatedOdp.label || updatedOdp.kode_odp);
+                return Boolean(oKey && uKey && oKey === uKey);
+              });
               if (idx !== -1) {
                 newOdpData[idx] = { ...newOdpData[idx], ...updatedOdp };
               } else {
                 newOdpData.unshift(updatedOdp);
               }
             } else if (payload.eventType === 'DELETE') {
-              const deletedLabel = payload.old?.label || payload.old?.kode_odp;
-              newOdpData = newOdpData.filter(o => String(o.label || o.kodeOdp || '').trim().toUpperCase() !== String(deletedLabel || '').trim().toUpperCase());
+              const deletedId = payload.old?.id;
+              const deletedKey = cleanOdpStr(payload.old?.kode_odp || payload.old?.label);
+              newOdpData = newOdpData.filter(o => {
+                if (deletedId && o.id && String(o.id) === String(deletedId)) return false;
+                if (deletedKey && cleanOdpStr(o.kodeOdp || o.label || o.kode_odp) === deletedKey) return false;
+                return true;
+              });
             }
             setCachedData('otas_odp_cache_v3', newOdpData);
             return {
@@ -2380,18 +2390,30 @@ export function OkupansiView({ data, setData }) {
     }
   };
 
-  // Daftar seluruh tahap pembangunan unik
+  // Helper pencocokan nama stasiun (termasuk alias Tawang / Semarang Tawang)
+  const isStationMatch = (stationA, stationB) => {
+    const a = String(stationA || '').trim().toLowerCase();
+    const b = String(stationB || '').trim().toLowerCase();
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if ((a === 'semarang tawang' && b === 'tawang') || (a === 'tawang' && b === 'semarang tawang')) return true;
+    return false;
+  };
+
+  // Helper normalisasi nama tahap pembangunan (dash, non-breaking space, trim, lowercase)
+  const normalizeTahapStr = (str) => {
+    return String(str || '')
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/[\u00A0\s]+/g, ' ')
+      .trim()
+      .toLowerCase();
+  };
+
   // Daftar seluruh tahap pembangunan unik (hanya menampilkan tahap milik stasiun yang dipilih)
   const allTahapList = useMemo(() => {
     let list = data?.odpData || [];
     if (manageStationFilter) {
-      const target = manageStationFilter.trim().toLowerCase();
-      list = list.filter(o => {
-        const st = String(o.stasiun || '').trim().toLowerCase();
-        return st === target || 
-          (target === 'semarang tawang' && st === 'tawang') || 
-          (target === 'tawang' && st === 'semarang tawang');
-      });
+      list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
     }
     const tahap = list.map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').filter(Boolean);
     return [...new Set(tahap)].sort();
@@ -2400,9 +2422,10 @@ export function OkupansiView({ data, setData }) {
   // Otomatis reset manageTahapFilter jika stasiun berganti dan tahap aktif tidak ada di stasiun baru
   useEffect(() => {
     if (manageTahapFilter && manageStationFilter) {
+      const targetTahap = normalizeTahapStr(manageTahapFilter);
       const existsInStation = (data?.odpData || []).some(o =>
-        String(o.stasiun || '').trim().toLowerCase() === manageStationFilter.trim().toLowerCase() &&
-        String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim().toLowerCase() === manageTahapFilter.trim().toLowerCase()
+        isStationMatch(o.stasiun, manageStationFilter) &&
+        normalizeTahapStr(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === targetTahap
       );
       if (!existsInStation) {
         setManageTahapFilter('');
@@ -2413,17 +2436,29 @@ export function OkupansiView({ data, setData }) {
   // Data ODP terfilter untuk modal Kelola ODP
   const filteredManageOdps = useMemo(() => {
     let list = data?.odpData || [];
+
+    // Deduplikasi list ODP berdasarkan kode ODP unik agar tidak ada duplikasi data di modal
+    const seenCodes = new Set();
+    const uniqueList = [];
+    for (const o of list) {
+      const k = cleanOdpStr(o.kodeOdp || o.label || o.kode_odp);
+      if (k) {
+        if (!seenCodes.has(k)) {
+          seenCodes.add(k);
+          uniqueList.push(o);
+        }
+      } else {
+        uniqueList.push(o);
+      }
+    }
+    list = uniqueList;
+
     if (manageStationFilter) {
-      const target = manageStationFilter.trim().toLowerCase();
-      list = list.filter(o => {
-        const st = String(o.stasiun || '').trim().toLowerCase();
-        return st === target || 
-          (target === 'semarang tawang' && st === 'tawang') || 
-          (target === 'tawang' && st === 'semarang tawang');
-      });
+      list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
     }
     if (manageTahapFilter) {
-      list = list.filter(o => String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim().toLowerCase() === manageTahapFilter.trim().toLowerCase());
+      const targetTahap = normalizeTahapStr(manageTahapFilter);
+      list = list.filter(o => normalizeTahapStr(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === targetTahap);
     }
     if (manageSearch.trim()) {
       const q = manageSearch.trim().toLowerCase();
