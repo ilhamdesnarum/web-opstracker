@@ -2754,7 +2754,7 @@ export function OkupansiView({ data, setData }) {
 
           <button
             onClick={handleOpenManageModal}
-            className="w-auto shrink-0 px-3 py-2 sm:px-4 sm:py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 font-bold flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-95 cursor-pointer"
+            className="w-auto shrink-0 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#1e3a8a] text-white rounded-xl shadow-md hover:bg-[#172554] font-bold flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <Icon name="sliders" size={14} className="sm:w-4 sm:h-4" />
             <span className="text-xs sm:text-sm">Kelola ODP</span>
@@ -3467,13 +3467,13 @@ export function OkupansiView({ data, setData }) {
             {/* HEADER MODAL */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#1e3a8a] flex items-center justify-center shadow-inner shrink-0">
                   <Icon name="sliders" size={20} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-base sm:text-lg font-black text-slate-800">Kelola Data ODP</h2>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
                       {filteredManageOdps.length} ODP
                     </span>
                   </div>
@@ -3529,7 +3529,7 @@ export function OkupansiView({ data, setData }) {
                 </div>
 
                 {/* Search Box */}
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-1 min-w-[180px] shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-1 min-w-[180px] shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
                   <Icon name="search" size={14} className="text-slate-400 shrink-0" />
                   <input
                     type="text"
