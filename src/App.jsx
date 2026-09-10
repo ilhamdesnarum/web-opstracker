@@ -2080,18 +2080,31 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
 
   const realCustomers = useMemo(() => {
     if (!pelangganData || !odp) return [];
-    const targetOdpClean = cleanOdpStr(odp.originalLabel || odp.label || odp.kodeOdp || odp.kode_odp);
+    const targetKeys = new Set([
+      cleanOdpStr(odp.kodeOdp),
+      cleanOdpStr(odp.kode_odp),
+      cleanOdpStr(odp.label),
+      cleanOdpStr(odp.originalLabel),
+    ].filter(Boolean));
     const targetStasiun = String(odp.stasiun || '').trim().toLowerCase();
 
     const customersInOdp = pelangganData.filter(item => {
-      const custOdp = cleanOdpStr(item.odpAktual || item.odp || item.kodeOdp);
+      const custKeys = [
+        cleanOdpStr(item.odpAktual),
+        cleanOdpStr(item.odp),
+        cleanOdpStr(item.kodeOdp),
+        cleanOdpStr(item.kode_odp),
+      ].filter(Boolean);
+
       const custStasiun = String(item.stasiun || '').trim().toLowerCase();
 
-      const isStasiunMatch = !targetStasiun || !custStasiun || custStasiun === targetStasiun ||
-        (targetStasiun === 'semarang tawang' && custStasiun === 'tawang') ||
-        (targetStasiun === 'tawang' && custStasiun === 'semarang tawang');
+      const normSt = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const isStasiunMatch = !targetStasiun || !custStasiun ||
+        normSt(custStasiun) === normSt(targetStasiun) ||
+        (normSt(targetStasiun).includes('tawang') && normSt(custStasiun).includes('tawang')) ||
+        (custKeys.some(ck => ck.length > 8 && ck.includes('_')));
 
-      const isOdpMatch = targetOdpClean !== '' && custOdp === targetOdpClean;
+      const isOdpMatch = custKeys.some(ck => targetKeys.has(ck));
 
       return isStasiunMatch && isOdpMatch;
     });
