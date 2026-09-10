@@ -2879,9 +2879,9 @@ export function OkupansiView({ data }) {
 
             {/* OVERLAY SUKSES */}
             {isUploadSuccess && (
-              <div className="absolute inset-0 bg-emerald-500/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade text-white">
+              <div className="absolute inset-0 bg-emerald-600 z-[100] flex flex-col items-center justify-center animate-fade text-white">
                 <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-2xl mb-4 animate-bounce">
-                  <Icon name="check" size={40} className="text-emerald-500" />
+                  <Icon name="check" size={40} className="text-emerald-600" />
                 </div>
                 <h3 className="text-xl font-black mb-1">Berhasil Disimpan!</h3>
                 <p className="text-emerald-100 font-medium">Data {parsedExcelData.length} ODP telah ditambahkan.</p>
@@ -3058,7 +3058,7 @@ export function OkupansiView({ data }) {
                       <div className="text-sm font-bold text-slate-700 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-100 shadow-sm shrink-0">
                         {parsedExcelData.length} ODP Ditemukan
                       </div>
-                      <div className="flex items-center gap-2 relative z-50">
+                      <div className="flex items-center gap-2 relative z-10">
                         <span className="text-sm font-bold text-slate-600">Tahap Pembangunan <span className="text-rose-500">*</span></span>
                         {!isNewTahap ? (
                           <select
