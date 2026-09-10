@@ -33,8 +33,9 @@ function OkupansiMobileView({ data, activeStation }) {
   const handleOdpClick = (odp) => {
     if (!data || !data.pelangganData) return;
     
-    // Normalisasi: buang karakter selain huruf dan angka agar pencocokan kebal terhadap typo/spasi/simbol
-    const normalize = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Normalisasi: standarisasi 1-2 digit ODC/ODP ke 3 digit, buang karakter tersembunyi, dan buang simbol
+    const cleanOdp = (str) => String(str || '').replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '').trim().toUpperCase().replace(/_\s*(\d{1,2})\s*(_L\d+|_P\d+|_|$)/gi, (_, num, suffix) => '_' + num.padStart(3, '0') + suffix);
+    const normalize = (str) => String(cleanOdp(str) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     
     const odpStr = normalize(odp.label);
     const shortOdpStr = normalize(odp.shortLabel);

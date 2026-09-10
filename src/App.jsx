@@ -2051,8 +2051,21 @@ function MiniOdpMap({ targetOdp, allOdps = [], customers = [] }) {
 }
 
 
-// Helper pembersih karakter tersembunyi / unicode pada nama ODP
-export const cleanOdpStr = (str) => String(str || '').replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '').trim().toUpperCase();
+// Helper pembersih karakter tersembunyi / unicode dan penyeragaman format 3-digit pada kode ODP/ODC
+export const cleanOdpStr = (str) => {
+  if (!str) return '';
+  let clean = String(str)
+    .replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '')
+    .trim()
+    .toUpperCase();
+
+  // Standarisasi nomor ODC/ODP 1 atau 2 digit menjadi 3 digit (contoh: _96_L1 -> _096_L1, _6_L1 -> _006_L1, _96 -> _096)
+  clean = clean.replace(/_\s*(\d{1,2})\s*(_L\d+|_P\d+|_|$)/gi, (match, num, suffix) => {
+    return '_' + num.padStart(3, '0') + suffix;
+  });
+
+  return clean;
+};
 
 // ==========================================
 // MODALS & POP-UPS
@@ -2421,8 +2434,10 @@ export function OkupansiView({ data, setData }) {
           const valB = String(b.kodeOdc || b.kode_odc || '');
           comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
         } else if (manageSortKey === 'port') {
-          const aTerpakai = Number(a.portTerpakai ?? a.port_terpakai) || 0;
-          const bTerpakai = Number(b.portTerpakai ?? b.port_terpakai) || 0;
+          const aKey = cleanOdpStr(a.kodeOdp || a.label || a.kode_odp);
+          const bKey = cleanOdpStr(b.kodeOdp || b.label || b.kode_odp);
+          const aTerpakai = customerCountByOdp[aKey] !== undefined ? customerCountByOdp[aKey] : (Number(a.portTerpakai ?? a.port_terpakai) || 0);
+          const bTerpakai = customerCountByOdp[bKey] !== undefined ? customerCountByOdp[bKey] : (Number(b.portTerpakai ?? b.port_terpakai) || 0);
           const aKap = Number(a.kapasitas) || 8;
           const bKap = Number(b.kapasitas) || 8;
           const aPct = aKap > 0 ? (aTerpakai / aKap) : 0;
@@ -2433,7 +2448,7 @@ export function OkupansiView({ data, setData }) {
       });
     }
     return list;
-  }, [data?.odpData, manageStationFilter, manageTahapFilter, manageSearch, manageSortKey, manageSortOrder]);
+  }, [data?.odpData, customerCountByOdp, manageStationFilter, manageTahapFilter, manageSearch, manageSortKey, manageSortOrder]);
 
   const MANAGE_ITEMS_PER_PAGE = 12;
   const totalManagePages = Math.max(1, Math.ceil(filteredManageOdps.length / MANAGE_ITEMS_PER_PAGE));
@@ -2710,7 +2725,8 @@ export function OkupansiView({ data, setData }) {
 
     // 2. Mapping & Grouping berdasarkan Kode ODC
     uniqueStationOdps.forEach(odp => {
-      const odcCode = odp.kodeOdc || odp['Kode ODC'] || odp.KodeOdc || 'TANPA-ODC';
+      const rawOdc = odp.kodeOdc || odp['Kode ODC'] || odp.KodeOdc || 'TANPA-ODC';
+      const odcCode = rawOdc !== 'TANPA-ODC' ? cleanOdpStr(rawOdc) : 'TANPA-ODC';
       const odpLabel = odp.kodeOdp || odp['Kode ODP'] || odp.label || odp.Label || 'ODP-UNKNOWN';
       const kapasitas = Number(odp.kapasitas || odp.Kapasitas) || 0;
       const odpCleanKey = cleanOdpStr(odpLabel || odp.kodeOdp || odp.label);
