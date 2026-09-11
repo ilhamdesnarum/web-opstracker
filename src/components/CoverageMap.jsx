@@ -43,10 +43,31 @@ const CoverageMap = ({ data, targetCoords }) => {
 
   useEffect(() => {
     if (window.L && mapRef.current && !mapInstance.current) {
-      mapInstance.current = window.L.map(mapRef.current).setView([-6.957, 110.252], 13); 
-      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
-      }).addTo(mapInstance.current);
+      mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView([-6.957, 110.252], 13); 
+      
+      const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+      });
+
+      googleStreets.addTo(mapInstance.current);
+
+      window.L.control.layers({
+        "Peta Jalan (Cepat & Ringan)": googleStreets,
+        "Satelit / Hybrid": googleHybrid,
+        "OpenStreetMap": osmLayer
+      }, null, { position: 'topright' }).addTo(mapInstance.current);
+
       setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 250);
     }
     return () => {

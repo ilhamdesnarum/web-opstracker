@@ -1948,12 +1948,25 @@ const MobileApp = () => {
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = window.L.map(mapRef.current, {
         zoomControl: false,
-        attributionControl: false
+        attributionControl: false,
+        preferCanvas: true
       }).setView([-7.0051, 110.4381], 13); // Default Semarang center
 
-      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19
-      }).addTo(mapInstance.current);
+      const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+
+      googleStreets.addTo(mapInstance.current);
+
+      window.L.control.layers({
+        "Peta Jalan": googleStreets,
+        "Satelit": googleHybrid
+      }, null, { position: 'topright' }).addTo(mapInstance.current);
 
       markerLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
       userLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);

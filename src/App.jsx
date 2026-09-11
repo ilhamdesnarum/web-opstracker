@@ -1914,10 +1914,19 @@ function MiniOdpMap({ targetOdp, allOdps = [], customers = [] }) {
       const tLng = parseFloat(String(targetOdp.longitude || '').replace(',', '.'));
       const center = (!isNaN(tLat) && !isNaN(tLng)) ? [tLat, tLng] : [-6.957, 110.252];
 
-      mapInstance.current = window.L.map(mapRef.current).setView(center, 18);
-      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://carto.com/">CartoDB</a>', maxZoom: 20
-      }).addTo(mapInstance.current);
+      mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView(center, 18);
+      const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps', maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps', maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      googleStreets.addTo(mapInstance.current);
+
+      window.L.control.layers({
+        "Peta Jalan": googleStreets,
+        "Satelit": googleHybrid
+      }, null, { position: 'topright' }).addTo(mapInstance.current);
 
       const markerLayer = window.L.layerGroup().addTo(mapInstance.current);
 
@@ -11460,10 +11469,31 @@ function CoverageGISView({ data, targetCoords }) {
 
   useEffect(() => {
     if (window.L && mapRef.current && !mapInstance.current) {
-      mapInstance.current = window.L.map(mapRef.current).setView([-6.957, 110.252], 13);
-      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://carto.com/">CartoDB</a>', maxZoom: 20
-      }).addTo(mapInstance.current);
+      mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView([-6.957, 110.252], 13);
+      
+      const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+      });
+      const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+      });
+
+      googleStreets.addTo(mapInstance.current);
+
+      window.L.control.layers({
+        "Peta Jalan (Cepat & Ringan)": googleStreets,
+        "Satelit / Hybrid": googleHybrid,
+        "OpenStreetMap": osmLayer
+      }, null, { position: 'topright' }).addTo(mapInstance.current);
+
       setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 250);
     }
     return () => {
