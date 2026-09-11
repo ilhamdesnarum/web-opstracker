@@ -11552,16 +11552,6 @@ function CoverageGISView({ data, targetCoords }) {
         "OpenStreetMap": osmLayer
       }, null, { position: 'topright' }).addTo(mapInstance.current);
 
-      // Klik langsung di peta untuk set titik pelanggan
-      mapInstance.current.on('click', (e) => {
-        const lat = parseFloat(e.latlng.lat.toFixed(6));
-        const lng = parseFloat(e.latlng.lng.toFixed(6));
-        setManualLat(lat.toString());
-        setManualLng(lng.toString());
-        setGmapsLink('');
-        executeCoverageCalculation(lat, lng, searchRadius);
-      });
-
       setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 250);
     }
     return () => {
@@ -12177,14 +12167,6 @@ function CoverageGISView({ data, targetCoords }) {
                       );
                     })}
                 </div>
-              </div>
-
-              {/* Petunjuk Klik Peta */}
-              <div className="p-2.5 bg-amber-50/70 border border-amber-200/60 rounded-xl text-amber-900 flex items-start gap-2">
-                <Icon name="info" size={13} className="text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-[10px] leading-relaxed">
-                  <strong>Tips:</strong> Klik titik mana pun di peta untuk menetapkan lokasi pelanggan dan mengecek ODP terdekat secara instan.
-                </p>
               </div>
             </div>
           </div>
