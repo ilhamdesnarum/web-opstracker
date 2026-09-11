@@ -6944,6 +6944,8 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
   const markerLayerRef = useRef(null);
   const userLayerRef = useRef(null);
   const lineLayerRef = useRef(null);
+  const streetsLayerRef = useRef(null);
+  const hybridLayerRef = useRef(null);
 
   const [searchRadius, setSearchRadius] = useState(500);
   const [selectedOdp, setSelectedOdp] = useState(null);
@@ -6952,6 +6954,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
   const [copiedOdp, setCopiedOdp] = useState(null);
   const [filterAvailableOnly, setFilterAvailableOnly] = useState(false);
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
+  const [basemapType, setBasemapType] = useState('streets'); // 'streets' | 'hybrid'
 
   const custLat = parseFloat(String(customer?.latitude || '').trim().replace(',', '.'));
   const custLng = parseFloat(String(customer?.longitude || '').trim().replace(',', '.'));
@@ -7015,30 +7018,23 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
   useEffect(() => {
     if (!isValidCoords || !window.L || !mapRef.current || mapInstance.current) return;
 
-    mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView([custLat, custLng], 17);
+    mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true, zoomControl: false }).setView([custLat, custLng], 17);
 
-    const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+    // Letakkan kontrol zoom di bottomright agar tidak bertumpuk dengan legend atau header
+    window.L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+
+    streetsLayerRef.current = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
       attribution: '&copy; Google Maps',
       maxZoom: 20,
       subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
     });
-    const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    hybridLayerRef.current = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
       attribution: '&copy; Google Maps',
       maxZoom: 20,
       subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
     });
-    const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
-    });
 
-    googleStreets.addTo(mapInstance.current);
-
-    window.L.control.layers({
-      "Peta Jalan (Cepat)": googleStreets,
-      "Satelit / Hybrid": googleHybrid,
-      "OpenStreetMap": osmLayer
-    }, null, { position: 'topright' }).addTo(mapInstance.current);
+    streetsLayerRef.current.addTo(mapInstance.current);
 
     const t1 = setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 150);
     const t2 = setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 400);
@@ -7052,6 +7048,26 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
       }
     };
   }, [isValidCoords, custLat, custLng]);
+
+  // Switcher Tile Layer React State
+  useEffect(() => {
+    if (!mapInstance.current || !window.L) return;
+    if (basemapType === 'streets') {
+      if (hybridLayerRef.current && mapInstance.current.hasLayer(hybridLayerRef.current)) {
+        mapInstance.current.removeLayer(hybridLayerRef.current);
+      }
+      if (streetsLayerRef.current && !mapInstance.current.hasLayer(streetsLayerRef.current)) {
+        streetsLayerRef.current.addTo(mapInstance.current);
+      }
+    } else {
+      if (streetsLayerRef.current && mapInstance.current.hasLayer(streetsLayerRef.current)) {
+        mapInstance.current.removeLayer(streetsLayerRef.current);
+      }
+      if (hybridLayerRef.current && !mapInstance.current.hasLayer(hybridLayerRef.current)) {
+        hybridLayerRef.current.addTo(mapInstance.current);
+      }
+    }
+  }, [basemapType]);
 
   // Marker Pelanggan & Lingkaran Radius
   useEffect(() => {
@@ -7420,34 +7436,62 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                 <div ref={mapRef} className="w-full h-full relative z-0" />
 
                 {/* Floating Legend Overlay */}
-                <div className="absolute top-3 left-3 z-[500] bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-semibold text-slate-700 space-y-1 hidden sm:block">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-blue-600 border-2 border-white shadow-sm inline-block"></span>
+                <div className="absolute top-3 left-3 z-[500] bg-white/95 backdrop-blur-md px-3 py-2.5 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-semibold text-slate-700 space-y-1.5 hidden sm:block">
+                  <div
+                    onClick={handleCenterCustomer}
+                    className="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors"
+                    title="Klik untuk pusatkan ke pelanggan"
+                  >
+                    <span className="w-3 h-3 rounded-full bg-blue-600 border-2 border-white shadow-sm inline-block shrink-0"></span>
                     <span>Lokasi Pelanggan</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-sm inline-block"></span>
+                    <span className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-sm inline-block shrink-0"></span>
                     <span>ODP Ada Port ({recommendations.filter(o => !o.isFull).length})</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-rose-500 border-2 border-white shadow-sm inline-block"></span>
+                    <span className="w-3 h-3 rounded-full bg-rose-500 border-2 border-white shadow-sm inline-block shrink-0"></span>
                     <span>ODP Port Penuh ({recommendations.filter(o => o.isFull).length})</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-4 h-0.5 bg-purple-500 border-t-2 border-dashed border-purple-500 inline-block"></span>
+                    <span className="w-4 h-0.5 bg-purple-500 border-t-2 border-dashed border-purple-500 inline-block shrink-0"></span>
                     <span>Rute Jalan Kaki</span>
                   </div>
                 </div>
 
-                {/* Floating Re-center Button */}
-                <button
-                  onClick={handleCenterCustomer}
-                  className="absolute top-3 right-14 z-[500] bg-white/95 hover:bg-white text-slate-700 hover:text-blue-600 p-2 rounded-xl border border-slate-200 shadow-md transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold"
-                  title="Pusatkan ke Lokasi Pelanggan"
-                >
-                  <Icon name="crosshair" size={15} />
-                  <span className="hidden md:inline">Lokasi Pelanggan</span>
-                </button>
+                {/* Floating Top-Right Controls Bar (Unified Flex Container - Bebas Tabrakan) */}
+                <div className="absolute top-3 right-3 z-[500] flex items-center gap-2">
+                  {/* Switcher Tipe Peta */}
+                  <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl border border-slate-200/90 shadow-md">
+                    <button
+                      type="button"
+                      onClick={() => setBasemapType('streets')}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${basemapType === 'streets' ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
+                    >
+                      <Icon name="map" size={13} />
+                      <span>Peta Jalan</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBasemapType('hybrid')}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${basemapType === 'hybrid' ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
+                    >
+                      <Icon name="layers" size={13} />
+                      <span>Satelit</span>
+                    </button>
+                  </div>
+
+                  {/* Tombol Pusatkan ke Lokasi Pelanggan */}
+                  <button
+                    type="button"
+                    onClick={handleCenterCustomer}
+                    className="px-3 py-2 bg-white/95 hover:bg-white text-slate-700 hover:text-blue-600 rounded-xl border border-slate-200/90 shadow-md transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold"
+                    title="Pusatkan ke Titik Lokasi Pelanggan"
+                  >
+                    <Icon name="crosshair" size={15} />
+                    <span className="hidden sm:inline">Lokasi Pelanggan</span>
+                  </button>
+                </div>
 
                 {/* Floating Selected ODP Banner at Bottom of Map */}
                 {selectedOdp && (
