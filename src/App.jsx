@@ -2319,6 +2319,17 @@ export function OkupansiView({ data, setData }) {
   const [syncToast, setSyncToast] = useState({ show: false, type: '', message: '' });
   const [conflictModalData, setConflictModalData] = useState(null);
 
+  // State untuk Input Manual ODP (1 - 2 ODP)
+  const [addOdpTab, setAddOdpTab] = useState('manual'); // 'manual' | 'excel'
+  const [manualStation, setManualStation] = useState('');
+  const [manualTahap, setManualTahap] = useState('');
+  const [isManualNewTahap, setIsManualNewTahap] = useState(false);
+  const [manualNewTahapInput, setManualNewTahapInput] = useState('');
+  const [manualOdpRows, setManualOdpRows] = useState([
+    { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
+  ]);
+  const [uploadedCount, setUploadedCount] = useState(0);
+
   // State baru untuk kontrol modal Detail Pelanggan ODP
   const [selectedOdpDetail, setSelectedOdpDetail] = useState(null);
 
@@ -2372,6 +2383,24 @@ export function OkupansiView({ data, setData }) {
     if (!payloadToSend || payloadToSend.length === 0) return;
     setIsUploading(true);
     try {
+      // Direct update ke Supabase untuk sinkronisasi cepat
+      try {
+        await supabase.from('odp').upsert(payloadToSend.map(o => ({
+          id: o.id,
+          label: o.label || o.kode_odp,
+          kode_odp: o.kode_odp || o.label,
+          kode_odc: o.kode_odc,
+          kapasitas: Number(o.kapasitas) || 8,
+          port_terpakai: Number(o.port_terpakai) || 0,
+          latitude: String(o.latitude),
+          longitude: String(o.longitude),
+          stasiun: o.stasiun,
+          tahap_pembangunan: o.tahap_pembangunan
+        })), { onConflict: 'id' });
+      } catch (sbErr) {
+        console.warn("Supabase direct upsert fallback to GAS:", sbErr);
+      }
+
       const res = await api.run('uploadMassalOdp', payloadToSend);
       if (!res || res.success === false || res.error) {
         throw new Error(res?.error || res?.message || 'Gagal mengupload data.');
@@ -2380,13 +2409,16 @@ export function OkupansiView({ data, setData }) {
       setSyncToast({
         show: true,
         type: 'success',
-        message: res.message || `Berhasil mengunggah ${payloadToSend.length} data ODP!`
+        message: res.message || `Berhasil menyimpan ${payloadToSend.length} data ODP!`
       });
       setTimeout(() => {
         setIsUploadSuccess(false);
         setParsedExcelData([]);
         setInputTahap('');
         setIsNewTahap(false);
+        setIsManualNewTahap(false);
+        setManualNewTahapInput('');
+        setManualOdpRows([{ kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }]);
         setShowBulkModal(false);
         window.location.reload();
       }, 2000);
@@ -2751,6 +2783,234 @@ export function OkupansiView({ data, setData }) {
       setSelectedStation(uniqueStations[0]);
     }
   }, [uniqueStations]);
+
+  // Tahap pembangunan unik untuk stasiun terpilih di form manual
+  const manualAvailableTahaps = useMemo(() => {
+    const st = manualStation || manageStationFilter || selectedStation;
+    let list = data?.odpData || [];
+    if (st) {
+      list = list.filter(o => isStationMatch(o.stasiun, st));
+    }
+    const set = new Set();
+    list.forEach(o => {
+      const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+      if (t) set.add(t);
+    });
+    return Array.from(set).sort();
+  }, [data?.odpData, manualStation, manageStationFilter, selectedStation]);
+
+  const handleAddManualRow = () => {
+    setManualOdpRows(prev => [
+      ...prev,
+      { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
+    ]);
+  };
+
+  const handleRemoveManualRow = (index) => {
+    if (manualOdpRows.length <= 1) return;
+    setManualOdpRows(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleKodeOdpChange = (index, val) => {
+    setManualOdpRows(prev => {
+      const next = [...prev];
+      const row = { ...next[index] };
+      row.kodeOdp = val;
+      if (!row.isOdcCustom) {
+        const clean = cleanOdpStr(val);
+        if (clean.includes('_L')) {
+          row.kodeOdc = clean.substring(0, clean.lastIndexOf('_L'));
+        } else {
+          row.kodeOdc = clean;
+        }
+      }
+      next[index] = row;
+      return next;
+    });
+  };
+
+  const handleKodeOdcChange = (index, val) => {
+    setManualOdpRows(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], kodeOdc: val, isOdcCustom: true };
+      return next;
+    });
+  };
+
+  const handleLatChange = (index, val) => {
+    setManualOdpRows(prev => {
+      const next = [...prev];
+      const row = { ...next[index] };
+      // Cek jika user mem-paste koordinat gabungan lat, lng (misal "-7.03747, 110.5527")
+      const parts = val.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+        let v1 = parseFloat(parts[0]);
+        let v2 = parseFloat(parts[1]);
+        if (v1 < 0 && v2 > 0) {
+          row.latitude = String(v1);
+          row.longitude = String(v2);
+        } else if (v2 < 0 && v1 > 0) {
+          row.latitude = String(v2);
+          row.longitude = String(v1);
+        } else {
+          row.latitude = String(v1);
+          row.longitude = String(v2);
+        }
+      } else {
+        row.latitude = val;
+      }
+      next[index] = row;
+      return next;
+    });
+  };
+
+  const handleSubmitManualOdp = async () => {
+    const targetStation = (manualStation || manageStationFilter || selectedStation || '').trim();
+    if (!targetStation) {
+      setSyncToast({ show: true, type: 'error', message: 'Silakan pilih stasiun tujuan terlebih dahulu.' });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+      return;
+    }
+
+    const effectiveTahap = (isManualNewTahap ? manualNewTahapInput : manualTahap).trim();
+    if (!effectiveTahap) {
+      setSyncToast({ show: true, type: 'error', message: 'Silakan pilih atau isi tahap pembangunan.' });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+      return;
+    }
+
+    const validRows = manualOdpRows.filter(r => r.kodeOdp && r.kodeOdp.trim());
+    if (validRows.length === 0) {
+      setSyncToast({ show: true, type: 'error', message: 'Masukkan minimal 1 data ODP (Kode ODP wajib diisi).' });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+      return;
+    }
+
+    for (let i = 0; i < validRows.length; i++) {
+      const r = validRows[i];
+      const latNum = parseFloat(r.latitude);
+      const lngNum = parseFloat(r.longitude);
+      if (isNaN(latNum) || isNaN(lngNum) || latNum === 0 || lngNum === 0) {
+        setSyncToast({
+          show: true,
+          type: 'error',
+          message: `Koordinat (Lat/Long) untuk ODP "${r.kodeOdp.trim()}" belum valid.`
+        });
+        setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4500);
+        return;
+      }
+    }
+
+    const existingOdpMap = new Map();
+    (data.odpData || []).forEach(o => {
+      const key = String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase();
+      if (key) existingOdpMap.set(key, o);
+    });
+
+    let currentMaxId = (data.odpData || []).reduce((max, o) => {
+      const num = Number(o.id);
+      return !isNaN(num) && num > max ? num : max;
+    }, 12785);
+
+    const finalPayload = validRows.map(row => {
+      const cleanCode = cleanOdpStr(row.kodeOdp.trim());
+      const key = cleanCode.toLowerCase();
+      const existing = existingOdpMap.get(key);
+      const odcCode = (row.kodeOdc || '').trim() || (cleanCode.includes('_L') ? cleanCode.substring(0, cleanCode.lastIndexOf('_L')) : cleanCode);
+
+      let lat = parseFloat(row.latitude);
+      let lng = parseFloat(row.longitude);
+      if (lat > 0 && lng < 0) {
+        const tmp = lat; lat = lng; lng = tmp;
+      }
+
+      return {
+        id: existing?.id || ++currentMaxId,
+        label: cleanCode,
+        kode_odp: cleanCode,
+        kode_odc: odcCode,
+        kapasitas: Number(row.kapasitas) || 8,
+        port_terpakai: existing?.port_terpakai || existing?.portTerpakai || 0,
+        latitude: String(lat),
+        longitude: String(lng),
+        stasiun: targetStation,
+        tahap_pembangunan: effectiveTahap
+      };
+    });
+
+    setUploadedCount(finalPayload.length);
+
+    const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+    const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+
+    if (duplicates.length > 0) {
+      setConflictModalData({
+        duplicatesCount: duplicates.length,
+        newItems: newItems,
+        finalPayload: finalPayload
+      });
+      return;
+    }
+
+    await handleUploadPayload(finalPayload);
+  };
+
+  const handleSubmitExcelOdp = async () => {
+    if (parsedExcelData.length === 0) return;
+    const effectiveTahap = (manageTahapFilter || inputTahap).trim();
+    if (!effectiveTahap) return;
+
+    const existingOdpMap = new Map();
+    (data.odpData || []).forEach(o => {
+      const key = String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase();
+      if (key) existingOdpMap.set(key, o);
+    });
+
+    let currentMaxId = (data.odpData || []).reduce((max, o) => {
+      const num = Number(o.id);
+      return !isNaN(num) && num > max ? num : max;
+    }, 12785);
+
+    const targetStation = manageStationFilter || selectedStation || '';
+
+    const finalPayload = parsedExcelData.map(odp => {
+      const key = String(odp.kode_odp || odp.label || '').trim().toLowerCase();
+      const existing = existingOdpMap.get(key);
+      return {
+        ...odp,
+        id: existing?.id || ++currentMaxId,
+        stasiun: targetStation || odp.stasiun || '',
+        tahap_pembangunan: effectiveTahap
+      };
+    });
+
+    setUploadedCount(finalPayload.length);
+
+    const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+    const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
+
+    if (duplicates.length > 0) {
+      setConflictModalData({
+        duplicatesCount: duplicates.length,
+        newItems: newItems,
+        finalPayload: finalPayload
+      });
+      return;
+    }
+
+    await handleUploadPayload(finalPayload);
+  };
+
+  const isSaveDisabled = addOdpTab === 'manual'
+    ? (
+        !(manualStation || manageStationFilter || selectedStation) ||
+        !(isManualNewTahap ? manualNewTahapInput.trim() : manualTahap.trim()) ||
+        manualOdpRows.every(r => !r.kodeOdp || !r.kodeOdp.trim())
+      )
+    : (
+        parsedExcelData.length === 0 ||
+        !(manageTahapFilter || inputTahap).trim()
+      );
 
   // 2. OLAH DATA ODP DARI DATABASE MENGGUNAKAN GROUPING ODC
   const okupansiData = useMemo(() => {
@@ -3312,11 +3572,11 @@ export function OkupansiView({ data, setData }) {
         />
       )}
 
-      {/* MODAL UPLOAD MASSAL ODP */}
+      {/* MODAL UPLOAD & TAMBAH ODP (MANUAL 1-2 ODP / EXCEL MASSAL) */}
       {showBulkModal && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isUploading && !isUploadSuccess && setShowBulkModal(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col relative z-10 animate-modal max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl xl:max-w-5xl flex flex-col relative z-10 animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* OVERLAY SUKSES */}
             {isUploadSuccess && (
@@ -3325,18 +3585,19 @@ export function OkupansiView({ data, setData }) {
                   <Icon name="check" size={40} className="text-emerald-600" />
                 </div>
                 <h3 className="text-xl font-black mb-1">Berhasil Disimpan!</h3>
-                <p className="text-emerald-100 font-medium">Data {parsedExcelData.length} ODP telah ditambahkan.</p>
+                <p className="text-emerald-100 font-medium">Data {uploadedCount || parsedExcelData.length} ODP telah ditambahkan.</p>
               </div>
             )}
 
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl shrink-0">
+            {/* HEADER MODAL */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner">
-                  <Icon name="upload-cloud" size={20} />
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner shrink-0">
+                  <Icon name="plus-circle" size={20} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-lg font-extrabold text-slate-800">Upload Data ODP</h2>
+                    <h2 className="text-base sm:text-lg font-black text-slate-800">Tambah / Upload Data ODP</h2>
                     {(manageStationFilter || selectedStation) && (
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
                         <Icon name="map-pin" size={11} />
@@ -3350,318 +3611,556 @@ export function OkupansiView({ data, setData }) {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 font-medium">Membaca data dari Excel/Spreadsheet Template Summary Aset ODP (Filter terkunci dari Kelola Data ODP)</p>
+                  <p className="text-xs text-slate-500 font-medium">Tambah 1 atau 2 ODP secara langsung, atau upload massal file Excel</p>
                 </div>
               </div>
-              <button onClick={() => !isUploading && setShowBulkModal(false)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors">
+              <button
+                onClick={() => !isUploading && setShowBulkModal(false)}
+                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+              >
                 <Icon name="x" size={20} />
               </button>
             </div>
 
-            <div className="p-5 flex-1 overflow-y-auto">
-              {!parsedExcelData || parsedExcelData.length === 0 ? (
-                <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl p-10 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                  <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
-                    <Icon name="file-spreadsheet" size={32} />
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-700 mb-1">Pilih File Excel (SUMMARY ODP)</h3>
-                  <p className="text-sm text-slate-500 mb-6 text-center max-w-sm">Upload file berformat .xlsx yang berisi tabel "SUMMARY ODP ASSET". Data akan otomatis terdeteksi.</p>
-                  <button className="px-6 py-2.5 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 hover:text-emerald-600 hover:border-emerald-200 transition-all">Browse File</button>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    className="hidden"
-                    ref={fileInputRef}
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = (evt) => {
-                        try {
-                          const dataBuffer = evt.target.result;
-                          const wb = XLSX.read(dataBuffer, { type: 'array' });
-                          const wsname = wb.SheetNames[0];
-                          const ws = wb.Sheets[wsname];
-                          // header: 1 returns 2D array
-                          const data = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+            {/* TAB SELECTOR */}
+            <div className="flex border-b border-slate-200 bg-slate-100/70 px-4 sm:px-6 pt-2.5 gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setAddOdpTab('manual')}
+                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${
+                  addOdpTab === 'manual'
+                    ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
+                    : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
+                }`}
+              >
+                <Icon name="edit-3" size={15} className={addOdpTab === 'manual' ? 'text-emerald-600' : 'text-slate-400'} />
+                <span>✍️ Input Manual (1 - 2 ODP)</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                  Cepat
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddOdpTab('excel')}
+                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${
+                  addOdpTab === 'excel'
+                    ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
+                    : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
+                }`}
+              >
+                <Icon name="file-spreadsheet" size={15} className={addOdpTab === 'excel' ? 'text-emerald-600' : 'text-slate-400'} />
+                <span>📁 Upload File Excel (Massal)</span>
+              </button>
+            </div>
 
-                          // Kunci nama stasiun dari filter Kelola Data ODP
-                          const targetStation = manageStationFilter || selectedStation;
-                          let stationName = targetStation;
-                          // Coba cari nama stasiun secara dinamis di 10 baris pertama hanya jika manageStationFilter kosong
-                          if (!manageStationFilter) {
-                            for (let i = 0; i < 10 && i < data.length; i++) {
-                              const row = data[i];
-                              if (!row) continue;
-                              for (let c = 0; c < row.length; c++) {
-                                if (String(row[c]).toLowerCase().includes('nama stasiun')) {
-                                  // Ambil nilai pertama di sebelah kanan yang BUKAN titik dua (:) atau kosong
-                                  for (let k = c + 1; k < row.length; k++) {
-                                    let val = String(row[k] || '').trim();
-                                    if (val && val !== ':') {
-                                      stationName = val;
-                                      break;
+            {/* CONTENT BODY */}
+            <div className="p-4 sm:p-5 flex-1 overflow-y-auto">
+              {addOdpTab === 'manual' ? (
+                <div className="space-y-4">
+                  {/* PENGATURAN STASIUN & TAHAP */}
+                  <div className="bg-slate-50/80 border border-slate-200 p-3.5 sm:p-4 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* Pilih Stasiun */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                        <Icon name="map-pin" size={13} className="text-blue-600" />
+                        <span>Stasiun Tujuan <span className="text-rose-500">*</span></span>
+                      </label>
+                      <select
+                        value={manualStation}
+                        onChange={(e) => {
+                          setManualStation(e.target.value);
+                          setManualTahap('');
+                          setIsManualNewTahap(false);
+                        }}
+                        className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="" disabled>-- Pilih Stasiun --</option>
+                        {uniqueStations.map(st => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Pilih / Tambah Tahap */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                        <Icon name="tag" size={13} className="text-purple-600" />
+                        <span>Tahap Pembangunan <span className="text-rose-500">*</span></span>
+                      </label>
+                      {!isManualNewTahap ? (
+                        <select
+                          value={manualTahap}
+                          onChange={(e) => {
+                            if (e.target.value === '___NEW___') {
+                              setIsManualNewTahap(true);
+                              setManualNewTahapInput('');
+                            } else {
+                              setManualTahap(e.target.value);
+                            }
+                          }}
+                          className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="" disabled>-- Pilih Tahap Pembangunan --</option>
+                          {manualAvailableTahaps.map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                          <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Tahap Baru...</option>
+                        </select>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            type="text"
+                            value={manualNewTahapInput}
+                            onChange={(e) => setManualNewTahapInput(e.target.value)}
+                            placeholder="Ketik nama tahap baru..."
+                            className="flex-1 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsManualNewTahap(false);
+                              setManualNewTahapInput('');
+                            }}
+                            className="p-2 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                            title="Batal buat tahap baru"
+                          >
+                            <Icon name="x" size={15} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PETUNJUK CEPAT */}
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs">
+                    <Icon name="info" size={16} className="shrink-0 mt-0.5 text-emerald-600" />
+                    <div>
+                      <span className="font-bold">Tips Cepat:</span> Ketik <strong>Kode ODP</strong> (misal: <code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">W4_BBG_CJ_DJA_001_L1</code>), Kode ODC akan otomatis dibuatkan. Anda juga bisa langsung <strong>paste</strong> koordinat dari Google Maps (misal: <code className="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono">-7.03747, 110.55322</code>) ke kolom Latitude, dan kolom Longitude akan otomatis terisi!
+                    </div>
+                  </div>
+
+                  {/* TABEL BARIS INPUT ODP */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs min-w-[720px]">
+                        <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3 w-10 text-center">#</th>
+                            <th className="py-2.5 px-3 min-w-[210px]">
+                              Kode ODP <span className="text-rose-500">*</span>
+                            </th>
+                            <th className="py-2.5 px-3 min-w-[170px]">
+                              Kode ODC
+                            </th>
+                            <th className="py-2.5 px-3 w-24">
+                              Port
+                            </th>
+                            <th className="py-2.5 px-3 min-w-[140px]">
+                              Latitude <span className="text-rose-500">*</span>
+                            </th>
+                            <th className="py-2.5 px-3 min-w-[140px]">
+                              Longitude <span className="text-rose-500">*</span>
+                            </th>
+                            <th className="py-2.5 px-3 w-12 text-center">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {manualOdpRows.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-2.5 px-3 text-center font-bold text-slate-400">
+                                {idx + 1}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.kodeOdp}
+                                  onChange={(e) => handleKodeOdpChange(idx, e.target.value)}
+                                  placeholder="misal: W4_BBG_CJ_DJA_001_L1"
+                                  className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.kodeOdc}
+                                  onChange={(e) => handleKodeOdcChange(idx, e.target.value)}
+                                  placeholder="Otomatis dari ODP"
+                                  className="w-full text-xs font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <select
+                                  value={row.kapasitas}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 8;
+                                    setManualOdpRows(prev => {
+                                      const next = [...prev];
+                                      next[idx] = { ...next[idx], kapasitas: val };
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer"
+                                >
+                                  <option value={8}>8 Port</option>
+                                  <option value={16}>16 Port</option>
+                                  <option value={24}>24 Port</option>
+                                  <option value={4}>4 Port</option>
+                                </select>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.latitude}
+                                  onChange={(e) => handleLatChange(idx, e.target.value)}
+                                  placeholder="-7.0374718"
+                                  className="w-full text-xs font-mono text-slate-800 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="text"
+                                  value={row.longitude}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setManualOdpRows(prev => {
+                                      const next = [...prev];
+                                      next[idx] = { ...next[idx], longitude: val };
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder="110.5527693"
+                                  className="w-full text-xs font-mono text-slate-800 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveManualRow(idx)}
+                                  disabled={manualOdpRows.length <= 1}
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    manualOdpRows.length <= 1
+                                      ? 'text-slate-300 cursor-not-allowed'
+                                      : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
+                                  }`}
+                                  title={manualOdpRows.length <= 1 ? 'Minimal 1 baris ODP' : 'Hapus baris ini'}
+                                >
+                                  <Icon name="trash-2" size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* FOOTER TABEL: TOMBOL TAMBAH BARIS */}
+                    <div className="p-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAddManualRow}
+                        className="px-3.5 py-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 hover:border-emerald-400 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                      >
+                        <Icon name="plus" size={14} />
+                        <span>+ Tambah Baris ODP (ODP ke-{manualOdpRows.length + 1})</span>
+                      </button>
+                      <span className="text-xs font-medium text-slate-500">
+                        Total: <strong className="text-slate-800">{manualOdpRows.length} ODP</strong> di form
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* TAB EXCEL UPLOAD */
+                !parsedExcelData || parsedExcelData.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl p-10 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
+                      <Icon name="file-spreadsheet" size={32} />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-1">Pilih File Excel (SUMMARY ODP)</h3>
+                    <p className="text-sm text-slate-500 mb-6 text-center max-w-sm">Upload file berformat .xlsx yang berisi tabel "SUMMARY ODP ASSET". Data akan otomatis terdeteksi.</p>
+                    <button className="px-6 py-2.5 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 hover:text-emerald-600 hover:border-emerald-200 transition-all">Browse File</button>
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls"
+                      className="hidden"
+                      ref={fileInputRef}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                          try {
+                            const dataBuffer = evt.target.result;
+                            const wb = XLSX.read(dataBuffer, { type: 'array' });
+                            const wsname = wb.SheetNames[0];
+                            const ws = wb.Sheets[wsname];
+                            // header: 1 returns 2D array
+                            const data = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+
+                            // Kunci nama stasiun dari filter Kelola Data ODP
+                            const targetStation = manageStationFilter || selectedStation;
+                            let stationName = targetStation;
+                            // Coba cari nama stasiun secara dinamis di 10 baris pertama hanya jika manageStationFilter kosong
+                            if (!manageStationFilter) {
+                              for (let i = 0; i < 10 && i < data.length; i++) {
+                                const row = data[i];
+                                if (!row) continue;
+                                for (let c = 0; c < row.length; c++) {
+                                  if (String(row[c]).toLowerCase().includes('nama stasiun')) {
+                                    // Ambil nilai pertama di sebelah kanan yang BUKAN titik dua (:) atau kosong
+                                    for (let k = c + 1; k < row.length; k++) {
+                                      let val = String(row[k] || '').trim();
+                                      if (val && val !== ':') {
+                                        stationName = val;
+                                        break;
+                                      }
                                     }
                                   }
                                 }
                               }
-                            }
 
-                            // Bersihkan nama stasiun dari karakter ":", "Stasiun ", dsb
-                            if (stationName) {
-                              stationName = stationName
-                                .replace(/^[:\s-]+/, '')
-                                .replace(/^stasiun\s+/i, '')
-                                .trim();
-                              stationName = toProperCase(stationName);
-                            }
-                            if (!stationName) {
-                              stationName = selectedStation;
-                            }
-                          }
-
-                          // Cari baris header tabel secara dinamis
-                          let headerRowIdx = -1;
-                          let colIdx = { odp: -1, port: -1, lat: -1, lng: -1, keterangan: -1 };
-
-                          for (let i = 0; i < 20 && i < data.length; i++) {
-                            const row = data[i];
-                            if (!row) continue;
-
-                            for (let c = 0; c < row.length; c++) {
-                              const val = String(row[c] || '').toLowerCase().trim();
-                              if (val === 'odp' || val.includes('label odp')) colIdx.odp = c;
-                              if (val.includes('port') || val.includes('kapasitas')) colIdx.port = c;
-                              if (val.includes('lat')) colIdx.lat = c;
-                              if (val.includes('long') || val.includes('lng')) colIdx.lng = c;
-                              if (val.includes('keterangan') || val.includes('tahap')) colIdx.keterangan = c;
-                            }
-
-                            if (colIdx.odp !== -1) {
-                              headerRowIdx = i;
-                              break;
-                            }
-                          }
-
-                          if (headerRowIdx === -1) {
-                            throw new Error("Tidak dapat menemukan kolom 'ODP' di file Excel.");
-                          }
-
-                          const newPayload = [];
-                          for (let i = headerRowIdx + 1; i < data.length; i++) {
-                            const row = data[i];
-                            if (!row) continue;
-
-                            const rawOdpName = String(row[colIdx.odp] || '').trim();
-                            if (!rawOdpName || rawOdpName === '' || rawOdpName.toLowerCase() === 'jumlah') continue;
-
-                            // Normalisasi kode ODP (misal _96_L1 -> _096_L1)
-                            const odpName = cleanOdpStr(rawOdpName);
-                            const kapasitas = parseInt(row[colIdx.port]) || 8;
-                            let val1 = parseFloat(row[colIdx.lat]);
-                            let val2 = parseFloat(row[colIdx.lng]);
-
-                            let lat = 0, lng = 0;
-                            if (val1 < 0 && val2 > 0) {
-                              lat = val1; lng = val2;
-                            } else if (val2 < 0 && val1 > 0) {
-                              lat = val2; lng = val1;
-                            } else {
-                              lat = val1; lng = val2;
-                            }
-
-                            let kodeOdc = odpName;
-                            if (odpName.includes('_L')) {
-                              kodeOdc = odpName.substring(0, odpName.lastIndexOf('_L'));
-                            }
-
-                            let tahap = manageTahapFilter || "";
-                            if (!tahap && colIdx.keterangan !== -1) {
-                              tahap = String(row[colIdx.keterangan] || "").trim();
-                            }
-
-                            newPayload.push({
-                              label: odpName,
-                              latitude: String(lat),
-                              longitude: String(lng),
-                              port_terpakai: 0,
-                              tahap_pembangunan: tahap, // Akan dikunci/ditimpa oleh input user
-                              kapasitas: kapasitas,
-                              kode_odp: odpName,
-                              kode_odc: kodeOdc,
-                              stasiun: stationName
-                            });
-                          }
-
-                          if (newPayload.length === 0) {
-                            setSyncToast({ show: true, type: 'error', message: 'File Excel terbaca, tapi tidak ada data ODP di bawah tabel header.' });
-                            setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
-                          } else {
-                            setParsedExcelData(newPayload);
-                            setInputTahap(manageTahapFilter || '');
-                            setIsNewTahap(false);
-                          }
-
-                        } catch (err) {
-                          setSyncToast({ show: true, type: 'error', message: 'Gagal membaca file Excel: ' + err.message });
-                          setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
-                          console.error(err);
-                        }
-                      };
-                      reader.readAsArrayBuffer(file);
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="flex flex-col h-full">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="text-sm font-bold text-slate-700 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-100 shadow-sm shrink-0">
-                        {parsedExcelData.length} ODP Ditemukan
-                      </div>
-                      <div className="flex items-center gap-2 relative z-10">
-                        <span className="text-sm font-bold text-slate-600">Tahap Pembangunan <span className="text-rose-500">*</span></span>
-                        {manageTahapFilter ? (
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg text-sm font-bold text-purple-700 shadow-sm">
-                            <Icon name="lock" size={14} className="text-purple-600" />
-                            <span>{manageTahapFilter}</span>
-                            <span className="text-[10px] font-normal text-purple-500 ml-1">(Terkunci dari filter modal)</span>
-                          </div>
-                        ) : !isNewTahap ? (
-                          <select
-                            value={inputTahap}
-                            onChange={(e) => {
-                              if (e.target.value === '___NEW___') {
-                                setIsNewTahap(true);
-                                setInputTahap('');
-                              } else {
-                                setInputTahap(e.target.value);
+                              // Bersihkan nama stasiun dari karakter ":", "Stasiun ", dsb
+                              if (stationName) {
+                                stationName = stationName
+                                  .replace(/^[:\s-]+/, '')
+                                  .replace(/^stasiun\s+/i, '')
+                                  .trim();
+                                stationName = toProperCase(stationName);
                               }
-                            }}
-                            className="text-sm px-3 py-1.5 w-64 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors cursor-pointer"
-                          >
-                            <option value="" disabled hidden>Pilih atau Tambah Baru</option>
-                            {allTahapList && allTahapList.map(t => (
-                              <option key={t} value={t} className="text-slate-700">{t}</option>
-                            ))}
-                            <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Baru...</option>
-                          </select>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <input
-                              autoFocus
+                              if (!stationName) {
+                                stationName = selectedStation;
+                              }
+                            }
+
+                            // Cari baris header tabel secara dinamis
+                            let headerRowIdx = -1;
+                            let colIdx = { odp: -1, port: -1, lat: -1, lng: -1, keterangan: -1 };
+
+                            for (let i = 0; i < 20 && i < data.length; i++) {
+                              const row = data[i];
+                              if (!row) continue;
+
+                              for (let c = 0; c < row.length; c++) {
+                                const val = String(row[c] || '').toLowerCase().trim();
+                                if (val === 'odp' || val.includes('label odp')) colIdx.odp = c;
+                                if (val.includes('port') || val.includes('kapasitas')) colIdx.port = c;
+                                if (val.includes('lat')) colIdx.lat = c;
+                                if (val.includes('long') || val.includes('lng')) colIdx.lng = c;
+                                if (val.includes('keterangan') || val.includes('tahap')) colIdx.keterangan = c;
+                              }
+
+                              if (colIdx.odp !== -1) {
+                                headerRowIdx = i;
+                                break;
+                              }
+                            }
+
+                            if (headerRowIdx === -1) {
+                              throw new Error("Tidak dapat menemukan kolom 'ODP' di file Excel.");
+                            }
+
+                            const newPayload = [];
+                            for (let i = headerRowIdx + 1; i < data.length; i++) {
+                              const row = data[i];
+                              if (!row) continue;
+
+                              const rawOdpName = String(row[colIdx.odp] || '').trim();
+                              if (!rawOdpName || rawOdpName === '' || rawOdpName.toLowerCase() === 'jumlah') continue;
+
+                              // Normalisasi kode ODP (misal _96_L1 -> _096_L1)
+                              const odpName = cleanOdpStr(rawOdpName);
+                              const kapasitas = parseInt(row[colIdx.port]) || 8;
+                              let val1 = parseFloat(row[colIdx.lat]);
+                              let val2 = parseFloat(row[colIdx.lng]);
+
+                              let lat = 0, lng = 0;
+                              if (val1 < 0 && val2 > 0) {
+                                lat = val1; lng = val2;
+                              } else if (val2 < 0 && val1 > 0) {
+                                lat = val2; lng = val1;
+                              } else {
+                                lat = val1; lng = val2;
+                              }
+
+                              let kodeOdc = odpName;
+                              if (odpName.includes('_L')) {
+                                kodeOdc = odpName.substring(0, odpName.lastIndexOf('_L'));
+                              }
+
+                              let tahap = manageTahapFilter || "";
+                              if (!tahap && colIdx.keterangan !== -1) {
+                                tahap = String(row[colIdx.keterangan] || "").trim();
+                              }
+
+                              newPayload.push({
+                                label: odpName,
+                                latitude: String(lat),
+                                longitude: String(lng),
+                                port_terpakai: 0,
+                                tahap_pembangunan: tahap, // Akan dikunci/ditimpa oleh input user
+                                kapasitas: kapasitas,
+                                kode_odp: odpName,
+                                kode_odc: kodeOdc,
+                                stasiun: stationName
+                              });
+                            }
+
+                            if (newPayload.length === 0) {
+                              setSyncToast({ show: true, type: 'error', message: 'File Excel terbaca, tapi tidak ada data ODP di bawah tabel header.' });
+                              setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+                            } else {
+                              setParsedExcelData(newPayload);
+                              setInputTahap(manageTahapFilter || '');
+                              setIsNewTahap(false);
+                            }
+
+                          } catch (err) {
+                            setSyncToast({ show: true, type: 'error', message: 'Gagal membaca file Excel: ' + err.message });
+                            setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+                            console.error(err);
+                          }
+                        };
+                        reader.readAsArrayBuffer(file);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col h-full">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-bold text-slate-700 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-100 shadow-sm shrink-0">
+                          {parsedExcelData.length} ODP Ditemukan
+                        </div>
+                        <div className="flex items-center gap-2 relative z-10">
+                          <span className="text-sm font-bold text-slate-600">Tahap Pembangunan <span className="text-rose-500">*</span></span>
+                          {manageTahapFilter ? (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg text-sm font-bold text-purple-700 shadow-sm">
+                              <Icon name="lock" size={14} className="text-purple-600" />
+                              <span>{manageTahapFilter}</span>
+                              <span className="text-[10px] font-normal text-purple-500 ml-1">(Terkunci dari filter modal)</span>
+                            </div>
+                          ) : !isNewTahap ? (
+                            <select
                               value={inputTahap}
-                              onChange={(e) => setInputTahap(e.target.value)}
-                              placeholder="Ketik tahap baru..."
-                              className="text-sm px-3 py-1.5 w-56 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors"
-                            />
-                            <button onClick={() => { setIsNewTahap(false); setInputTahap(''); }} className="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-colors">
-                              <Icon name="x" size={16} />
-                            </button>
-                          </div>
-                        )}
+                              onChange={(e) => {
+                                if (e.target.value === '___NEW___') {
+                                  setIsNewTahap(true);
+                                  setInputTahap('');
+                                } else {
+                                  setInputTahap(e.target.value);
+                                }
+                              }}
+                              className="text-sm px-3 py-1.5 w-64 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors cursor-pointer"
+                            >
+                              <option value="" disabled hidden>Pilih atau Tambah Baru</option>
+                              {allTahapList && allTahapList.map(t => (
+                                <option key={t} value={t} className="text-slate-700">{t}</option>
+                              ))}
+                              <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Baru...</option>
+                            </select>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <input
+                                autoFocus
+                                value={inputTahap}
+                                onChange={(e) => setInputTahap(e.target.value)}
+                                placeholder="Ketik tahap baru..."
+                                className="text-sm px-3 py-1.5 w-56 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors"
+                              />
+                              <button onClick={() => { setIsNewTahap(false); setInputTahap(''); }} className="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-colors">
+                                <Icon name="x" size={16} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
+                      <button onClick={() => { setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
+                        Ganti File
+                      </button>
                     </div>
-                    <button onClick={() => { setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
-                      Ganti File
-                    </button>
-                  </div>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden overflow-y-auto max-h-64 shadow-sm bg-slate-50 relative">
-                    <table className="w-full text-left text-[11px] text-slate-600">
-                      <thead className="bg-slate-100 text-slate-500 sticky top-0 uppercase font-bold">
-                        <tr>
-                          <th className="p-3 border-b border-slate-200">ODP</th>
-                          <th className="p-3 border-b border-slate-200">ODC</th>
-                          <th className="p-3 border-b border-slate-200">Kapasitas</th>
-                          <th className="p-3 border-b border-slate-200">Koordinat</th>
-                          <th className="p-3 border-b border-slate-200">Stasiun</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 font-medium">
-                        {parsedExcelData.slice(0, 50).map((r, i) => (
-                          <tr key={i} className="hover:bg-emerald-50">
-                            <td className="p-3 font-bold text-slate-800">{r.label}</td>
-                            <td className="p-3">{r.kode_odc}</td>
-                            <td className="p-3">{r.kapasitas}</td>
-                            <td className="p-3">{r.latitude}, {r.longitude}</td>
-                            <td className="p-3">{r.stasiun}</td>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden overflow-y-auto max-h-64 shadow-sm bg-slate-50 relative">
+                      <table className="w-full text-left text-[11px] text-slate-600">
+                        <thead className="bg-slate-100 text-slate-500 sticky top-0 uppercase font-bold">
+                          <tr>
+                            <th className="p-3 border-b border-slate-200">ODP</th>
+                            <th className="p-3 border-b border-slate-200">ODC</th>
+                            <th className="p-3 border-b border-slate-200">Kapasitas</th>
+                            <th className="p-3 border-b border-slate-200">Koordinat</th>
+                            <th className="p-3 border-b border-slate-200">Stasiun</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {parsedExcelData.length > 50 && (
-                      <div className="p-3 text-center text-xs font-bold text-slate-400 bg-slate-100 border-t border-slate-200">
-                        ... dan {parsedExcelData.length - 50} baris lainnya disembunyikan untuk preview.
-                      </div>
-                    )}
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 font-medium">
+                          {parsedExcelData.slice(0, 50).map((r, i) => (
+                            <tr key={i} className="hover:bg-emerald-50">
+                              <td className="p-3 font-bold text-slate-800">{r.label}</td>
+                              <td className="p-3">{r.kode_odc}</td>
+                              <td className="p-3">{r.kapasitas}</td>
+                              <td className="p-3">{r.latitude}, {r.longitude}</td>
+                              <td className="p-3">{r.stasiun}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {parsedExcelData.length > 50 && (
+                        <div className="p-3 text-center text-xs font-bold text-slate-400 bg-slate-100 border-t border-slate-200">
+                          ... dan {parsedExcelData.length - 50} baris lainnya disembunyikan untuk preview.
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )
               )}
             </div>
 
-            <div className="p-5 border-t border-slate-100 bg-white rounded-b-2xl flex justify-end gap-3 shrink-0">
-              <button
-                onClick={() => { setShowBulkModal(false); setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); }}
-                disabled={isUploading}
-                className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
-              >
-                Batal
-              </button>
-              <button
-                onClick={async () => {
-                  if (parsedExcelData.length === 0) return;
-                  const effectiveTahap = (manageTahapFilter || inputTahap).trim();
-                  if (!effectiveTahap) return;
-
-                  const existingOdpMap = new Map();
-                  (data.odpData || []).forEach(o => {
-                    const key = String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase();
-                    if (key) existingOdpMap.set(key, o);
-                  });
-
-                  let currentMaxId = (data.odpData || []).reduce((max, o) => {
-                    const num = Number(o.id);
-                    return !isNaN(num) && num > max ? num : max;
-                  }, 12785);
-
-                  const targetStation = manageStationFilter || selectedStation || '';
-
-                  // Terapkan nilai effectiveTahap dan targetStation ke semua odp sebelum dikirim dan pastikan memiliki ID integer untuk Supabase
-                  const finalPayload = parsedExcelData.map(odp => {
-                    const key = String(odp.kode_odp || odp.label || '').trim().toLowerCase();
-                    const existing = existingOdpMap.get(key);
-                    return {
-                      ...odp,
-                      id: existing?.id || ++currentMaxId,
-                      stasiun: targetStation || odp.stasiun || '',
-                      tahap_pembangunan: effectiveTahap
-                    };
-                  });
-
-                  // DETEKSI DUPLIKAT
-                  const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-                  const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-
-                  if (duplicates.length > 0) {
-                    setConflictModalData({
-                      duplicatesCount: duplicates.length,
-                      newItems: newItems,
-                      finalPayload: finalPayload
-                    });
-                    return;
-                  }
-
-                  await handleUploadPayload(finalPayload);
-                }}
-                disabled={isUploading || parsedExcelData.length === 0 || !(manageTahapFilter || inputTahap).trim()}
-                className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-colors flex items-center gap-2 ${parsedExcelData.length === 0 || !(manageTahapFilter || inputTahap).trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-              >
-                {isUploading ? (
-                  <><Icon name="loader" size={16} className="animate-spin" /> Memproses...</>
+            {/* FOOTER MODAL */}
+            <div className="p-4 sm:p-5 border-t border-slate-100 bg-white rounded-b-2xl flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-500">
+                {addOdpTab === 'manual' ? (
+                  <span>
+                    Stasiun: <strong className="text-slate-700">{manualStation || '-'}</strong> | Tahap: <strong className="text-slate-700">{(isManualNewTahap ? manualNewTahapInput : manualTahap) || '-'}</strong>
+                  </span>
                 ) : (
-                  <><Icon name="save" size={16} /> Simpan Data ke Database</>
+                  <span>
+                    {parsedExcelData.length > 0 ? `${parsedExcelData.length} ODP siap diunggah` : 'Format file: .xlsx (SUMMARY ODP)'}
+                  </span>
                 )}
-              </button>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkModal(false);
+                    setParsedExcelData([]);
+                    setInputTahap(manageTahapFilter || '');
+                    setIsNewTahap(false);
+                  }}
+                  disabled={isUploading}
+                  className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (addOdpTab === 'manual') {
+                      await handleSubmitManualOdp();
+                    } else {
+                      await handleSubmitExcelOdp();
+                    }
+                  }}
+                  disabled={isUploading || isSaveDisabled}
+                  className={`px-5 py-2 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-2 ${
+                    isSaveDisabled ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer active:scale-95'
+                  }`}
+                >
+                  {isUploading ? (
+                    <><Icon name="loader" size={16} className="animate-spin" /> Memproses...</>
+                  ) : (
+                    <><Icon name="save" size={16} /> Simpan {addOdpTab === 'manual' ? `${manualOdpRows.filter(r => r.kodeOdp.trim()).length || 1} ODP` : 'Data'} ke Database</>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3860,8 +4359,19 @@ export function OkupansiView({ data, setData }) {
                 </button>
                 <button
                   onClick={() => {
-                    setInputTahap(manageTahapFilter || '');
+                    const defaultSt = manageStationFilter || selectedStation || (uniqueStations.length > 0 ? uniqueStations[0] : '');
+                    const defaultTh = manageTahapFilter || '';
+                    setManualStation(defaultSt);
+                    setManualTahap(defaultTh);
+                    setIsManualNewTahap(false);
+                    setManualNewTahapInput('');
+                    setManualOdpRows([
+                      { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
+                    ]);
+                    setAddOdpTab('manual');
+                    setInputTahap(defaultTh);
                     setIsNewTahap(false);
+                    setParsedExcelData([]);
                     setShowBulkModal(true);
                   }}
                   className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
