@@ -7455,7 +7455,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-4 h-0.5 bg-purple-500 border-t-2 border-dashed border-purple-500 inline-block shrink-0"></span>
-                    <span>Rute Jalan Kaki</span>
+                    <span>Rute Jalur Kabel</span>
                   </div>
                 </div>
 
@@ -7508,7 +7508,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                       <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-600 font-medium">
                         <span className="flex items-center gap-1 text-purple-700 font-bold">
                           <Icon name="navigation" size={12} className={isRouting ? 'animate-spin' : ''} />
-                          {isRouting ? 'Menghitung rute...' : realRouteDistance !== null ? `${realRouteDistance} meter jalan kaki` : `~${selectedOdp.distance} meter (lurus)`}
+                          {isRouting ? 'Menghitung jalur kabel...' : realRouteDistance !== null ? `${realRouteDistance} meter (Jalur Kabel)` : `~${selectedOdp.distance} meter (Tarik Lurus)`}
                         </span>
                         <span className="text-slate-400">•</span>
                         <span className="text-slate-500">{toProperCase(selectedOdp.stasiun || '')}</span>
@@ -7546,7 +7546,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
         <div className="p-3 sm:p-4 border-t border-slate-100 bg-white flex items-center justify-between shrink-0">
           <div className="text-xs text-slate-500 hidden sm:flex items-center gap-2">
             <Icon name="info" size={14} className="text-blue-500" />
-            <span>Peta menggunakan Google Maps Streets yang cepat & ringan. Rute jalan kaki dihitung via OSRM.</span>
+            <span>Peta Google Maps Streets. Estimasi rute penarikan kabel dropcore dihitung otomatis mengikuti jalur jalan riil (OSRM).</span>
           </div>
           <button
             onClick={onClose}
