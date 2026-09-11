@@ -6936,9 +6936,591 @@ function DashboardView({ data, isSyncing }) {
 }
 
 // ==========================================
+// MODAL POPUP: CEK COVERAGE ODP PELANGGAN LANGSUNG (TANPA PINDAH HALAMAN)
+// ==========================================
+function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose }) {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markerLayerRef = useRef(null);
+  const userLayerRef = useRef(null);
+  const lineLayerRef = useRef(null);
+
+  const [searchRadius, setSearchRadius] = useState(500);
+  const [selectedOdp, setSelectedOdp] = useState(null);
+  const [realRouteDistance, setRealRouteDistance] = useState(null);
+  const [isRouting, setIsRouting] = useState(false);
+  const [copiedOdp, setCopiedOdp] = useState(null);
+  const [filterAvailableOnly, setFilterAvailableOnly] = useState(false);
+  const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
+
+  const custLat = parseFloat(String(customer?.latitude || '').trim().replace(',', '.'));
+  const custLng = parseFloat(String(customer?.longitude || '').trim().replace(',', '.'));
+  const isValidCoords = !isNaN(custLat) && !isNaN(custLng) && Math.abs(custLat) <= 90 && Math.abs(custLng) <= 180 && (custLat !== 0 || custLng !== 0);
+
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+    const p1 = lat1 * Math.PI / 180;
+    const p2 = lat2 * Math.PI / 180;
+    const dp = (lat2 - lat1) * Math.PI / 180;
+    const dl = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Close with Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Kalkulasi rekomendasi ODP terdekat
+  const recommendations = useMemo(() => {
+    if (!isValidCoords || !Array.isArray(odpData)) return [];
+    const results = [];
+    odpData.forEach(odp => {
+      const oLat = parseFloat(String(odp.latitude || '').trim().replace(',', '.'));
+      const oLng = parseFloat(String(odp.longitude || '').trim().replace(',', '.'));
+      if (!isNaN(oLat) && !isNaN(oLng)) {
+        const dist = calculateDistance(custLat, custLng, oLat, oLng);
+        if (dist <= searchRadius) {
+          const cap = Number(odp.kapasitas) || 0;
+          const used = Number(odp.portTerpakai) || 0;
+          const isFull = cap > 0 && used >= cap;
+          results.push({
+            ...odp,
+            lat: oLat,
+            lng: oLng,
+            distance: Math.round(dist),
+            isFull,
+            kapasitasNum: cap,
+            portTerpakaiNum: used,
+            available: Math.max(0, cap - used)
+          });
+        }
+      }
+    });
+    return results.sort((a, b) => a.distance - b.distance);
+  }, [isValidCoords, custLat, custLng, odpData, searchRadius]);
+
+  const displayList = useMemo(() => {
+    if (filterAvailableOnly) return recommendations.filter(o => !o.isFull);
+    return recommendations;
+  }, [recommendations, filterAvailableOnly]);
+
+  // Inisialisasi Leaflet Map
+  useEffect(() => {
+    if (!isValidCoords || !window.L || !mapRef.current || mapInstance.current) return;
+
+    mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView([custLat, custLng], 17);
+
+    const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      attribution: '&copy; Google Maps',
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+    const googleHybrid = window.L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      attribution: '&copy; Google Maps',
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+    const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
+    });
+
+    googleStreets.addTo(mapInstance.current);
+
+    window.L.control.layers({
+      "Peta Jalan (Cepat)": googleStreets,
+      "Satelit / Hybrid": googleHybrid,
+      "OpenStreetMap": osmLayer
+    }, null, { position: 'topright' }).addTo(mapInstance.current);
+
+    const t1 = setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 150);
+    const t2 = setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 400);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
+    };
+  }, [isValidCoords, custLat, custLng]);
+
+  // Marker Pelanggan & Lingkaran Radius
+  useEffect(() => {
+    if (!mapInstance.current || !window.L || !isValidCoords) return;
+    if (userLayerRef.current) mapInstance.current.removeLayer(userLayerRef.current);
+    userLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
+
+    const userMarkerHtml = `
+      <div style="position: relative;">
+        <div style="background-color: #2563eb; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 12px rgba(37,99,235,0.8); position: absolute; top: -9px; left: -9px; z-index: 2;"></div>
+        <div style="background-color: #3b82f6; width: 34px; height: 34px; border-radius: 50%; position: absolute; top: -17px; left: -17px; z-index: 1; opacity: 0.4; animation: pulse 2s infinite;"></div>
+      </div>
+    `;
+    const userIcon = window.L.divIcon({ html: userMarkerHtml, className: '', iconSize: [0, 0] });
+
+    window.L.marker([custLat, custLng], { icon: userIcon, zIndexOffset: 1000 })
+      .bindPopup(`
+        <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 140px;">
+          <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 2px;">${customer?.namaPelanggan || 'Pelanggan'}</strong>
+          <span style="font-size:10px; color:#64748b; font-family:monospace;">ID: ${customer?.idPelanggan || '-'}</span><br/>
+          <div style="margin-top: 4px; font-size:10px; color:#2563eb; font-weight: bold;">📍 Titik Pelanggan</div>
+        </div>
+      `)
+      .addTo(userLayerRef.current)
+      .openPopup();
+
+    window.L.circle([custLat, custLng], {
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.08,
+      radius: searchRadius,
+      weight: 1.5,
+      dashArray: '5, 5'
+    }).addTo(userLayerRef.current);
+
+  }, [isValidCoords, custLat, custLng, searchRadius, customer]);
+
+  // Marker ODP Terdekat
+  useEffect(() => {
+    if (!mapInstance.current || !window.L) return;
+    if (markerLayerRef.current) mapInstance.current.removeLayer(markerLayerRef.current);
+    markerLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
+
+    displayList.forEach(odp => {
+      const isSelected = selectedOdp && (selectedOdp.id === odp.id || selectedOdp.kodeOdp === odp.kodeOdp);
+      const markerHtml = `<div style="background-color: ${odp.isFull ? '#ef4444' : '#10b981'}; width: ${isSelected ? '18px' : '14px'}; height: ${isSelected ? '18px' : '14px'}; border-radius: 50%; border: ${isSelected ? '3px solid #f59e0b' : '2px solid white'}; box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; transition: transform 0.2s;"></div>`;
+      const customIcon = window.L.divIcon({ html: markerHtml, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
+
+      const displayTitle = odp.kodeOdp || odp.label || 'Nama ODP Kosong';
+      const marker = window.L.marker([odp.lat, odp.lng], { icon: customIcon })
+        .bindPopup(`
+          <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 150px;">
+            <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 2px;">${displayTitle}</strong>
+            <span style="font-size:10px; color:#64748b;">Stasiun: ${toProperCase(odp.stasiun || '')}</span><br/>
+            <span style="font-size:10px; color:#475569; font-weight: 600;">Jarak: ~${odp.distance} meter</span>
+            <div style="margin-top: 6px; padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; color: white; background-color: ${odp.isFull ? '#ef4444' : '#10b981'}; display: inline-block;">
+              ${odp.isFull ? 'FULL' : 'TERSEDIA'} (${odp.portTerpakaiNum}/${odp.kapasitasNum})
+            </div>
+          </div>
+        `);
+
+      marker.on('click', () => {
+        setSelectedOdp(odp);
+        setRealRouteDistance(null);
+      });
+
+      markerLayerRef.current.addLayer(marker);
+    });
+  }, [displayList, selectedOdp]);
+
+  // Routing jalan kaki via OSRM ke ODP terpilih
+  useEffect(() => {
+    if (!mapInstance.current || !window.L || !isValidCoords) return;
+    if (lineLayerRef.current) {
+      mapInstance.current.removeLayer(lineLayerRef.current);
+      lineLayerRef.current = null;
+    }
+
+    if (selectedOdp && selectedOdp.lat && selectedOdp.lng) {
+      setIsRouting(true);
+      const startPoint = [custLat, custLng];
+      const endPoint = [selectedOdp.lat, selectedOdp.lng];
+
+      const drawPolyline = (latlngs) => {
+        lineLayerRef.current = window.L.polyline(latlngs, {
+          color: '#8b5cf6',
+          weight: 4,
+          opacity: 0.9,
+          dashArray: '8, 8',
+          className: 'animated-polyline',
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(mapInstance.current);
+
+        const bounds = window.L.latLngBounds(latlngs);
+        mapInstance.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 18, animate: true, duration: 0.8 });
+      };
+
+      const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${custLng},${custLat};${selectedOdp.lng},${selectedOdp.lat}?geometries=geojson`;
+
+      fetch(osrmUrl)
+        .then(res => res.json())
+        .then(result => {
+          setIsRouting(false);
+          if (result && result.routes && result.routes.length > 0) {
+            const routeCoords = result.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            drawPolyline(routeCoords);
+            setRealRouteDistance(Math.round(result.routes[0].distance));
+          } else {
+            drawPolyline([startPoint, endPoint]);
+            setRealRouteDistance(null);
+          }
+        })
+        .catch(err => {
+          setIsRouting(false);
+          console.warn('Gagal memuat rute OSRM:', err);
+          drawPolyline([startPoint, endPoint]);
+          setRealRouteDistance(null);
+        });
+    }
+  }, [selectedOdp, isValidCoords, custLat, custLng]);
+
+  const handleCopyCode = (code) => {
+    if (!code) return;
+    navigator.clipboard?.writeText(code).then(() => {
+      setCopiedOdp(code);
+      setTimeout(() => setCopiedOdp(null), 2000);
+    }).catch(() => {
+      const el = document.createElement('textarea');
+      el.value = code;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopiedOdp(code);
+      setTimeout(() => setCopiedOdp(null), 2000);
+    });
+  };
+
+  const handleSelectOdpCard = (odp) => {
+    setSelectedOdp(odp);
+    setRealRouteDistance(null);
+    setMobileTab('map');
+    if (mapInstance.current) {
+      mapInstance.current.flyTo([odp.lat, odp.lng], 18, { duration: 0.8 });
+    }
+  };
+
+  const handleCenterCustomer = () => {
+    if (mapInstance.current && isValidCoords) {
+      mapInstance.current.flyTo([custLat, custLng], 17, { duration: 0.8 });
+    }
+  };
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fade">
+      <style>{`
+        .animated-polyline { animation: dash-animation 1s linear infinite; }
+        @keyframes dash-animation { to { stroke-dashoffset: -20; } }
+      `}</style>
+      <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}></div>
+
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[92vh] max-h-[92vh] relative z-10 animate-modal flex flex-col overflow-hidden border border-slate-100">
+        {/* Header */}
+        <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+              <Icon name="radar" size={20} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-slate-800 truncate">
+                  Coverage ODP Terdekat — {customer?.namaPelanggan || 'Pelanggan'}
+                </h2>
+                {customer?.idPelanggan && (
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 font-mono text-[11px] font-bold rounded-md">
+                    {customer.idPelanggan}
+                  </span>
+                )}
+                {customer?.stasiun && (
+                  <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold uppercase rounded-md">
+                    {toProperCase(customer.stasiun)}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {customer?.alamat ? `Alamat: ${customer.alamat} • ` : ''}
+                Koordinat: {customer?.latitude || '-'}, {customer?.longitude || '-'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition-colors shrink-0 ml-2"
+            title="Tutup (Esc)"
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+
+        {/* Invalid Coords Fallback */}
+        {!isValidCoords ? (
+          <div className="p-8 text-center flex flex-col items-center justify-center flex-1">
+            <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center mb-4 shadow-inner">
+              <Icon name="alert-triangle" size={32} />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 mb-1">Titik Koordinat Belum Valid</h3>
+            <p className="text-xs sm:text-sm text-slate-500 max-w-md mb-4">
+              Pelanggan <span className="font-bold text-slate-700">{customer?.namaPelanggan || 'ini'}</span> belum memiliki titik koordinat Latitude dan Longitude yang valid untuk menghitung jarak ODP terdekat.
+            </p>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-600 mb-6 flex gap-6">
+              <div>Latitude: <span className="font-bold text-slate-800">{customer?.latitude || '-'}</span></div>
+              <div>Longitude: <span className="font-bold text-slate-800">{customer?.longitude || '-'}</span></div>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all active:scale-95"
+            >
+              Tutup & Lengkapi Koordinat
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Mobile Tab Switcher */}
+            <div className="lg:hidden flex border-b border-slate-200 bg-slate-50 shrink-0">
+              <button
+                onClick={() => setMobileTab('map')}
+                className={`flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${mobileTab === 'map' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                <Icon name="map" size={14} /> Peta Coverage
+              </button>
+              <button
+                onClick={() => setMobileTab('list')}
+                className={`flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${mobileTab === 'list' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                <Icon name="list" size={14} /> Daftar ODP ({displayList.length})
+              </button>
+            </div>
+
+            {/* Main Workspace: Sidebar List + Map View */}
+            <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden relative">
+              {/* Sidebar List (Left Panel) */}
+              <div className={`w-full lg:w-[380px] xl:w-[410px] shrink-0 border-r border-slate-100 bg-slate-50/50 flex flex-col min-h-0 ${mobileTab === 'map' ? 'hidden lg:flex' : 'flex'}`}>
+                {/* Search Radius & Filter Controls */}
+                <div className="p-3.5 bg-white border-b border-slate-200/80 shrink-0 space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Radius Pencarian ODP</span>
+                      <span className="text-[11px] font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                        {searchRadius >= 1000 ? `${searchRadius / 1000} km` : `${searchRadius} meter`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {[150, 300, 500, 1000, 2000].map(r => (
+                        <button
+                          key={r}
+                          onClick={() => {
+                            setSearchRadius(r);
+                            setSelectedOdp(null);
+                            setRealRouteDistance(null);
+                          }}
+                          className={`py-1.5 text-xs font-bold rounded-lg transition-all ${searchRadius === r ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30' : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'}`}
+                        >
+                          {r >= 1000 ? `${r / 1000}km` : `${r}m`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={filterAvailableOnly}
+                        onChange={(e) => setFilterAvailableOnly(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                      <span className="text-[11px] font-medium text-slate-600">Hanya ODP ada port kosong</span>
+                    </label>
+                    <span className="text-[11px] font-bold text-slate-400">
+                      {displayList.length} ODP
+                    </span>
+                  </div>
+                </div>
+
+                {/* Scrollable ODP Cards */}
+                <div className="overflow-y-auto flex-1 p-3 space-y-2.5 custom-scrollbar">
+                  {displayList.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 p-4">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2">
+                        <Icon name="radar" size={24} />
+                      </div>
+                      <p className="text-xs font-bold text-slate-700">Tidak ada ODP di radius ini</p>
+                      <p className="text-[11px] text-slate-400 mt-1 max-w-[240px] mx-auto">
+                        Coba naikkan radius pencarian ke 1 km atau 2 km menggunakan tombol di atas.
+                      </p>
+                    </div>
+                  ) : (
+                    displayList.map((odp, idx) => {
+                      const isSelected = selectedOdp && (selectedOdp.id === odp.id || selectedOdp.kodeOdp === odp.kodeOdp);
+                      return (
+                        <div
+                          key={odp.id || odp.kodeOdp || idx}
+                          onClick={() => handleSelectOdpCard(odp)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer relative ${isSelected ? 'border-blue-500 bg-blue-50/80 shadow-md ring-2 ring-blue-500/20' : 'border-slate-200/90 bg-white hover:border-blue-300 hover:shadow-sm'}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-black text-xs text-slate-800">
+                                  {odp.kodeOdp || odp.label || 'Nama ODP Kosong'}
+                                </span>
+                                {idx === 0 && (
+                                  <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded">
+                                    Terdekat
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                Stasiun: <span className="text-slate-600 font-semibold">{toProperCase(odp.stasiun || '-')}</span>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md border border-blue-100">
+                                <Icon name="navigation" size={10} /> ~{odp.distance} m
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100">
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${odp.isFull ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                              {odp.isFull ? 'PORT FULL' : 'TERSEDIA'} ({odp.portTerpakaiNum}/{odp.kapasitasNum})
+                            </span>
+
+                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyCode(odp.kodeOdp || odp.label)}
+                                className="px-2 py-1 text-[10px] font-bold text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded border border-slate-200 transition-colors flex items-center gap-1"
+                                title="Salin Kode ODP"
+                              >
+                                <Icon name={copiedOdp === (odp.kodeOdp || odp.label) ? "check" : "copy"} size={11} className={copiedOdp === (odp.kodeOdp || odp.label) ? "text-emerald-600" : ""} />
+                                {copiedOdp === (odp.kodeOdp || odp.label) ? "Tersalin!" : "Salin"}
+                              </button>
+
+                              {onSelectOdp && (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectOdp(odp.kodeOdp || odp.label)}
+                                  className="px-2 py-1 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm"
+                                >
+                                  Pilih
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Map Panel (Right Panel) */}
+              <div className={`flex-1 relative flex flex-col min-h-0 bg-slate-100 ${mobileTab === 'list' ? 'hidden lg:flex' : 'flex'}`}>
+                <div ref={mapRef} className="w-full h-full relative z-0" />
+
+                {/* Floating Legend Overlay */}
+                <div className="absolute top-3 left-3 z-[500] bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-semibold text-slate-700 space-y-1 hidden sm:block">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-blue-600 border-2 border-white shadow-sm inline-block"></span>
+                    <span>Lokasi Pelanggan</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-sm inline-block"></span>
+                    <span>ODP Ada Port ({recommendations.filter(o => !o.isFull).length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-rose-500 border-2 border-white shadow-sm inline-block"></span>
+                    <span>ODP Port Penuh ({recommendations.filter(o => o.isFull).length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-0.5 bg-purple-500 border-t-2 border-dashed border-purple-500 inline-block"></span>
+                    <span>Rute Jalan Kaki</span>
+                  </div>
+                </div>
+
+                {/* Floating Re-center Button */}
+                <button
+                  onClick={handleCenterCustomer}
+                  className="absolute top-3 right-14 z-[500] bg-white/95 hover:bg-white text-slate-700 hover:text-blue-600 p-2 rounded-xl border border-slate-200 shadow-md transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold"
+                  title="Pusatkan ke Lokasi Pelanggan"
+                >
+                  <Icon name="crosshair" size={15} />
+                  <span className="hidden md:inline">Lokasi Pelanggan</span>
+                </button>
+
+                {/* Floating Selected ODP Banner at Bottom of Map */}
+                {selectedOdp && (
+                  <div className="absolute bottom-4 left-4 right-4 z-[500] max-w-xl mx-auto bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-xl flex items-center justify-between gap-3 animate-fade">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-xs sm:text-sm text-slate-800 truncate">
+                          {selectedOdp.kodeOdp || selectedOdp.label}
+                        </span>
+                        <span className={`px-2 py-0.5 text-[9px] font-bold rounded-md uppercase ${selectedOdp.isFull ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                          {selectedOdp.isFull ? 'Port Full' : 'Port Tersedia'} ({selectedOdp.portTerpakaiNum}/{selectedOdp.kapasitasNum})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-600 font-medium">
+                        <span className="flex items-center gap-1 text-purple-700 font-bold">
+                          <Icon name="navigation" size={12} className={isRouting ? 'animate-spin' : ''} />
+                          {isRouting ? 'Menghitung rute...' : realRouteDistance !== null ? `${realRouteDistance} meter jalan kaki` : `~${selectedOdp.distance} meter (lurus)`}
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-slate-500">{toProperCase(selectedOdp.stasiun || '')}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCode(selectedOdp.kodeOdp || selectedOdp.label)}
+                        className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5"
+                      >
+                        <Icon name={copiedOdp === (selectedOdp.kodeOdp || selectedOdp.label) ? "check" : "copy"} size={13} className={copiedOdp === (selectedOdp.kodeOdp || selectedOdp.label) ? "text-emerald-600" : ""} />
+                        <span>{copiedOdp === (selectedOdp.kodeOdp || selectedOdp.label) ? "Tersalin!" : "Salin Kode"}</span>
+                      </button>
+
+                      {onSelectOdp && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectOdp(selectedOdp.kodeOdp || selectedOdp.label)}
+                          className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-md shadow-blue-500/20"
+                        >
+                          Pilih ODP
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Modal Footer */}
+        <div className="p-3 sm:p-4 border-t border-slate-100 bg-white flex items-center justify-between shrink-0">
+          <div className="text-xs text-slate-500 hidden sm:flex items-center gap-2">
+            <Icon name="info" size={14} className="text-blue-500" />
+            <span>Peta menggunakan Google Maps Streets yang cepat & ringan. Rute jalan kaki dihitung via OSRM.</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full sm:w-auto px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all active:scale-95 ml-auto"
+          >
+            Tutup & Kembali ke Detail Pelanggan
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
-function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [] }) {
+function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
     namaPelanggan: data?.namaPelanggan || '',
@@ -6965,6 +7547,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   const [internalData, setInternalData] = useState(data || {});
   const [editingField, setEditingField] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
 
   // <--- STATE UNTUK DROPDOWN PETUGAS
   const [isPetugasOpen, setIsPetugasOpen] = useState(false);
@@ -7557,7 +8140,16 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                 {type !== 'add' && (
                   <>
                     <div>
-                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ODP Aktual</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold text-slate-500 block uppercase tracking-wider">ODP Aktual</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowCoveragePopup(true)}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+                        >
+                          <Icon name="radar" size={12} /> Cek Coverage Terdekat
+                        </button>
+                      </div>
                       <input type="text" name="odpAktual" value={formData.odpAktual} onChange={handleInputChange} disabled={isSaving} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
                     </div>
                     <div>
@@ -7776,7 +8368,11 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           <div className="p-5 border-t border-slate-100 flex justify-between items-center bg-slate-50 mt-auto shrink-0">
             <div>
               {(String(internalData?.aktivasi || '').toLowerCase() !== 'sudah') && (
-                <button onClick={() => { onClose(false); if (onGoToCoverage) onGoToCoverage(internalData.latitude, internalData.longitude); }} className="px-4 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/30 transition-all flex items-center gap-2 transform active:scale-95">
+                <button
+                  type="button"
+                  onClick={() => setShowCoveragePopup(true)}
+                  className="px-4 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/30 transition-all flex items-center gap-2 transform active:scale-95"
+                >
                   <Icon name="radar" size={16} /> Cek Coverage ODP
                 </button>
               )}
@@ -7788,7 +8384,24 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     </div>
   );
 
-  return ReactDOM.createPortal(modalContent, document.body);
+  return (
+    <>
+      {ReactDOM.createPortal(modalContent, document.body)}
+      {showCoveragePopup && (
+        <CustomerCoverageModal
+          customer={type === 'edit' ? formData : internalData}
+          odpData={odpData}
+          onSelectOdp={(code) => {
+            if (type === 'edit') {
+              setFormData(prev => ({ ...prev, odpAktual: code }));
+            }
+            setShowCoveragePopup(false);
+          }}
+          onClose={() => setShowCoveragePopup(false)}
+        />
+      )}
+    </>
+  );
 }
 
 // ==========================================
@@ -11394,6 +12007,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             onLocalPelangganUpdate={onLocalPelangganUpdate}
             onLocalVisitUpdate={onLocalVisitUpdate}
             petugasList={petugasList}
+            odpData={odpData}
           />
         )}
 
