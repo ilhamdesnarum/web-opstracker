@@ -11447,7 +11447,7 @@ function CoverageGISView({ data, targetCoords }) {
   const [gmapsLink, setGmapsLink] = useState('');
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
-  const [searchRadius, setSearchRadius] = useState(300);
+  const [searchRadius, setSearchRadius] = useState(500);
   const [errorMsg, setErrorMsg] = useState('');
 
   const [userLocation, setUserLocation] = useState(null);
@@ -11455,6 +11455,13 @@ function CoverageGISView({ data, targetCoords }) {
 
   const [selectedOdp, setSelectedOdp] = useState(null);
   const [realRouteDistance, setRealRouteDistance] = useState(null);
+
+  // --- FITUR CERDAS: LEGENDA & FILTER STASIUN ---
+  const [selectedStations, setSelectedStations] = useState(new Set());
+  const [hasInitializedStations, setHasInitializedStations] = useState(false);
+  const [smartRadiusOnly, setSmartRadiusOnly] = useState(true);
+  const [isLegendOpen, setIsLegendOpen] = useState(false);
+  const [filterStationSearch, setFilterStationSearch] = useState('');
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371e3;
@@ -11466,6 +11473,57 @@ function CoverageGISView({ data, targetCoords }) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
+
+  // Daftar stasiun unik beserta jumlah ODP
+  const availableStations = useMemo(() => {
+    const map = new Map();
+    (data?.odpData || []).forEach(o => {
+      const st = toProperCase(o.stasiun || 'Tanpa Stasiun');
+      map.set(st, (map.get(st) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data?.odpData]);
+
+  // Default: Pilih semua stasiun saat data ODP dimuat
+  useEffect(() => {
+    if (availableStations.length > 0 && !hasInitializedStations) {
+      setSelectedStations(new Set(availableStations.map(s => s.name)));
+      setHasInitializedStations(true);
+    }
+  }, [availableStations, hasInitializedStations]);
+
+  // Daftar ODP yang aktif dan tampil di peta (Fitur Cerdas Ringan)
+  const visibleOdps = useMemo(() => {
+    if (!data || !data.odpData) return [];
+
+    let list = data.odpData;
+
+    // 1. Filter Stasiun (Checklist Stasiun)
+    if (selectedStations.size < availableStations.length) {
+      list = list.filter(odp => {
+        const st = toProperCase(odp.stasiun || 'Tanpa Stasiun');
+        return selectedStations.has(st);
+      });
+    }
+
+    // 2. Mode Cerdas Radius Terdekat:
+    // Jika ada lokasi pelanggan (userLocation) dan smartRadiusOnly aktif,
+    // HANYA tampilkan ODP dalam radius (default 500m) agar peta sangat ringan!
+    if (userLocation && smartRadiusOnly) {
+      const maxDist = Number(searchRadius) || 500;
+      return list.filter(odp => {
+        const lat = parseFloat(String(odp.latitude).trim().replace(',', '.'));
+        const lng = parseFloat(String(odp.longitude).trim().replace(',', '.'));
+        if (isNaN(lat) || isNaN(lng)) return false;
+        const dist = calculateDistance(userLocation.lat, userLocation.lng, lat, lng);
+        return dist <= maxDist;
+      });
+    }
+
+    return list;
+  }, [data?.odpData, selectedStations, availableStations.length, userLocation, smartRadiusOnly, searchRadius]);
 
   useEffect(() => {
     if (window.L && mapRef.current && !mapInstance.current) {
@@ -11494,19 +11552,29 @@ function CoverageGISView({ data, targetCoords }) {
         "OpenStreetMap": osmLayer
       }, null, { position: 'topright' }).addTo(mapInstance.current);
 
+      // Klik langsung di peta untuk set titik pelanggan
+      mapInstance.current.on('click', (e) => {
+        const lat = parseFloat(e.latlng.lat.toFixed(6));
+        const lng = parseFloat(e.latlng.lng.toFixed(6));
+        setManualLat(lat.toString());
+        setManualLng(lng.toString());
+        setGmapsLink('');
+        executeCoverageCalculation(lat, lng, searchRadius);
+      });
+
       setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 250);
     }
     return () => {
       if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
     };
-  }, []);
+  }, [searchRadius]);
 
   useEffect(() => {
-    if (!mapInstance.current || !window.L || !data || !data.odpData) return;
+    if (!mapInstance.current || !window.L) return;
     if (markerLayerRef.current) mapInstance.current.removeLayer(markerLayerRef.current);
     markerLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
 
-    data.odpData.forEach(odp => {
+    visibleOdps.forEach(odp => {
       if (odp.latitude && odp.longitude) {
         const lat = parseFloat(String(odp.latitude).trim().replace(',', '.'));
         const lng = parseFloat(String(odp.longitude).trim().replace(',', '.'));
@@ -11517,24 +11585,30 @@ function CoverageGISView({ data, targetCoords }) {
           const isFull = cap > 0 && used >= cap;
           const displayTitle = odp.kodeOdp || odp.label || 'Nama ODP Kosong';
 
-          const markerHtml = `<div style="background-color: ${isFull ? '#ef4444' : '#10b981'}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4);"></div>`;
+          const markerHtml = `<div style="background-color: ${isFull ? '#ef4444' : '#10b981'}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.4); cursor: pointer;"></div>`;
           const customIcon = window.L.divIcon({ html: markerHtml, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
 
           const marker = window.L.marker([lat, lng], { icon: customIcon })
             .bindPopup(`
-               <div style="font-family: 'Inter', sans-serif; padding: 2px;">
-                 <strong style="font-size:12px; color:#1e293b;">${displayTitle}</strong><br/>
+               <div style="font-family: 'Inter', sans-serif; padding: 3px; min-width: 140px;">
+                 <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 2px;">${displayTitle}</strong>
                  <span style="font-size:10px; color:#64748b;">Stasiun: ${toProperCase(odp.stasiun || '')}</span><br/>
                  <div style="margin-top: 6px; padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; color: white; background-color: ${isFull ? '#ef4444' : '#10b981'}; display: inline-block;">
                    ${isFull ? 'FULL' : 'TERSEDIA'} (${used}/${cap})
                  </div>
                </div>
              `);
+
+          marker.on('click', () => {
+            setSelectedOdp(odp);
+            setRealRouteDistance(null);
+          });
+
           markerLayerRef.current.addLayer(marker);
         }
       }
     });
-  }, [data]);
+  }, [visibleOdps]);
 
   // --- FUNGSI INTI EKSEKUSI KALKULASI ---
   const executeCoverageCalculation = (tLat, tLng, radius) => {
@@ -11813,7 +11887,9 @@ function CoverageGISView({ data, targetCoords }) {
             >
               <option value={150}>Radius: 150m</option>
               <option value={300}>Radius: 300m</option>
-              <option value={500}>Radius: 500m</option>
+              <option value={500}>Radius: 500m (Cerdas)</option>
+              <option value={1000}>Radius: 1.000m (1 km)</option>
+              <option value={2000}>Radius: 2.000m (2 km)</option>
             </select>
           </div>
 
@@ -11898,6 +11974,221 @@ function CoverageGISView({ data, targetCoords }) {
       {/* --- PANEL KANAN: Peta Map --- */}
       <div className="order-1 lg:order-2 w-full lg:flex-1 h-[45vh] lg:h-full bg-slate-100 rounded-xl sm:rounded-2xl border border-slate-200 shadow-inner relative overflow-hidden z-0 shrink-0 lg:shrink">
         <div ref={mapRef} className="absolute inset-0" style={{ zIndex: 0 }}></div>
+
+        {/* --- FLOATING CONTROLS DI ATAS PETA --- */}
+        <div className="absolute top-3 left-3 z-[400] flex flex-wrap items-center gap-2 max-w-[calc(100%-75px)]">
+          {/* Tombol Buka Legenda & Filter Stasiun */}
+          <button
+            type="button"
+            onClick={() => setIsLegendOpen(prev => !prev)}
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${
+              isLegendOpen
+                ? 'bg-[#1e3a8a] text-white border-blue-900 shadow-blue-900/30'
+                : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
+            }`}
+          >
+            <Icon name="sliders" size={13} className={isLegendOpen ? "text-amber-400" : "text-blue-600"} />
+            <span>Filter Stasiun & Legenda</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+              isLegendOpen ? 'bg-blue-800 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+            }`}>
+              {selectedStations.size}/{availableStations.length}
+            </span>
+          </button>
+
+          {/* Quick Toggle: Mode Cerdas Radius Terdekat */}
+          {userLocation && (
+            <button
+              type="button"
+              onClick={() => setSmartRadiusOnly(prev => !prev)}
+              className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-1.5 border transition-all ${
+                smartRadiusOnly
+                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/25'
+                  : 'bg-white/95 text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+              title="Jika aktif, hanya menampilkan ODP terdekat dalam radius pencarian agar peta sangat ringan"
+            >
+              <Icon name="crosshair" size={13} className={smartRadiusOnly ? "text-white" : "text-emerald-600"} />
+              <span>Radius Cerdas ({searchRadius}m)</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
+                smartRadiusOnly ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {smartRadiusOnly ? 'AKTIF' : 'SEMUA'}
+              </span>
+            </button>
+          )}
+
+          {/* Counter Badge */}
+          <div className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-xl border border-white/10 shadow-sm hidden sm:flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{visibleOdps.length} ODP tampil di peta</span>
+          </div>
+        </div>
+
+        {/* --- FLOATING LEGEND & STATION CHECKLIST DRAWER --- */}
+        {isLegendOpen && (
+          <div className="absolute top-14 left-3 z-[401] w-72 sm:w-84 max-h-[calc(100%-75px)] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-fade">
+            {/* Header */}
+            <div className="p-3 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <Icon name="sliders" size={13} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black tracking-tight leading-none">Filter & Legenda ODP</h4>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Optimasi tampilan ODP agar peta tetap ringan</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLegendOpen(false)}
+                className="w-6 h-6 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+
+            <div className="p-3 overflow-y-auto custom-scrollbar space-y-3 text-xs text-slate-700 flex-1">
+              {/* Legenda Warna Simbol */}
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">Legenda Peta</span>
+                <div className="grid grid-cols-2 gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-emerald-500 border border-white shadow-xs shrink-0"></span>
+                    <span className="text-[11px] font-medium text-slate-700">Tersedia</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-rose-500 border border-white shadow-xs shrink-0"></span>
+                    <span className="text-[11px] font-medium text-slate-700">Penuh (Full)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-blue-600 border border-white shadow-xs shrink-0"></span>
+                    <span className="text-[11px] font-medium text-slate-700">Pelanggan</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-1 bg-purple-500 rounded shrink-0"></span>
+                    <span className="text-[11px] font-medium text-slate-700">Jalur Kabel</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mode Radius Cerdas */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Mode Radius Cerdas</span>
+                  <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">Hemat Memori</span>
+                </div>
+                <div
+                  onClick={() => setSmartRadiusOnly(prev => !prev)}
+                  className="flex items-start gap-2.5 p-2.5 bg-blue-50/60 hover:bg-blue-50 border border-blue-100 rounded-xl cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={smartRadiusOnly}
+                    onChange={() => {}}
+                    className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div>
+                    <strong className="text-[11px] text-blue-900 block font-bold leading-tight">Fokus Radius Terdekat Saja ({searchRadius}m)</strong>
+                    <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                      Saat titik lokasi aktif, hanya menampilkan ODP terdekat dalam radius {searchRadius}m agar peta super ringan.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter Checklist Stasiun */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                    Pilih Stasiun ({selectedStations.size}/{availableStations.length})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStations(new Set(availableStations.map(s => s.name)))}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-bold px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors"
+                    >
+                      Pilih Semua
+                    </button>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStations(new Set())}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 font-bold px-1.5 py-0.5 rounded hover:bg-rose-50 transition-colors"
+                    >
+                      Kosongkan
+                    </button>
+                  </div>
+                </div>
+
+                {/* Input Cari Stasiun */}
+                <div className="relative mb-2">
+                  <Icon name="search" size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={filterStationSearch}
+                    onChange={(e) => setFilterStationSearch(e.target.value)}
+                    placeholder="Cari stasiun..."
+                    className="w-full pl-7 pr-2.5 py-1.5 text-[11px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition-colors"
+                  />
+                  {filterStationSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterStationSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Daftar Checklist Stasiun */}
+                <div className="max-h-40 overflow-y-auto custom-scrollbar border border-slate-200/80 rounded-xl divide-y divide-slate-100 bg-white">
+                  {availableStations
+                    .filter(s => s.name.toLowerCase().includes(filterStationSearch.toLowerCase()))
+                    .map(st => {
+                      const isChecked = selectedStations.has(st.name);
+                      return (
+                        <label
+                          key={st.name}
+                          className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors ${
+                            isChecked ? 'bg-blue-50/20' : 'opacity-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const next = new Set(selectedStations);
+                                if (e.target.checked) next.add(st.name);
+                                else next.delete(st.name);
+                                setSelectedStations(next);
+                              }}
+                              className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-semibold text-slate-800 truncate">{st.name}</span>
+                          </div>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold shrink-0 ml-2">
+                            {st.count} ODP
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Petunjuk Klik Peta */}
+              <div className="p-2.5 bg-amber-50/70 border border-amber-200/60 rounded-xl text-amber-900 flex items-start gap-2">
+                <Icon name="info" size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-[10px] leading-relaxed">
+                  <strong>Tips:</strong> Klik titik mana pun di peta untuk menetapkan lokasi pelanggan dan mengecek ODP terdekat secara instan.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>
