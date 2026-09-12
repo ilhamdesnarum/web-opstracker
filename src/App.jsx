@@ -9005,8 +9005,8 @@ function WhatsNewModal({ onClose, onTryFeature }) {
   }, [onClose, dontShowAgain]);
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-950/45 backdrop-blur-md animate-fade">
-      <div className="bg-white/95 backdrop-blur-xl rounded-[26px] shadow-[0_25px_70px_-15px_rgba(15,23,42,0.3)] w-full max-w-2xl flex flex-col relative z-10 animate-modal overflow-hidden border border-white/60">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-950/50 backdrop-blur-md animate-fade">
+      <div className="bg-white rounded-[26px] shadow-2xl shadow-slate-950/40 w-full max-w-2xl flex flex-col relative z-10 animate-modal overflow-hidden border-0 outline-none">
         {/* HEADER MODAL DENGAN GRADASI HALUS & AMBIENT GLOW */}
         <div className="relative p-5 sm:p-6 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white overflow-hidden shrink-0">
           <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
