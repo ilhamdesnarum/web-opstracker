@@ -1151,6 +1151,43 @@ function App({ onLogout }) {
 
   const [initialDatabaseStatusFilter, setInitialDatabaseStatusFilter] = useState('');
   const [initialDatabaseStationFilter, setInitialDatabaseStationFilter] = useState('');
+
+  // SISTEM INFORMASI FITUR BARU (WHAT'S NEW)
+  const CURRENT_APP_VERSION = 'v2.4.0';
+  const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
+  const [hasUnseenFeatures, setHasUnseenFeatures] = useState(false);
+
+  useEffect(() => {
+    try {
+      const lastSeen = localStorage.getItem('opstracker_last_seen_version');
+      if (lastSeen !== CURRENT_APP_VERSION) {
+        setHasUnseenFeatures(true);
+        // Munculkan otomatis satu kali setelah 1 detik
+        const timer = setTimeout(() => {
+          setIsWhatsNewOpen(true);
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    } catch (e) {
+      console.warn('Gagal membaca local storage versi fitur', e);
+    }
+  }, []);
+
+  const handleCloseWhatsNew = (dontShowAgain = true) => {
+    setIsWhatsNewOpen(false);
+    if (dontShowAgain) {
+      try {
+        localStorage.setItem('opstracker_last_seen_version', CURRENT_APP_VERSION);
+        setHasUnseenFeatures(false);
+      } catch (e) {}
+    }
+  };
+
+  const handleTryQuickScanFromWhatsNew = (dontShowAgain = true) => {
+    handleCloseWhatsNew(dontShowAgain);
+    setInitialDatabaseStatusFilter('WAITING');
+    setActiveTab('database');
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
   const [isLoading, setIsLoading] = useState(true);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
@@ -1777,6 +1814,23 @@ function App({ onLogout }) {
                 </span>
               </div>
 
+              {/* Tombol Apa yang Baru di Top Header */}
+              <button
+                type="button"
+                onClick={() => setIsWhatsNewOpen(true)}
+                className="flex items-center gap-1.5 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-sm transition-all mr-2 relative cursor-pointer"
+                title="Lihat Pembaruan Fitur Baru (v2.4)"
+              >
+                <Icon name="sparkles" size={14} className="text-indigo-600 animate-pulse" />
+                <span className="hidden md:inline">Apa yang Baru?</span>
+                {hasUnseenFeatures && (
+                  <>
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute -top-0.5 -right-0.5 animate-ping"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute -top-0.5 -right-0.5"></span>
+                  </>
+                )}
+              </button>
+
               {/* PERBAIKAN 2: SATU TOMBOL PINTAR SAJA (Berganti warna saat sinkron di latar belakang) */}
               <button
                 onClick={() => fetchData(true)}
@@ -1832,6 +1886,14 @@ function App({ onLogout }) {
 
           </div>
         </div>
+
+        {/* POPUP INFORMASI FITUR BARU (WHAT'S NEW) */}
+        {isWhatsNewOpen && (
+          <WhatsNewModal
+            onClose={handleCloseWhatsNew}
+            onTryFeature={handleTryQuickScanFromWhatsNew}
+          />
+        )}
       </main>
     </div>
   );
@@ -8920,6 +8982,158 @@ function QuickScanCoverageModal({
 }
 
 // ==========================================
+// MODAL INFORMASI FITUR BARU (WHAT'S NEW)
+// ==========================================
+function WhatsNewModal({ onClose, onTryFeature }) {
+  const [dontShowAgain, setDontShowAgain] = useState(true);
+
+  // Close with Esc
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose(dontShowAgain);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, dontShowAgain]);
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-sm animate-fade">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl flex flex-col relative z-10 animate-modal overflow-hidden border border-slate-100">
+        {/* HEADER MODAL DENGAN GRADASI INDIGO */}
+        <div className="relative p-6 sm:p-7 bg-gradient-to-br from-blue-700 via-indigo-600 to-indigo-800 text-white overflow-hidden shrink-0">
+          <div className="absolute -top-10 -right-10 w-36 h-36 rounded-full bg-white/10 blur-xl pointer-events-none"></div>
+          <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-indigo-400/20 blur-lg pointer-events-none"></div>
+
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-white/20 backdrop-blur-md border border-white/25 text-white tracking-wide shadow-sm">
+                <Icon name="sparkles" size={13} className="text-amber-300" />
+                <span>Pembaruan v2.4</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onClose(dontShowAgain)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Tutup (Esc)"
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+              Apa yang Baru di OpsTracker?
+            </h2>
+            <p className="text-xs sm:text-sm text-blue-100 font-medium mt-1 leading-relaxed">
+              Tingkatkan kecepatan dan efisiensi operasional dengan 2 pembaruan alur kerja terbaru berikut:
+            </p>
+          </div>
+        </div>
+
+        {/* BODY MODAL: 2 FITUR UTAMA */}
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto max-h-[62vh] bg-slate-50/50">
+          {/* FITUR 1: Quick Scan Coverage */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+                <Icon name="radar" size={22} className="animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+                    Quick Scan Coverage Alpro & ODP
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Fitur Baru
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Scan otomatis jarak pelanggan <strong className="text-slate-800">Waiting</strong> ke titik ODP terdekat dan periksa sisa port siap tarik secara instan tanpa perlu membuka detail pelanggan satu per satu.
+                </p>
+                <div className="flex items-center gap-2 mt-3 flex-wrap text-[11px] font-bold text-slate-600">
+                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <Icon name="check" size={12} className="text-emerald-600" /> Radius 300m - 500m
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <Icon name="check" size={12} className="text-emerald-600" /> Deteksi Sisa Port ODP
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <Icon name="download" size={12} className="text-blue-600" /> Ekspor Excel
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 2: Smart One-Click Filter Waiting */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
+                <Icon name="filter" size={22} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+                    Smart One-Click Filter Waiting
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                    Peningkatan UI
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Cukup 1 kali klik pada kartu ringkasan status <strong className="text-slate-800">WAITING</strong> di halaman pelanggan untuk menyaring data secara presisi sekaligus mengaktifkan tombol akses cepat Quick Scan.
+                </p>
+                <div className="flex items-center gap-2 mt-3 flex-wrap text-[11px] font-bold text-slate-600">
+                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <Icon name="check" size={12} className="text-amber-600" /> Filter Tunggal Presisi
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <Icon name="check" size={12} className="text-amber-600" /> Tampilan Ikon SVG Bersih
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* FOOTER MODAL */}
+        <div className="p-4 sm:p-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shrink-0">
+          <label className="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(e) => setDontShowAgain(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>Jangan tampilkan lagi untuk versi ini</span>
+          </label>
+
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => onClose(dontShowAgain)}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer"
+            >
+              Tutup
+            </button>
+            <button
+              type="button"
+              onClick={() => onTryFeature(dontShowAgain)}
+              className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Coba Sekarang</span>
+              <Icon name="arrow-right" size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
 function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
@@ -12203,6 +12417,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   ];
 
   useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterStatus]);
+
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setFilterStatus([initialStatusFilter]);
+    }
+  }, [initialStatusFilter]);
 
   useEffect(() => {
     if (!isFilterModalOpen) {
