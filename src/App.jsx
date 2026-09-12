@@ -8088,7 +8088,6 @@ function QuickScanCoverageModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStation, setSelectedStation] = useState('');
   const [selectedCustomerForMap, setSelectedCustomerForMap] = useState(null);
-  const [scanScope, setScanScope] = useState('CURRENT'); // 'CURRENT' | 'WAITING_ALL'
   const [copiedId, setCopiedId] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -8105,38 +8104,10 @@ function QuickScanCoverageModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedCustomerForMap, onClose]);
 
-  // Tentukan target pelanggan berdasarkan scope (HANYA PELANGGAN WAITING)
+  // Tentukan target pelanggan (HANYA PELANGGAN WAITING)
   const targetList = useMemo(() => {
-    const filterWaitingOnly = (list) => {
-      if (!Array.isArray(list)) return [];
-      return list.filter(item => {
-        const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
-        const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
-        const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
-        let finalStatus = 'WAITING';
-        if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
-        else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
-        else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
-        else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
-        else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
-        else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
-        else if (rawIkr === 'sudah') finalStatus = 'SUDAH IKR';
-        else if (rawIkr === 'belum' || rawIkr === '') finalStatus = 'WAITING';
-        else finalStatus = globalStat;
-        return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
-      });
-    };
-
-    if (scanScope === 'WAITING_ALL' && Array.isArray(allCustomers)) {
-      return filterWaitingOnly(allCustomers);
-    }
-    return filterWaitingOnly(customers);
-  }, [scanScope, customers, allCustomers]);
-
-  // Total pelanggan status WAITING di seluruh database
-  const totalWaitingCount = useMemo(() => {
-    if (!Array.isArray(allCustomers)) return 0;
-    return allCustomers.filter(item => {
+    const list = Array.isArray(customers) && customers.length > 0 ? customers : (allCustomers || []);
+    return list.filter(item => {
       const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
       const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
       const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
@@ -8151,8 +8122,8 @@ function QuickScanCoverageModal({
       else if (rawIkr === 'belum' || rawIkr === '') finalStatus = 'WAITING';
       else finalStatus = globalStat;
       return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
-    }).length;
-  }, [allCustomers]);
+    });
+  }, [customers, allCustomers]);
 
   // Pre-parse data ODP valid satu kali
   const validOdps = useMemo(() => {
@@ -8461,25 +8432,6 @@ function QuickScanCoverageModal({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap self-end md:self-center shrink-0">
-            {/* Scope Switcher: Jika ada waiting all dan customers berbeda */}
-            {totalWaitingCount > 0 && (
-              <div className="flex bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setScanScope('CURRENT')}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${scanScope === 'CURRENT' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Target Saat Ini ({targetList.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScanScope('WAITING_ALL')}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${scanScope === 'WAITING_ALL' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Semua Waiting ({totalWaitingCount})
-                </button>
-              </div>
-            )}
 
             {/* Radius Selector */}
             <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-xl shadow-sm text-xs">
