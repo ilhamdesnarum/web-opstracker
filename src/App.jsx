@@ -8519,8 +8519,8 @@ function QuickScanCoverageModal({
 
           {/* Card 2: Tercover */}
           <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
-              <Icon name="check-circle" size={13} className="text-emerald-600" /> 🟢 Tercover
+            <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+              <Icon name="check-circle" size={13} className="text-emerald-600" /> Tercover
             </span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-xl font-black text-emerald-700">{stats.covered}</span>
@@ -8533,8 +8533,8 @@ function QuickScanCoverageModal({
 
           {/* Card 3: Mendekati */}
           <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
-              <Icon name="alert-triangle" size={13} className="text-amber-600" /> 🟡 Mendekati
+            <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
+              <Icon name="alert-triangle" size={13} className="text-amber-600" /> Mendekati
             </span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-xl font-black text-amber-700">{stats.nearing}</span>
@@ -8545,8 +8545,8 @@ function QuickScanCoverageModal({
 
           {/* Card 4: Luar Jangkauan */}
           <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1">
-              <Icon name="x-circle" size={13} className="text-rose-600" /> 🔴 Luar Jangkauan
+            <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1.5">
+              <Icon name="x-circle" size={13} className="text-rose-600" /> Luar Jangkauan
             </span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-xl font-black text-rose-700">{stats.outOfRange}</span>
@@ -8557,8 +8557,8 @@ function QuickScanCoverageModal({
 
           {/* Card 5: Port Penuh */}
           <div className="bg-purple-50/60 p-3 rounded-xl border border-purple-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-purple-800 flex items-center gap-1">
-              <Icon name="slash" size={13} className="text-purple-600" /> ⛔ Port Penuh
+            <span className="text-[11px] font-bold text-purple-800 flex items-center gap-1.5">
+              <Icon name="slash" size={13} className="text-purple-600" /> Port Penuh
             </span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-xl font-black text-purple-700">{stats.portFull}</span>
@@ -8569,8 +8569,8 @@ function QuickScanCoverageModal({
 
           {/* Card 6: Tanpa Titik GPS */}
           <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-              <Icon name="map-pin" size={13} className="text-slate-500" /> ⚠️ Tanpa GPS
+            <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+              <Icon name="map-pin" size={13} className="text-slate-500" /> Tanpa GPS
             </span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-xl font-black text-slate-700">{stats.noCoords}</span>
@@ -8585,43 +8585,55 @@ function QuickScanCoverageModal({
           {/* TAB BUTTONS */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
             <button
+              type="button"
               onClick={() => setActiveTab('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'ALL' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'ALL' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
-              Semua ({stats.total})
+              <Icon name="layers" size={13} className={activeTab === 'ALL' ? 'text-white' : 'text-slate-500'} />
+              <span>Semua ({stats.total})</span>
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('COVERED')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'COVERED' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'COVERED' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
             >
-              🟢 Tercover ({stats.covered})
+              <Icon name="check-circle" size={13} className={activeTab === 'COVERED' ? 'text-white' : 'text-emerald-600'} />
+              <span>Tercover ({stats.covered})</span>
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('NEARING')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'NEARING' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NEARING' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
             >
-              🟡 Mendekati ({stats.nearing})
+              <Icon name="alert-triangle" size={13} className={activeTab === 'NEARING' ? 'text-white' : 'text-amber-600'} />
+              <span>Mendekati ({stats.nearing})</span>
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('OUT_OF_RANGE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'OUT_OF_RANGE' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'OUT_OF_RANGE' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
             >
-              🔴 Luar Jangkauan ({stats.outOfRange})
+              <Icon name="x-circle" size={13} className={activeTab === 'OUT_OF_RANGE' ? 'text-white' : 'text-rose-600'} />
+              <span>Luar Jangkauan ({stats.outOfRange})</span>
             </button>
             {stats.portFull > 0 && (
               <button
+                type="button"
                 onClick={() => setActiveTab('PORT_FULL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'PORT_FULL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'PORT_FULL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
               >
-                ⛔ Port Penuh ({stats.portFull})
+                <Icon name="slash" size={13} className={activeTab === 'PORT_FULL' ? 'text-white' : 'text-purple-600'} />
+                <span>Port Penuh ({stats.portFull})</span>
               </button>
             )}
             {stats.noCoords > 0 && (
               <button
+                type="button"
                 onClick={() => setActiveTab('NO_COORDS')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'NO_COORDS' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NO_COORDS' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
-                ⚠️ Tanpa GPS ({stats.noCoords})
+                <Icon name="map-pin" size={13} className={activeTab === 'NO_COORDS' ? 'text-white' : 'text-slate-500'} />
+                <span>Tanpa GPS ({stats.noCoords})</span>
               </button>
             )}
           </div>
@@ -8710,8 +8722,9 @@ function QuickScanCoverageModal({
                             {c?.namaPelanggan || '-'}
                           </div>
                           {c?.nomorHp && (
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              📞 {c.nomorHp}
+                            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                              <Icon name="phone" size={10} className="text-slate-400" />
+                              <span>{c.nomorHp}</span>
                             </div>
                           )}
                         </td>
@@ -8783,11 +8796,13 @@ function QuickScanCoverageModal({
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-[11px] font-bold text-slate-600">
-                                  📍 Jarak: <strong className="text-slate-900">{r.distance}m</strong>
+                                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                                  <Icon name="navigation" size={11} className="text-slate-400" />
+                                  <span>Jarak: <strong className="text-slate-900">{r.distance}m</strong></span>
                                 </span>
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${odp.available > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                                  {odp.available > 0 ? `🟢 ${odp.available}/${odp.cap} Port Sisa` : `🔴 Penuh (0/${odp.cap})`}
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${odp.available > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                  <Icon name={odp.available > 0 ? "check" : "slash"} size={10} className={odp.available > 0 ? "text-emerald-600" : "text-rose-600"} />
+                                  <span>{odp.available > 0 ? `${odp.available}/${odp.cap} Port Sisa` : `Penuh (0/${odp.cap})`}</span>
                                 </span>
                               </div>
                               {(odp.tahap_pembangunan || odp.tahapPembangunan) && (
@@ -8808,7 +8823,7 @@ function QuickScanCoverageModal({
                                 {altOdp.kode_odp || altOdp.label}
                               </div>
                               <div className="text-[11px] text-slate-500 mt-0.5">
-                                Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `🟢 ${altOdp.available}/${altOdp.cap}` : '🔴 Penuh'})
+                                Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `${altOdp.available}/${altOdp.cap} Port` : 'Penuh'})
                               </div>
                             </div>
                           ) : (
