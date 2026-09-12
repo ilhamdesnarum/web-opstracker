@@ -8072,6 +8072,828 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
 }
 
 // ==========================================
+// MODAL FITUR: QUICK SCAN COVERAGE ODP PELANGGAN MENYELURUH
+// ==========================================
+function QuickScanCoverageModal({
+  customers = [],
+  allCustomers = [],
+  odpData = [],
+  initialFilterStatus = [],
+  onClose,
+  onLocalPelangganUpdate
+}) {
+  const [optimalRadius, setOptimalRadius] = useState(300); // 300m standar drop core ideal
+  const [maxRadius, setMaxRadius] = useState(500); // 500m batas toleransi penarikan
+  const [activeTab, setActiveTab] = useState('ALL'); // 'ALL' | 'COVERED' | 'NEARING' | 'OUT_OF_RANGE' | 'PORT_FULL' | 'NO_COORDS'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStation, setSelectedStation] = useState('');
+  const [selectedCustomerForMap, setSelectedCustomerForMap] = useState(null);
+  const [scanScope, setScanScope] = useState('CURRENT'); // 'CURRENT' | 'WAITING_ALL'
+  const [copiedId, setCopiedId] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [toastMsg, setToastMsg] = useState(null);
+
+  // Close with Esc
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (selectedCustomerForMap) setSelectedCustomerForMap(null);
+        else onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedCustomerForMap, onClose]);
+
+  // Tentukan target pelanggan berdasarkan scope
+  const targetList = useMemo(() => {
+    if (scanScope === 'WAITING_ALL' && Array.isArray(allCustomers)) {
+      return allCustomers.filter(item => {
+        const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
+        const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+        const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+        let finalStatus = 'WAITING';
+        if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
+        else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
+        else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
+        else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
+        else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
+        else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
+        else if (rawIkr === 'sudah') finalStatus = 'SUDAH IKR';
+        else if (rawIkr === 'belum' || rawIkr === '') finalStatus = 'WAITING';
+        else finalStatus = globalStat;
+        return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
+      });
+    }
+    return customers;
+  }, [scanScope, customers, allCustomers]);
+
+  // Total pelanggan status WAITING di seluruh database
+  const totalWaitingCount = useMemo(() => {
+    if (!Array.isArray(allCustomers)) return 0;
+    return allCustomers.filter(item => {
+      const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
+      const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+      let finalStatus = 'WAITING';
+      if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
+      else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
+      else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
+      else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
+      else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
+      else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
+      else if (rawIkr === 'sudah') finalStatus = 'SUDAH IKR';
+      else if (rawIkr === 'belum' || rawIkr === '') finalStatus = 'WAITING';
+      else finalStatus = globalStat;
+      return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
+    }).length;
+  }, [allCustomers]);
+
+  // Pre-parse data ODP valid satu kali
+  const validOdps = useMemo(() => {
+    if (!Array.isArray(odpData)) return [];
+    return odpData
+      .map(o => {
+        let lat = parseFloat(String(o.latitude || '').trim().replace(',', '.'));
+        let lng = parseFloat(String(o.longitude || '').trim().replace(',', '.'));
+        if (lat > 0 && lng < 0) {
+          const t = lat; lat = lng; lng = t;
+        }
+        if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          return null;
+        }
+        const cap = Number(o.kapasitas) || 8;
+        const used = Number(o.portTerpakai ?? o.port_terpakai) || 0;
+        return {
+          ...o,
+          lat,
+          lng,
+          cap,
+          used,
+          available: Math.max(0, cap - used),
+          isFull: cap > 0 && used >= cap
+        };
+      })
+      .filter(Boolean);
+  }, [odpData]);
+
+  // Haversine formula
+  const calculateDist = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+    const p1 = (lat1 * Math.PI) / 180;
+    const p2 = (lat2 * Math.PI) / 180;
+    const dp = ((lat2 - lat1) * Math.PI) / 180;
+    const dl = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Kalkulasi Coverage Menyeluruh
+  const scanResults = useMemo(() => {
+    if (!Array.isArray(targetList)) return [];
+
+    return targetList.map(cust => {
+      let lat = parseFloat(String(cust.latitude || '').trim().replace(',', '.'));
+      let lng = parseFloat(String(cust.longitude || '').trim().replace(',', '.'));
+      if (lat > 0 && lng < 0) {
+        const t = lat; lat = lng; lng = t;
+      }
+      const hasCoords = !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+
+      if (!hasCoords) {
+        return {
+          customer: cust,
+          hasCoords: false,
+          status: 'NO_COORDS',
+          statusLabel: 'Tanpa Titik GPS',
+          statusColor: 'slate',
+          nearestOdp: null,
+          nearestAvailableOdp: null,
+          primaryOdp: null,
+          distance: null,
+          allNearOdps: []
+        };
+      }
+
+      let closestOdp = null;
+      let minDistance = Infinity;
+      let closestAvailableOdp = null;
+      let minAvailableDist = Infinity;
+      const allNearOdps = [];
+
+      for (let i = 0; i < validOdps.length; i++) {
+        const odp = validOdps[i];
+        const dist = calculateDist(lat, lng, odp.lat, odp.lng);
+
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestOdp = { ...odp, distance: Math.round(dist) };
+        }
+
+        if (!odp.isFull && dist < minAvailableDist) {
+          minAvailableDist = dist;
+          closestAvailableOdp = { ...odp, distance: Math.round(dist) };
+        }
+
+        if (dist <= maxRadius * 2) {
+          allNearOdps.push({ ...odp, distance: Math.round(dist) });
+        }
+      }
+
+      allNearOdps.sort((a, b) => a.distance - b.distance);
+
+      let primaryOdp = null;
+      if (closestAvailableOdp && closestAvailableOdp.distance <= maxRadius) {
+        primaryOdp = closestAvailableOdp;
+      } else {
+        primaryOdp = closestOdp;
+      }
+
+      const effectiveDist = primaryOdp ? primaryOdp.distance : Infinity;
+      let status = 'OUT_OF_RANGE';
+      let statusLabel = 'Di Luar Jangkauan';
+      let statusColor = 'rose';
+
+      if (effectiveDist <= optimalRadius) {
+        if (primaryOdp && !primaryOdp.isFull) {
+          status = 'COVERED';
+          statusLabel = 'Tercover';
+          statusColor = 'emerald';
+        } else {
+          status = 'PORT_FULL';
+          statusLabel = 'Port Penuh';
+          statusColor = 'amber';
+        }
+      } else if (effectiveDist <= maxRadius) {
+        status = 'NEARING';
+        statusLabel = 'Mendekati';
+        statusColor = 'amber';
+      } else {
+        status = 'OUT_OF_RANGE';
+        statusLabel = effectiveDist !== Infinity ? 'Jauh' : 'Tidak Tercover';
+        statusColor = 'rose';
+      }
+
+      return {
+        customer: cust,
+        hasCoords: true,
+        lat,
+        lng,
+        status,
+        statusLabel,
+        statusColor,
+        nearestOdp: closestOdp,
+        nearestAvailableOdp: closestAvailableOdp,
+        primaryOdp,
+        distance: effectiveDist !== Infinity ? effectiveDist : null,
+        allNearOdps: allNearOdps.slice(0, 3)
+      };
+    });
+  }, [targetList, validOdps, optimalRadius, maxRadius]);
+
+  // Statistik Ringkasan
+  const stats = useMemo(() => {
+    const total = scanResults.length;
+    const covered = scanResults.filter(r => r.status === 'COVERED').length;
+    const nearing = scanResults.filter(r => r.status === 'NEARING').length;
+    const outOfRange = scanResults.filter(r => r.status === 'OUT_OF_RANGE').length;
+    const portFull = scanResults.filter(r => r.status === 'PORT_FULL').length;
+    const noCoords = scanResults.filter(r => r.status === 'NO_COORDS').length;
+    const withCoords = total - noCoords;
+    const coveredPct = withCoords > 0 ? Math.round((covered / withCoords) * 100) : 0;
+    return { total, covered, nearing, outOfRange, portFull, noCoords, coveredPct };
+  }, [scanResults]);
+
+  // Filter Stasiun Unik dari Hasil
+  const stationOptions = useMemo(() => {
+    const set = new Set();
+    scanResults.forEach(r => {
+      const st = r.customer?.stasiun;
+      if (st) set.add(toProperCase(st));
+    });
+    return Array.from(set).sort();
+  }, [scanResults]);
+
+  // Filter Hasil untuk Tampilan Tabel
+  const filteredResults = useMemo(() => {
+    return scanResults.filter(item => {
+      if (activeTab === 'COVERED' && item.status !== 'COVERED') return false;
+      if (activeTab === 'NEARING' && item.status !== 'NEARING') return false;
+      if (activeTab === 'OUT_OF_RANGE' && item.status !== 'OUT_OF_RANGE') return false;
+      if (activeTab === 'PORT_FULL' && item.status !== 'PORT_FULL') return false;
+      if (activeTab === 'NO_COORDS' && item.status !== 'NO_COORDS') return false;
+
+      if (selectedStation) {
+        const cStation = toProperCase(item.customer?.stasiun || '');
+        if (cStation !== selectedStation) return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const c = item.customer;
+        const matchName = String(c?.namaPelanggan || '').toLowerCase().includes(q);
+        const matchId = String(c?.idPelanggan || '').toLowerCase().includes(q);
+        const matchAddr = String(c?.alamat || '').toLowerCase().includes(q);
+        const matchOdp = String(item.primaryOdp?.kode_odp || item.primaryOdp?.label || '').toLowerCase().includes(q);
+        if (!matchName && !matchId && !matchAddr && !matchOdp) return false;
+      }
+
+      return true;
+    });
+  }, [scanResults, activeTab, selectedStation, searchQuery]);
+
+  // Handler Salin Rekomendasi
+  const handleCopy = (r) => {
+    const c = r.customer;
+    let text = `[ID: ${c?.idPelanggan || '-'}] ${c?.namaPelanggan || '-'}\nAlamat: ${c?.alamat || '-'}\nStasiun: ${c?.stasiun || '-'}`;
+    if (r.primaryOdp) {
+      text += `\nODP Terdekat: ${r.primaryOdp.kode_odp || r.primaryOdp.label} (${r.distance}m)\nPort: ${r.primaryOdp.available}/${r.primaryOdp.cap} sisa\nStatus: ${r.statusLabel}`;
+    } else {
+      text += `\nStatus: ${r.statusLabel}`;
+    }
+    navigator.clipboard.writeText(text);
+    setCopiedId(c?.idPelanggan);
+    setToastMsg(`Data rekomendasi ${c?.idPelanggan} disalin!`);
+    setTimeout(() => {
+      setCopiedId(null);
+      setToastMsg(null);
+    }, 2500);
+  };
+
+  // Handler Ekspor Excel Laporan Quick Scan
+  const handleExportExcelScan = () => {
+    setIsExporting(true);
+    setTimeout(() => {
+      try {
+        const rows = filteredResults.map((r, idx) => {
+          const c = r.customer;
+          const odp = r.primaryOdp;
+          const altOdp = r.allNearOdps && r.allNearOdps[1];
+          return {
+            "No": idx + 1,
+            "ID Pelanggan": c?.idPelanggan || '',
+            "Nama Pelanggan": c?.namaPelanggan || '',
+            "Telepon": c?.nomorHp || '',
+            "Alamat": c?.alamat || '',
+            "Stasiun": c?.stasiun || '',
+            "Status Registrasi": c?.aktivasi || c?.statusAktivasi || 'WAITING',
+            "Latitude": r.lat || c?.latitude || '',
+            "Longitude": r.lng || c?.longitude || '',
+            "Status Coverage": r.status === 'COVERED' ? `TERCOVER (${r.distance}m)` :
+              r.status === 'NEARING' ? `MENDEKATI (${r.distance}m)` :
+              r.status === 'PORT_FULL' ? `PORT PENUH (${r.distance}m)` :
+              r.status === 'NO_COORDS' ? 'TANPA TITIK GPS' : `DI LUAR JANGKAUAN (${r.distance || '>500'}m)`,
+            "ODP Terdekat": odp ? (odp.kode_odp || odp.label) : '-',
+            "Jarak ODP (m)": r.distance !== null ? r.distance : '-',
+            "Port Sisa": odp ? `${odp.available}/${odp.cap}` : '-',
+            "Tahap ODP": odp?.tahap_pembangunan || odp?.tahapPembangunan || '-',
+            "Alternatif ODP 2": altOdp ? (altOdp.kode_odp || altOdp.label) : '-',
+            "Jarak ODP 2 (m)": altOdp ? altOdp.distance : '-'
+          };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const colWidths = [
+          { wch: 6 },  { wch: 14 }, { wch: 25 }, { wch: 15 },
+          { wch: 35 }, { wch: 14 }, { wch: 18 }, { wch: 15 },
+          { wch: 15 }, { wch: 24 }, { wch: 28 }, { wch: 14 },
+          { wch: 14 }, { wch: 22 }, { wch: 28 }, { wch: 14 }
+        ];
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Quick Scan Coverage");
+        const todayStr = new Date().toISOString().substring(0, 10);
+        const fileName = `Quick_Scan_Coverage_${todayStr}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+        setToastMsg("Laporan Excel berhasil diunduh!");
+        setTimeout(() => setToastMsg(null), 3000);
+      } catch (err) {
+        console.error("Gagal ekspor scan:", err);
+        alert("Gagal ekspor: " + err.message);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 50);
+  };
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-2.5 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade">
+      {/* Toast Alert */}
+      {toastMsg && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] bg-slate-900 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-slate-700 animate-dropdown">
+          <Icon name="check" size={15} className="text-emerald-400" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col relative z-10 animate-modal overflow-hidden border border-slate-100">
+        {/* HEADER MODAL */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-indigo-700 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+              <Icon name="radar" size={22} className="animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg font-black text-slate-800">
+                  Quick Scan Coverage Alpro & ODP
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  {targetList.length} Pelanggan
+                </span>
+                {validOdps.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {validOdps.length} Titik ODP Aktif
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
+                Scan cepat jarak pelanggan ke ODP terdekat dan status ketersediaan port alpro jaringan
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap self-end md:self-center shrink-0">
+            {/* Scope Switcher: Jika ada waiting all dan customers berbeda */}
+            {totalWaitingCount > 0 && (
+              <div className="flex bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setScanScope('CURRENT')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${scanScope === 'CURRENT' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Target Saat Ini ({customers.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScanScope('WAITING_ALL')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${scanScope === 'WAITING_ALL' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Semua Waiting ({totalWaitingCount})
+                </button>
+              </div>
+            )}
+
+            {/* Radius Selector */}
+            <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-xl shadow-sm text-xs">
+              <span className="text-[11px] font-bold text-slate-400 mr-1 hidden sm:inline">Radius Max:</span>
+              {[300, 400, 500].map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    setOptimalRadius(r <= 300 ? 300 : r - 100);
+                    setMaxRadius(r);
+                  }}
+                  className={`px-2 py-0.5 rounded-lg font-bold transition-all text-xs cursor-pointer ${maxRadius === r ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {r}m
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              title="Tutup (Esc)"
+            >
+              <Icon name="x" size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* METRICS DASHBOARD (6 KARTU) */}
+        <div className="p-3 sm:p-4 bg-slate-50/50 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 shrink-0">
+          {/* Card 1: Total */}
+          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+              <Icon name="users" size={13} className="text-blue-500" /> Total Discan
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-slate-800">{stats.total}</span>
+              <span className="text-[10px] text-slate-400 font-medium">Pelanggan</span>
+            </div>
+          </div>
+
+          {/* Card 2: Tercover */}
+          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
+              <Icon name="check-circle" size={13} className="text-emerald-600" /> 🟢 Tercover
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-emerald-700">{stats.covered}</span>
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                {stats.coveredPct}%
+              </span>
+            </div>
+            <span className="text-[9px] text-emerald-600 mt-0.5">Jarak ≤ {optimalRadius}m & Ada Port</span>
+          </div>
+
+          {/* Card 3: Mendekati */}
+          <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
+              <Icon name="alert-triangle" size={13} className="text-amber-600" /> 🟡 Mendekati
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-amber-700">{stats.nearing}</span>
+              <span className="text-[10px] text-amber-700 font-medium">Pelanggan</span>
+            </div>
+            <span className="text-[9px] text-amber-600 mt-0.5">Jarak {optimalRadius}m - {maxRadius}m</span>
+          </div>
+
+          {/* Card 4: Luar Jangkauan */}
+          <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1">
+              <Icon name="x-circle" size={13} className="text-rose-600" /> 🔴 Luar Jangkauan
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-rose-700">{stats.outOfRange}</span>
+              <span className="text-[10px] text-rose-700 font-medium">Pelanggan</span>
+            </div>
+            <span className="text-[9px] text-rose-600 mt-0.5">Jarak &gt; {maxRadius}m dari ODP</span>
+          </div>
+
+          {/* Card 5: Port Penuh */}
+          <div className="bg-purple-50/60 p-3 rounded-xl border border-purple-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-purple-800 flex items-center gap-1">
+              <Icon name="slash" size={13} className="text-purple-600" /> ⛔ Port Penuh
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-purple-700">{stats.portFull}</span>
+              <span className="text-[10px] text-purple-700 font-medium">Pelanggan</span>
+            </div>
+            <span className="text-[9px] text-purple-600 mt-0.5">ODP dekat tapi 8/8 penuh</span>
+          </div>
+
+          {/* Card 6: Tanpa Titik GPS */}
+          <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+              <Icon name="map-pin" size={13} className="text-slate-500" /> ⚠️ Tanpa GPS
+            </span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-xl font-black text-slate-700">{stats.noCoords}</span>
+              <span className="text-[10px] text-slate-500 font-medium">Pelanggan</span>
+            </div>
+            <span className="text-[9px] text-slate-500 mt-0.5">Perlu input koordinat</span>
+          </div>
+        </div>
+
+        {/* TOOLBAR TABS & SEARCH */}
+        <div className="p-3 border-b border-slate-100 bg-white flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between shrink-0">
+          {/* TAB BUTTONS */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+            <button
+              onClick={() => setActiveTab('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'ALL' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              Semua ({stats.total})
+            </button>
+            <button
+              onClick={() => setActiveTab('COVERED')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'COVERED' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+            >
+              🟢 Tercover ({stats.covered})
+            </button>
+            <button
+              onClick={() => setActiveTab('NEARING')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'NEARING' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+            >
+              🟡 Mendekati ({stats.nearing})
+            </button>
+            <button
+              onClick={() => setActiveTab('OUT_OF_RANGE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'OUT_OF_RANGE' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+            >
+              🔴 Luar Jangkauan ({stats.outOfRange})
+            </button>
+            {stats.portFull > 0 && (
+              <button
+                onClick={() => setActiveTab('PORT_FULL')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'PORT_FULL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
+              >
+                ⛔ Port Penuh ({stats.portFull})
+              </button>
+            )}
+            {stats.noCoords > 0 && (
+              <button
+                onClick={() => setActiveTab('NO_COORDS')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'NO_COORDS' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                ⚠️ Tanpa GPS ({stats.noCoords})
+              </button>
+            )}
+          </div>
+
+          {/* SEARCH BOX & STASIUN FILTER */}
+          <div className="flex items-center gap-2">
+            {stationOptions.length > 1 && (
+              <select
+                value={selectedStation}
+                onChange={(e) => setSelectedStation(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer max-w-[140px]"
+              >
+                <option value="">Semua Stasiun</option>
+                {stationOptions.map(st => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+            )}
+
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all flex-1 min-w-[160px]">
+              <Icon name="search" size={13} className="text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari ID, nama, alamat, ODP..."
+                className="bg-transparent text-slate-700 placeholder:text-slate-400 focus:outline-none w-full text-xs font-medium"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <Icon name="x" size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* TABEL HASIL QUICK SCAN */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/40">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[850px]">
+              <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-3 text-center w-10">No</th>
+                  <th className="py-3 px-3.5 min-w-[180px]">Pelanggan</th>
+                  <th className="py-3 px-3.5 min-w-[200px]">Alamat & GPS</th>
+                  <th className="py-3 px-3.5 min-w-[150px]">Status Coverage</th>
+                  <th className="py-3 px-3.5 min-w-[200px]">Rekomendasi ODP Terdekat</th>
+                  <th className="py-3 px-3.5 min-w-[160px]">Alternatif ODP 2</th>
+                  <th className="py-3 px-3 text-center w-28">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {filteredResults.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <Icon name="search" size={32} className="mx-auto mb-2 opacity-40" />
+                      <p className="font-bold text-sm text-slate-600">Tidak ada pelanggan sesuai filter</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Coba ubah filter kategori atau kata kunci pencarian</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredResults.map((r, idx) => {
+                    const c = r.customer;
+                    const odp = r.primaryOdp;
+                    const altOdp = r.allNearOdps && r.allNearOdps[1];
+                    const isCopied = copiedId === c?.idPelanggan;
+
+                    return (
+                      <tr key={c?.idPelanggan || idx} className="hover:bg-indigo-50/40 transition-colors">
+                        <td className="py-3 px-3 text-center font-bold text-slate-400">
+                          {idx + 1}
+                        </td>
+                        <td className="py-3 px-3.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded text-[11px]">
+                              {c?.idPelanggan || '-'}
+                            </span>
+                            {c?.stasiun && (
+                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded uppercase">
+                                {toProperCase(c.stasiun)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-bold text-slate-800 mt-1 truncate max-w-[180px]">
+                            {c?.namaPelanggan || '-'}
+                          </div>
+                          {c?.nomorHp && (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              📞 {c.nomorHp}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3.5">
+                          <div className="text-slate-600 text-xs line-clamp-2 max-w-[220px]" title={c?.alamat}>
+                            {c?.alamat || '-'}
+                          </div>
+                          {r.hasCoords ? (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono mt-1">
+                              <Icon name="map-pin" size={10} className="text-blue-500 shrink-0" />
+                              <span>{r.lat.toFixed(5)}, {r.lng.toFixed(5)}</span>
+                              <a
+                                href={`https://www.google.com/maps?q=${r.lat},${r.lng}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-800 ml-1"
+                                title="Buka di Google Maps"
+                              >
+                                <Icon name="external-link" size={10} />
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded mt-1">
+                              <Icon name="alert-triangle" size={10} /> Belum ada titik GPS
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3.5">
+                          {r.status === 'COVERED' && (
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <Icon name="check-circle" size={13} className="text-emerald-600 shrink-0" />
+                              <span>Tercover ({r.distance}m)</span>
+                            </div>
+                          )}
+                          {r.status === 'NEARING' && (
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Icon name="alert-triangle" size={13} className="text-amber-600 shrink-0" />
+                              <span>Mendekati ({r.distance}m)</span>
+                            </div>
+                          )}
+                          {r.status === 'OUT_OF_RANGE' && (
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              <Icon name="x-circle" size={13} className="text-rose-600 shrink-0" />
+                              <span>{r.distance ? `Jauh (${r.distance}m)` : 'Tidak Tercover'}</span>
+                            </div>
+                          )}
+                          {r.status === 'PORT_FULL' && (
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              <Icon name="slash" size={13} className="text-purple-600 shrink-0" />
+                              <span>Port Penuh ({r.distance}m)</span>
+                            </div>
+                          )}
+                          {r.status === 'NO_COORDS' && (
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              <Icon name="map-pin" size={13} className="text-slate-400 shrink-0" />
+                              <span>Tanpa GPS</span>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3.5">
+                          {odp ? (
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-slate-800 text-xs">
+                                  {odp.kode_odp || odp.label}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <span className="text-[11px] font-bold text-slate-600">
+                                  📍 Jarak: <strong className="text-slate-900">{r.distance}m</strong>
+                                </span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${odp.available > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                  {odp.available > 0 ? `🟢 ${odp.available}/${odp.cap} Port Sisa` : `🔴 Penuh (0/${odp.cap})`}
+                                </span>
+                              </div>
+                              {(odp.tahap_pembangunan || odp.tahapPembangunan) && (
+                                <div className="text-[10px] text-slate-400 truncate max-w-[190px] mt-0.5">
+                                  Tahap: {odp.tahap_pembangunan || odp.tahapPembangunan}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic">-</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3.5">
+                          {altOdp ? (
+                            <div>
+                              <div className="font-mono font-bold text-slate-700 text-xs truncate max-w-[150px]">
+                                {altOdp.kode_odp || altOdp.label}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `🟢 ${altOdp.available}/${altOdp.cap}` : '🔴 Penuh'})
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic">-</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {r.hasCoords && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedCustomerForMap(c)}
+                                className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors cursor-pointer"
+                                title="Buka Peta Coverage GIS & Rute Kabel"
+                              >
+                                <Icon name="map" size={14} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(r)}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isCopied ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}
+                              title="Salin Rangkuman Rekomendasi"
+                            >
+                              <Icon name={isCopied ? "check" : "copy"} size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* FOOTER MODAL */}
+        <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+          <div className="text-xs text-slate-500 text-center sm:text-left">
+            Menampilkan <strong className="text-slate-800">{filteredResults.length}</strong> dari{' '}
+            <strong className="text-slate-800">{targetList.length}</strong> pelanggan hasil scan.
+            {stats.covered > 0 && (
+              <span className="ml-1 text-emerald-700 font-bold hidden md:inline">
+                • {stats.covered} pelanggan siap diproses penarikan jaringan!
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={handleExportExcelScan}
+              disabled={isExporting || filteredResults.length === 0}
+              className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Icon name={isExporting ? "clock" : "download"} size={15} className={isExporting ? 'animate-spin' : ''} />
+              <span>{isExporting ? 'Mengekspor...' : 'Unduh Laporan Excel'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* POPUP PETA DETAIL (DI ATAS QUICK SCAN MODAL) */}
+      {selectedCustomerForMap && (
+        <CustomerCoverageModal
+          customer={selectedCustomerForMap}
+          odpData={odpData}
+          onClose={() => setSelectedCustomerForMap(null)}
+        />
+      )}
+    </div>,
+    document.body
+  );
+}
+
+// ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
 function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
@@ -11340,6 +12162,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const [selectedIds, setSelectedIds] = useState([]);
   const [showMassUpdate, setShowMassUpdate] = useState(false);
   const [showMassDelete, setShowMassDelete] = useState(false); // STATE BARU UNTUK MODAL HAPUS
+  const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
 
   const ITEMS_PER_PAGE = 15;
 
@@ -11822,6 +12645,18 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 <span className="hidden sm:inline">Ekspor Pilihan</span>
                 <span className="sm:hidden">Ekspor</span> ({selectedIds.length})
               </button>
+
+              {/* TOMBOL QUICK SCAN COVERAGE PILIHAN */}
+              <button
+                type="button"
+                onClick={() => setIsQuickScanOpen(true)}
+                className="flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold shadow-sm shadow-amber-500/20 transition-all cursor-pointer"
+                title="Quick Scan Coverage Alpro ODP untuk data terpilih"
+              >
+                <Icon name="zap" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">Scan Coverage</span>
+                <span className="sm:hidden">Scan</span> ({selectedIds.length})
+              </button>
             </div>
           )}
 
@@ -11959,6 +12794,22 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           {/* Sembunyikan Tombol Baru Jika Ada Pilihan Massal */}
           {selectedIds.length === 0 && (
             <>
+              {/* TOMBOL QUICK SCAN COVERAGE */}
+              <button
+                type="button"
+                onClick={() => setIsQuickScanOpen(true)}
+                disabled={filteredData.length === 0}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold shadow-sm shadow-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                title={`Quick scan coverage alpro ODP untuk ${filteredData.length} data saat ini`}
+              >
+                <Icon name="zap" size={14} className="sm:w-4 sm:h-4 fill-current" />
+                <span className="hidden sm:inline">Quick Scan</span>
+                <span className="sm:hidden">Scan</span>
+                <span className="bg-amber-700/80 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none">
+                  {filteredData.length}
+                </span>
+              </button>
+
               {/* TOMBOL EKSPOR EXCEL DINAMIS (SESUAI FILTER ATAU SEMUA) */}
               <button
                 onClick={() => handleExportExcel()}
@@ -12592,6 +13443,18 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
               }
             }}
             onLocalPelangganDelete={onLocalPelangganDelete}
+          />
+        )}
+
+        {/* --- RENDER MODAL QUICK SCAN COVERAGE --- */}
+        {isQuickScanOpen && (
+          <QuickScanCoverageModal
+            customers={selectedIds.length > 0 ? filteredData.filter(item => selectedIds.includes(item.idPelanggan)) : filteredData}
+            allCustomers={pelangganData}
+            odpData={odpData}
+            initialFilterStatus={filterStatus}
+            onClose={() => setIsQuickScanOpen(false)}
+            onLocalPelangganUpdate={onLocalPelangganUpdate}
           />
         )}
 
