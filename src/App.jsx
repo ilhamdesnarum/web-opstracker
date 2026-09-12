@@ -1183,10 +1183,16 @@ function App({ onLogout }) {
     }
   };
 
-  const handleTryQuickScanFromWhatsNew = (dontShowAgain = true) => {
+  const handleTryFeatureFromWhatsNew = (targetTab = 'quickscan', dontShowAgain = true) => {
     handleCloseWhatsNew(dontShowAgain);
-    setInitialDatabaseStatusFilter('WAITING');
-    setActiveTab('database');
+    if (targetTab === 'okupansi') {
+      setActiveTab('okupansi');
+    } else if (targetTab === 'database') {
+      setActiveTab('database');
+    } else {
+      setInitialDatabaseStatusFilter('WAITING');
+      setActiveTab('database');
+    }
   };
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
   const [isLoading, setIsLoading] = useState(true);
@@ -1891,7 +1897,7 @@ function App({ onLogout }) {
         {isWhatsNewOpen && (
           <WhatsNewModal
             onClose={handleCloseWhatsNew}
-            onTryFeature={handleTryQuickScanFromWhatsNew}
+            onTryFeature={handleTryFeatureFromWhatsNew}
           />
         )}
       </main>
@@ -8999,16 +9005,16 @@ function WhatsNewModal({ onClose, onTryFeature }) {
   }, [onClose, dontShowAgain]);
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-sm animate-fade">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl flex flex-col relative z-10 animate-modal overflow-hidden border border-slate-100">
-        {/* HEADER MODAL DENGAN GRADASI INDIGO */}
-        <div className="relative p-6 sm:p-7 bg-gradient-to-br from-blue-700 via-indigo-600 to-indigo-800 text-white overflow-hidden shrink-0">
-          <div className="absolute -top-10 -right-10 w-36 h-36 rounded-full bg-white/10 blur-xl pointer-events-none"></div>
-          <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-indigo-400/20 blur-lg pointer-events-none"></div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-950/45 backdrop-blur-md animate-fade">
+      <div className="bg-white/95 backdrop-blur-xl rounded-[26px] shadow-[0_25px_70px_-15px_rgba(15,23,42,0.3)] w-full max-w-2xl flex flex-col relative z-10 animate-modal overflow-hidden border border-white/60">
+        {/* HEADER MODAL DENGAN GRADASI HALUS & AMBIENT GLOW */}
+        <div className="relative p-5 sm:p-6 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white overflow-hidden shrink-0">
+          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
+          <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-indigo-400/20 blur-xl pointer-events-none"></div>
 
           <div className="relative z-10">
-            <div className="flex items-center justify-between mb-3">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-white/20 backdrop-blur-md border border-white/25 text-white tracking-wide shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-white/15 backdrop-blur-md border border-white/20 text-white tracking-wide shadow-xs">
                 <Icon name="sparkles" size={13} className="text-amber-300" />
                 <span>Pembaruan v2.4</span>
               </span>
@@ -9022,75 +9028,122 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               </button>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+            <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
               Apa yang Baru di OpsTracker?
             </h2>
-            <p className="text-xs sm:text-sm text-blue-100 font-medium mt-1 leading-relaxed">
-              Tingkatkan kecepatan dan efisiensi operasional dengan 2 pembaruan alur kerja terbaru berikut:
+            <p className="text-xs sm:text-[13px] text-blue-100/90 font-medium mt-1 leading-relaxed">
+              Pembaruan rilis terbaru untuk mempercepat alur kerja & akurasi data operasional Anda:
             </p>
           </div>
         </div>
 
-        {/* BODY MODAL: 2 FITUR UTAMA */}
-        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto max-h-[62vh] bg-slate-50/50">
+        {/* BODY MODAL: 3 FITUR UNGGULAN DENGAN KARTU GRADASI LEMBUT */}
+        <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto max-h-[60vh] bg-slate-50/50">
           {/* FITUR 1: Quick Scan Coverage */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm hover:shadow-md transition-all">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-indigo-50/50 via-white to-white border border-indigo-100/80 hover:border-indigo-300/80 hover:shadow-xs transition-all duration-200">
             <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
-                <Icon name="radar" size={22} className="animate-pulse" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+                <Icon name="radar" size={20} className="animate-pulse" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+                  <h3 className="text-sm font-black text-slate-800 tracking-tight">
                     Quick Scan Coverage Alpro & ODP
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-100/80 text-indigo-700">
                     Fitur Baru
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Scan otomatis jarak pelanggan <strong className="text-slate-800">Waiting</strong> ke titik ODP terdekat dan periksa sisa port siap tarik secara instan tanpa perlu membuka detail pelanggan satu per satu.
+                  Scan instan jarak pelanggan status <strong className="text-slate-800">Waiting</strong> ke titik ODP terdekat dan periksa sisa port siap tarik tanpa perlu membuka detail pelanggan satu per satu.
                 </p>
-                <div className="flex items-center gap-2 mt-3 flex-wrap text-[11px] font-bold text-slate-600">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    <Icon name="check" size={12} className="text-emerald-600" /> Radius 300m - 500m
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    <Icon name="check" size={12} className="text-emerald-600" /> Deteksi Sisa Port ODP
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    <Icon name="download" size={12} className="text-blue-600" /> Ekspor Excel
-                  </span>
+                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-indigo-100/60 flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
+                    <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Radius 300m - 500m</span>
+                    <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Deteksi Sisa Port</span>
+                    <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Ekspor Excel</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onTryFeature('quickscan', dontShowAgain)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>Coba Quick Scan</span>
+                    <Icon name="arrow-right" size={13} />
+                  </button>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* FITUR 2: Smart One-Click Filter Waiting */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-sm hover:shadow-md transition-all">
+          {/* FITUR 2: Kelola & Sinkronisasi ODP (FITUR KEMARIN) */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300/80 hover:shadow-xs transition-all duration-200">
             <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
-                <Icon name="filter" size={22} />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/20 shrink-0">
+                <Icon name="layers" size={20} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+                  <h3 className="text-sm font-black text-slate-800 tracking-tight">
+                    Kelola ODP & Sinkronisasi Port Otomatis
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
+                    Fitur Baru
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Manajemen data titik alpro ODP lebih lengkap pada menu <strong className="text-slate-800">Okupansi</strong>: Tambah & edit data ODP, filter per stasiun/tahap, hingga sinkronisasi otomatis port terpakai dari database pelanggan aktif.
+                </p>
+                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-emerald-100/60 flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
+                    <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Edit & Hapus ODP</span>
+                    <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Sync Port Terpakai</span>
+                    <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Stasiun & Tahap</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onTryFeature('okupansi', dontShowAgain)}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>Buka Okupansi ODP</span>
+                    <Icon name="arrow-right" size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 3: Smart One-Click Filter Waiting */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300/80 hover:shadow-xs transition-all duration-200">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
+                <Icon name="filter" size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-sm font-black text-slate-800 tracking-tight">
                     Smart One-Click Filter Waiting
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100/80 text-amber-800">
                     Peningkatan UI
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Cukup 1 kali klik pada kartu ringkasan status <strong className="text-slate-800">WAITING</strong> di halaman pelanggan untuk menyaring data secara presisi sekaligus mengaktifkan tombol akses cepat Quick Scan.
+                  Cukup 1 kali klik pada kartu ringkasan status <strong className="text-slate-800">WAITING</strong> di halaman pelanggan untuk menyaring data secara presisi, sekaligus memunculkan tombol akses cepat Quick Scan.
                 </p>
-                <div className="flex items-center gap-2 mt-3 flex-wrap text-[11px] font-bold text-slate-600">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    <Icon name="check" size={12} className="text-amber-600" /> Filter Tunggal Presisi
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    <Icon name="check" size={12} className="text-amber-600" /> Tampilan Ikon SVG Bersih
-                  </span>
+                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-amber-100/60 flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
+                    <span className="bg-white border border-amber-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Tunggal Presisi</span>
+                    <span className="bg-white border border-amber-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Ikon SVG Bersih</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onTryFeature('database', dontShowAgain)}
+                    className="text-xs font-bold text-amber-600 hover:text-amber-800 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>Buka Pelanggan Waiting</span>
+                    <Icon name="arrow-right" size={13} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -9098,13 +9151,13 @@ function WhatsNewModal({ onClose, onTryFeature }) {
         </div>
 
         {/* FOOTER MODAL */}
-        <div className="p-4 sm:p-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shrink-0">
+        <div className="p-4 sm:p-4.5 bg-slate-50/70 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <label className="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer select-none">
             <input
               type="checkbox"
               checked={dontShowAgain}
               onChange={(e) => setDontShowAgain(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
             <span>Jangan tampilkan lagi untuk versi ini</span>
           </label>
@@ -9113,16 +9166,16 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             <button
               type="button"
               onClick={() => onClose(dontShowAgain)}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer"
+              className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
             >
               Tutup
             </button>
             <button
               type="button"
-              onClick={() => onTryFeature(dontShowAgain)}
-              className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              onClick={() => onTryFeature('quickscan', dontShowAgain)}
+              className="px-5 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <span>Coba Sekarang</span>
+              <span>Mulai Eksplorasi</span>
               <Icon name="arrow-right" size={15} />
             </button>
           </div>
