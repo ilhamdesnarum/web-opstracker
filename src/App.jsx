@@ -8092,6 +8092,12 @@ function QuickScanCoverageModal({
   const [isExporting, setIsExporting] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
 
+  // LAZY ASYNC ON-DEMAND LOADING STATE (TIDAK MEMBEBANI HALAMAN UTAMA)
+  const [isScanning, setIsScanning] = useState(true);
+  const [scanProgress, setScanProgress] = useState(20);
+  const [scanResults, setScanResults] = useState([]);
+  const [validOdpCount, setValidOdpCount] = useState(0);
+
   // Close with Esc
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -8104,7 +8110,7 @@ function QuickScanCoverageModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedCustomerForMap, onClose]);
 
-  // Tentukan target pelanggan (HANYA PELANGGAN WAITING)
+  // Tentukan target pelanggan waiting
   const targetList = useMemo(() => {
     const list = Array.isArray(customers) && customers.length > 0 ? customers : (allCustomers || []);
     return list.filter(item => {
@@ -8125,34 +8131,6 @@ function QuickScanCoverageModal({
     });
   }, [customers, allCustomers]);
 
-  // Pre-parse data ODP valid satu kali
-  const validOdps = useMemo(() => {
-    if (!Array.isArray(odpData)) return [];
-    return odpData
-      .map(o => {
-        let lat = parseFloat(String(o.latitude || '').trim().replace(',', '.'));
-        let lng = parseFloat(String(o.longitude || '').trim().replace(',', '.'));
-        if (lat > 0 && lng < 0) {
-          const t = lat; lat = lng; lng = t;
-        }
-        if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-          return null;
-        }
-        const cap = Number(o.kapasitas) || 8;
-        const used = Number(o.portTerpakai ?? o.port_terpakai) || 0;
-        return {
-          ...o,
-          lat,
-          lng,
-          cap,
-          used,
-          available: Math.max(0, cap - used),
-          isFull: cap > 0 && used >= cap
-        };
-      })
-      .filter(Boolean);
-  }, [odpData]);
-
   // Haversine formula
   const calculateDist = (lat1, lon1, lat2, lon2) => {
     const R = 6371e3;
@@ -8165,108 +8143,143 @@ function QuickScanCoverageModal({
     return R * c;
   };
 
-  // Kalkulasi Coverage Menyeluruh
-  const scanResults = useMemo(() => {
-    if (!Array.isArray(targetList)) return [];
+  // ASYNC ON-DEMAND SCAN: Kalkulasi ODP & Haversine hanya dieksekusi setelah modal pop up terbuka
+  useEffect(() => {
+    setIsScanning(true);
+    setScanProgress(30);
 
-    return targetList.map(cust => {
-      let lat = parseFloat(String(cust.latitude || '').trim().replace(',', '.'));
-      let lng = parseFloat(String(cust.longitude || '').trim().replace(',', '.'));
-      if (lat > 0 && lng < 0) {
-        const t = lat; lat = lng; lng = t;
+    const timer = setTimeout(() => {
+      // 1. Parsing ODP valid
+      const parsedOdps = [];
+      if (Array.isArray(odpData)) {
+        for (let i = 0; i < odpData.length; i++) {
+          const o = odpData[i];
+          let lat = parseFloat(String(o.latitude || '').trim().replace(',', '.'));
+          let lng = parseFloat(String(o.longitude || '').trim().replace(',', '.'));
+          if (lat > 0 && lng < 0) { const t = lat; lat = lng; lng = t; }
+          if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
+          const cap = Number(o.kapasitas) || 8;
+          const used = Number(o.portTerpakai ?? o.port_terpakai) || 0;
+          parsedOdps.push({
+            ...o,
+            lat,
+            lng,
+            cap,
+            used,
+            available: Math.max(0, cap - used),
+            isFull: cap > 0 && used >= cap
+          });
+        }
       }
-      const hasCoords = !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+      setValidOdpCount(parsedOdps.length);
+      setScanProgress(70);
 
-      if (!hasCoords) {
+      // 2. Hitung jarak Haversine ke seluruh ODP
+      const results = targetList.map(cust => {
+        let lat = parseFloat(String(cust.latitude || '').trim().replace(',', '.'));
+        let lng = parseFloat(String(cust.longitude || '').trim().replace(',', '.'));
+        if (lat > 0 && lng < 0) { const t = lat; lat = lng; lng = t; }
+        const hasCoords = !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+
+        if (!hasCoords) {
+          return {
+            customer: cust,
+            hasCoords: false,
+            status: 'NO_COORDS',
+            statusLabel: 'Tanpa Titik GPS',
+            statusColor: 'slate',
+            nearestOdp: null,
+            nearestAvailableOdp: null,
+            primaryOdp: null,
+            distance: null,
+            allNearOdps: []
+          };
+        }
+
+        let closestOdp = null;
+        let minDistance = Infinity;
+        let closestAvailableOdp = null;
+        let minAvailableDist = Infinity;
+        const allNearOdps = [];
+
+        for (let i = 0; i < parsedOdps.length; i++) {
+          const odp = parsedOdps[i];
+          const dist = calculateDist(lat, lng, odp.lat, odp.lng);
+
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestOdp = { ...odp, distance: Math.round(dist) };
+          }
+
+          if (!odp.isFull && dist < minAvailableDist) {
+            minAvailableDist = dist;
+            closestAvailableOdp = { ...odp, distance: Math.round(dist) };
+          }
+
+          if (dist <= maxRadius * 2) {
+            allNearOdps.push({ ...odp, distance: Math.round(dist) });
+          }
+        }
+
+        allNearOdps.sort((a, b) => a.distance - b.distance);
+
+        let primaryOdp = null;
+        if (closestAvailableOdp && closestAvailableOdp.distance <= maxRadius) {
+          primaryOdp = closestAvailableOdp;
+        } else {
+          primaryOdp = closestOdp;
+        }
+
+        const effectiveDist = primaryOdp ? primaryOdp.distance : Infinity;
+        let status = 'OUT_OF_RANGE';
+        let statusLabel = 'Di Luar Jangkauan';
+        let statusColor = 'rose';
+
+        if (effectiveDist <= optimalRadius) {
+          if (primaryOdp && !primaryOdp.isFull) {
+            status = 'COVERED';
+            statusLabel = 'Tercover';
+            statusColor = 'emerald';
+          } else {
+            status = 'PORT_FULL';
+            statusLabel = 'Port Penuh';
+            statusColor = 'amber';
+          }
+        } else if (effectiveDist <= maxRadius) {
+          status = 'NEARING';
+          statusLabel = 'Mendekati';
+          statusColor = 'amber';
+        } else {
+          status = 'OUT_OF_RANGE';
+          statusLabel = effectiveDist !== Infinity ? 'Jauh' : 'Tidak Tercover';
+          statusColor = 'rose';
+        }
+
         return {
           customer: cust,
-          hasCoords: false,
-          status: 'NO_COORDS',
-          statusLabel: 'Tanpa Titik GPS',
-          statusColor: 'slate',
-          nearestOdp: null,
-          nearestAvailableOdp: null,
-          primaryOdp: null,
-          distance: null,
-          allNearOdps: []
+          hasCoords: true,
+          lat,
+          lng,
+          status,
+          statusLabel,
+          statusColor,
+          nearestOdp: closestOdp,
+          nearestAvailableOdp: closestAvailableOdp,
+          primaryOdp,
+          distance: effectiveDist !== Infinity ? effectiveDist : null,
+          allNearOdps: allNearOdps.slice(0, 3)
         };
-      }
+      });
 
-      let closestOdp = null;
-      let minDistance = Infinity;
-      let closestAvailableOdp = null;
-      let minAvailableDist = Infinity;
-      const allNearOdps = [];
+      setScanResults(results);
+      setScanProgress(100);
+      setTimeout(() => {
+        setIsScanning(false);
+      }, 120);
+    }, 50);
 
-      for (let i = 0; i < validOdps.length; i++) {
-        const odp = validOdps[i];
-        const dist = calculateDist(lat, lng, odp.lat, odp.lng);
-
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestOdp = { ...odp, distance: Math.round(dist) };
-        }
-
-        if (!odp.isFull && dist < minAvailableDist) {
-          minAvailableDist = dist;
-          closestAvailableOdp = { ...odp, distance: Math.round(dist) };
-        }
-
-        if (dist <= maxRadius * 2) {
-          allNearOdps.push({ ...odp, distance: Math.round(dist) });
-        }
-      }
-
-      allNearOdps.sort((a, b) => a.distance - b.distance);
-
-      let primaryOdp = null;
-      if (closestAvailableOdp && closestAvailableOdp.distance <= maxRadius) {
-        primaryOdp = closestAvailableOdp;
-      } else {
-        primaryOdp = closestOdp;
-      }
-
-      const effectiveDist = primaryOdp ? primaryOdp.distance : Infinity;
-      let status = 'OUT_OF_RANGE';
-      let statusLabel = 'Di Luar Jangkauan';
-      let statusColor = 'rose';
-
-      if (effectiveDist <= optimalRadius) {
-        if (primaryOdp && !primaryOdp.isFull) {
-          status = 'COVERED';
-          statusLabel = 'Tercover';
-          statusColor = 'emerald';
-        } else {
-          status = 'PORT_FULL';
-          statusLabel = 'Port Penuh';
-          statusColor = 'amber';
-        }
-      } else if (effectiveDist <= maxRadius) {
-        status = 'NEARING';
-        statusLabel = 'Mendekati';
-        statusColor = 'amber';
-      } else {
-        status = 'OUT_OF_RANGE';
-        statusLabel = effectiveDist !== Infinity ? 'Jauh' : 'Tidak Tercover';
-        statusColor = 'rose';
-      }
-
-      return {
-        customer: cust,
-        hasCoords: true,
-        lat,
-        lng,
-        status,
-        statusLabel,
-        statusColor,
-        nearestOdp: closestOdp,
-        nearestAvailableOdp: closestAvailableOdp,
-        primaryOdp,
-        distance: effectiveDist !== Infinity ? effectiveDist : null,
-        allNearOdps: allNearOdps.slice(0, 3)
-      };
-    });
-  }, [targetList, validOdps, optimalRadius, maxRadius]);
+    return () => clearTimeout(timer);
+  }, [targetList, odpData, optimalRadius, maxRadius]);
 
   // Statistik Ringkasan
   const stats = useMemo(() => {
@@ -8419,9 +8432,9 @@ function QuickScanCoverageModal({
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                   {targetList.length} Pelanggan
                 </span>
-                {validOdps.length > 0 && (
+                {validOdpCount > 0 && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {validOdps.length} Titik ODP Aktif
+                    {validOdpCount} Titik ODP Aktif
                   </span>
                 )}
               </div>
@@ -8460,374 +8473,415 @@ function QuickScanCoverageModal({
             </button>
           </div>
         </div>
-
-        {/* METRICS DASHBOARD (6 KARTU) */}
-        <div className="p-3 sm:p-4 bg-slate-50/50 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 shrink-0">
-          {/* Card 1: Total */}
-          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-              <Icon name="users" size={13} className="text-blue-500" /> Total Discan
-            </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-slate-800">{stats.total}</span>
-              <span className="text-[10px] text-slate-400 font-medium">Pelanggan</span>
+                 {/* BODY MODAL: ON-DEMAND SCAN LOADER ATAU HASIL SCAN */}
+        {isScanning ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-14 bg-slate-50/50 min-h-[380px] select-none">
+            <div className="relative w-20 h-20 flex items-center justify-center mb-4">
+              <div className="absolute inset-0 rounded-full bg-indigo-500/20 animate-ping"></div>
+              <div className="absolute inset-2 rounded-full bg-blue-500/20 animate-pulse"></div>
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-indigo-700 text-white flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <Icon name="radar" size={26} className="animate-spin" />
+              </div>
             </div>
-          </div>
-
-          {/* Card 2: Tercover */}
-          <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
-              <Icon name="check-circle" size={13} className="text-emerald-600" /> Tercover
-            </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-emerald-700">{stats.covered}</span>
-              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
-                {stats.coveredPct}%
-              </span>
+            <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight mb-1">
+              Memindai Jaringan & Jarak Alpro ODP...
+            </h3>
+            <p className="text-xs text-slate-500 text-center max-w-sm">
+              Menghitung jarak Haversine {targetList.length} pelanggan Waiting terhadap titik ODP secara on-demand saat pop-up dibuka.
+            </p>
+            <div className="w-56 bg-slate-200 rounded-full h-1.5 overflow-hidden mt-4">
+              <div
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full rounded-full transition-all duration-300"
+                style={{ width: `${scanProgress}%` }}
+              ></div>
             </div>
-            <span className="text-[9px] text-emerald-600 mt-0.5">Jarak ≤ {optimalRadius}m & Ada Port</span>
-          </div>
-
-          {/* Card 3: Mendekati */}
-          <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
-              <Icon name="alert-triangle" size={13} className="text-amber-600" /> Mendekati
+            <span className="text-[10px] font-mono font-bold text-indigo-600 mt-2">
+              Kalkulasi On-Demand... {scanProgress}%
             </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-amber-700">{stats.nearing}</span>
-              <span className="text-[10px] text-amber-700 font-medium">Pelanggan</span>
+          </div>
+        ) : (
+          <>
+            {/* METRICS DASHBOARD (6 KARTU) */}
+            <div className="p-3 sm:p-4 bg-slate-50/50 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 shrink-0">
+              {/* Card 1: Total */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                  <Icon name="users" size={13} className="text-blue-500" /> Total Discan
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-slate-800">{stats.total}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">Pelanggan</span>
+                </div>
+              </div>
+
+              {/* Card 2: Tercover */}
+              <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+                  <Icon name="check-circle" size={13} className="text-emerald-600" /> Tercover
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-emerald-700">{stats.covered}</span>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                    {stats.coveredPct}%
+                  </span>
+                </div>
+                <span className="text-[9px] text-emerald-600 mt-0.5">Jarak ≤ {optimalRadius}m & Ada Port</span>
+              </div>
+
+              {/* Card 3: Mendekati */}
+              <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
+                  <Icon name="alert-triangle" size={13} className="text-amber-600" /> Mendekati
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-amber-700">{stats.nearing}</span>
+                  <span className="text-[10px] text-amber-700 font-medium">Pelanggan</span>
+                </div>
+                <span className="text-[9px] text-amber-600 mt-0.5">Jarak {optimalRadius}m - {maxRadius}m</span>
+              </div>
+
+              {/* Card 4: Luar Jangkauan */}
+              <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1.5">
+                  <Icon name="x-circle" size={13} className="text-rose-600" /> Luar Jangkauan
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-rose-700">{stats.outOfRange}</span>
+                  <span className="text-[10px] text-rose-700 font-medium">Pelanggan</span>
+                </div>
+                <span className="text-[9px] text-rose-600 mt-0.5">Jarak &gt; {maxRadius}m dari ODP</span>
+              </div>
+
+              {/* Card 5: Port Penuh */}
+              <div className="bg-purple-50/60 p-3 rounded-xl border border-purple-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-purple-800 flex items-center gap-1.5">
+                  <Icon name="slash" size={13} className="text-purple-600" /> Port Penuh
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-purple-700">{stats.portFull}</span>
+                  <span className="text-[10px] text-purple-700 font-medium">Pelanggan</span>
+                </div>
+                <span className="text-[9px] text-purple-600 mt-0.5">ODP dekat tapi 8/8 penuh</span>
+              </div>
+
+              {/* Card 6: Tanpa Titik GPS */}
+              <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Icon name="map-pin" size={13} className="text-slate-500" /> Tanpa GPS
+                </span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="text-xl font-black text-slate-700">{stats.noCoords}</span>
+                  <span className="text-[10px] text-slate-500 font-medium">Pelanggan</span>
+                </div>
+                <span className="text-[9px] text-slate-500 mt-0.5">Perlu input koordinat</span>
+              </div>
             </div>
-            <span className="text-[9px] text-amber-600 mt-0.5">Jarak {optimalRadius}m - {maxRadius}m</span>
-          </div>
 
-          {/* Card 4: Luar Jangkauan */}
-          <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1.5">
-              <Icon name="x-circle" size={13} className="text-rose-600" /> Luar Jangkauan
-            </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-rose-700">{stats.outOfRange}</span>
-              <span className="text-[10px] text-rose-700 font-medium">Pelanggan</span>
-            </div>
-            <span className="text-[9px] text-rose-600 mt-0.5">Jarak &gt; {maxRadius}m dari ODP</span>
-          </div>
-
-          {/* Card 5: Port Penuh */}
-          <div className="bg-purple-50/60 p-3 rounded-xl border border-purple-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-purple-800 flex items-center gap-1.5">
-              <Icon name="slash" size={13} className="text-purple-600" /> Port Penuh
-            </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-purple-700">{stats.portFull}</span>
-              <span className="text-[10px] text-purple-700 font-medium">Pelanggan</span>
-            </div>
-            <span className="text-[9px] text-purple-600 mt-0.5">ODP dekat tapi 8/8 penuh</span>
-          </div>
-
-          {/* Card 6: Tanpa Titik GPS */}
-          <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-              <Icon name="map-pin" size={13} className="text-slate-500" /> Tanpa GPS
-            </span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl font-black text-slate-700">{stats.noCoords}</span>
-              <span className="text-[10px] text-slate-500 font-medium">Pelanggan</span>
-            </div>
-            <span className="text-[9px] text-slate-500 mt-0.5">Perlu input koordinat</span>
-          </div>
-        </div>
-
-        {/* TOOLBAR TABS & SEARCH */}
-        <div className="p-3 border-b border-slate-100 bg-white flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between shrink-0">
-          {/* TAB BUTTONS */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-            <button
-              type="button"
-              onClick={() => setActiveTab('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'ALL' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-            >
-              <Icon name="layers" size={13} className={activeTab === 'ALL' ? 'text-white' : 'text-slate-500'} />
-              <span>Semua ({stats.total})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('COVERED')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'COVERED' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
-            >
-              <Icon name="check-circle" size={13} className={activeTab === 'COVERED' ? 'text-white' : 'text-emerald-600'} />
-              <span>Tercover ({stats.covered})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('NEARING')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NEARING' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
-            >
-              <Icon name="alert-triangle" size={13} className={activeTab === 'NEARING' ? 'text-white' : 'text-amber-600'} />
-              <span>Mendekati ({stats.nearing})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('OUT_OF_RANGE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'OUT_OF_RANGE' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
-            >
-              <Icon name="x-circle" size={13} className={activeTab === 'OUT_OF_RANGE' ? 'text-white' : 'text-rose-600'} />
-              <span>Luar Jangkauan ({stats.outOfRange})</span>
-            </button>
-            {stats.portFull > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('PORT_FULL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'PORT_FULL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
-              >
-                <Icon name="slash" size={13} className={activeTab === 'PORT_FULL' ? 'text-white' : 'text-purple-600'} />
-                <span>Port Penuh ({stats.portFull})</span>
-              </button>
-            )}
-            {stats.noCoords > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('NO_COORDS')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NO_COORDS' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-              >
-                <Icon name="map-pin" size={13} className={activeTab === 'NO_COORDS' ? 'text-white' : 'text-slate-500'} />
-                <span>Tanpa GPS ({stats.noCoords})</span>
-              </button>
-            )}
-          </div>
-
-          {/* SEARCH BOX & STASIUN FILTER */}
-          <div className="flex items-center gap-2">
-            {stationOptions.length > 1 && (
-              <select
-                value={selectedStation}
-                onChange={(e) => setSelectedStation(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer max-w-[140px]"
-              >
-                <option value="">Semua Stasiun</option>
-                {stationOptions.map(st => (
-                  <option key={st} value={st}>{st}</option>
-                ))}
-              </select>
-            )}
-
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all flex-1 min-w-[160px]">
-              <Icon name="search" size={13} className="text-slate-400 shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari ID, nama, alamat, ODP..."
-                className="bg-transparent text-slate-700 placeholder:text-slate-400 focus:outline-none w-full text-xs font-medium"
-              />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                  <Icon name="x" size={12} />
+            {/* TOOLBAR TABS & SEARCH */}
+            <div className="p-3 border-b border-slate-100 bg-white flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between shrink-0">
+              {/* TAB BUTTONS */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('ALL')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'ALL' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  <Icon name="layers" size={13} className={activeTab === 'ALL' ? 'text-white' : 'text-slate-500'} />
+                  <span>Semua ({stats.total})</span>
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('COVERED')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'COVERED' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                >
+                  <Icon name="check-circle" size={13} className={activeTab === 'COVERED' ? 'text-white' : 'text-emerald-600'} />
+                  <span>Tercover ({stats.covered})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('NEARING')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NEARING' ? 'bg-amber-600 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                >
+                  <Icon name="alert-triangle" size={13} className={activeTab === 'NEARING' ? 'text-white' : 'text-amber-600'} />
+                  <span>Mendekati ({stats.nearing})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('OUT_OF_RANGE')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'OUT_OF_RANGE' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+                >
+                  <Icon name="x-circle" size={13} className={activeTab === 'OUT_OF_RANGE' ? 'text-white' : 'text-rose-600'} />
+                  <span>Luar Jangkauan ({stats.outOfRange})</span>
+                </button>
+                {stats.portFull > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('PORT_FULL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'PORT_FULL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
+                  >
+                    <Icon name="slash" size={13} className={activeTab === 'PORT_FULL' ? 'text-white' : 'text-purple-600'} />
+                    <span>Port Penuh ({stats.portFull})</span>
+                  </button>
+                )}
+                {stats.noCoords > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('NO_COORDS')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'NO_COORDS' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    <Icon name="map-pin" size={13} className={activeTab === 'NO_COORDS' ? 'text-white' : 'text-slate-500'} />
+                    <span>Tanpa GPS ({stats.noCoords})</span>
+                  </button>
+                )}
+              </div>
+
+              {/* SEARCH BOX & STASIUN FILTER */}
+              <div className="flex items-center gap-2">
+                {stationOptions.length > 1 && (
+                  <select
+                    value={selectedStation}
+                    onChange={(e) => setSelectedStation(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer max-w-[140px]"
+                  >
+                    <option value="">Semua Stasiun</option>
+                    {stationOptions.map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                )}
+
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all flex-1 min-w-[160px]">
+                  <Icon name="search" size={13} className="text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari ID, nama, alamat, ODP..."
+                    className="w-full bg-transparent border-none outline-none text-slate-800 placeholder-slate-400 text-xs"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <Icon name="x" size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* TABEL HASIL QUICK SCAN */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/40">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[850px]">
-              <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-200">
-                <tr>
-                  <th className="py-3 px-3 text-center w-10">No</th>
-                  <th className="py-3 px-3.5 min-w-[180px]">Pelanggan</th>
-                  <th className="py-3 px-3.5 min-w-[200px]">Alamat & GPS</th>
-                  <th className="py-3 px-3.5 min-w-[150px]">Status Coverage</th>
-                  <th className="py-3 px-3.5 min-w-[200px]">Rekomendasi ODP Terdekat</th>
-                  <th className="py-3 px-3.5 min-w-[160px]">Alternatif ODP 2</th>
-                  <th className="py-3 px-3 text-center w-28">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {filteredResults.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400">
-                      <Icon name="search" size={32} className="mx-auto mb-2 opacity-40" />
-                      <p className="font-bold text-sm text-slate-600">Tidak ada pelanggan sesuai filter</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Coba ubah filter kategori atau kata kunci pencarian</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredResults.map((r, idx) => {
-                    const c = r.customer;
-                    const odp = r.primaryOdp;
-                    const altOdp = r.allNearOdps && r.allNearOdps[1];
-                    const isCopied = copiedId === c?.idPelanggan;
-
-                    return (
-                      <tr key={c?.idPelanggan || idx} className="hover:bg-indigo-50/40 transition-colors">
-                        <td className="py-3 px-3 text-center font-bold text-slate-400">
-                          {idx + 1}
-                        </td>
-                        <td className="py-3 px-3.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded text-[11px]">
-                              {c?.idPelanggan || '-'}
-                            </span>
-                            {c?.stasiun && (
-                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded uppercase">
-                                {toProperCase(c.stasiun)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-bold text-slate-800 mt-1 truncate max-w-[180px]">
-                            {c?.namaPelanggan || '-'}
-                          </div>
-                          {c?.nomorHp && (
-                            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                              <Icon name="phone" size={10} className="text-slate-400" />
-                              <span>{c.nomorHp}</span>
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3.5">
-                          <div className="text-slate-600 text-xs line-clamp-2 max-w-[220px]" title={c?.alamat}>
-                            {c?.alamat || '-'}
-                          </div>
-                          {r.hasCoords ? (
-                            <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono mt-1">
-                              <Icon name="map-pin" size={10} className="text-blue-500 shrink-0" />
-                              <span>{r.lat.toFixed(5)}, {r.lng.toFixed(5)}</span>
-                              <a
-                                href={`https://www.google.com/maps?q=${r.lat},${r.lng}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 hover:text-blue-800 ml-1"
-                                title="Buka di Google Maps"
-                              >
-                                <Icon name="external-link" size={10} />
-                              </a>
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded mt-1">
-                              <Icon name="alert-triangle" size={10} /> Belum ada titik GPS
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3.5">
-                          {r.status === 'COVERED' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <Icon name="check-circle" size={13} className="text-emerald-600 shrink-0" />
-                              <span>Tercover ({r.distance}m)</span>
-                            </div>
-                          )}
-                          {r.status === 'NEARING' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <Icon name="alert-triangle" size={13} className="text-amber-600 shrink-0" />
-                              <span>Mendekati ({r.distance}m)</span>
-                            </div>
-                          )}
-                          {r.status === 'OUT_OF_RANGE' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                              <Icon name="x-circle" size={13} className="text-rose-600 shrink-0" />
-                              <span>{r.distance ? `Jauh (${r.distance}m)` : 'Tidak Tercover'}</span>
-                            </div>
-                          )}
-                          {r.status === 'PORT_FULL' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                              <Icon name="slash" size={13} className="text-purple-600 shrink-0" />
-                              <span>Port Penuh ({r.distance}m)</span>
-                            </div>
-                          )}
-                          {r.status === 'NO_COORDS' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                              <Icon name="map-pin" size={13} className="text-slate-400 shrink-0" />
-                              <span>Tanpa GPS</span>
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3.5">
-                          {odp ? (
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-slate-800 text-xs">
-                                  {odp.kode_odp || odp.label}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                                  <Icon name="navigation" size={11} className="text-slate-400" />
-                                  <span>Jarak: <strong className="text-slate-900">{r.distance}m</strong></span>
-                                </span>
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${odp.available > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                                  <Icon name={odp.available > 0 ? "check" : "slash"} size={10} className={odp.available > 0 ? "text-emerald-600" : "text-rose-600"} />
-                                  <span>{odp.available > 0 ? `${odp.available}/${odp.cap} Port Sisa` : `Penuh (0/${odp.cap})`}</span>
-                                </span>
-                              </div>
-                              {(odp.tahap_pembangunan || odp.tahapPembangunan) && (
-                                <div className="text-[10px] text-slate-400 truncate max-w-[190px] mt-0.5">
-                                  Tahap: {odp.tahap_pembangunan || odp.tahapPembangunan}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 text-xs italic">-</span>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3.5">
-                          {altOdp ? (
-                            <div>
-                              <div className="font-mono font-bold text-slate-700 text-xs truncate max-w-[150px]">
-                                {altOdp.kode_odp || altOdp.label}
-                              </div>
-                              <div className="text-[11px] text-slate-500 mt-0.5">
-                                Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `${altOdp.available}/${altOdp.cap} Port` : 'Penuh'})
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 text-xs italic">-</span>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {r.hasCoords && (
-                              <button
-                                type="button"
-                                onClick={() => setSelectedCustomerForMap(c)}
-                                className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors cursor-pointer"
-                                title="Buka Peta Coverage GIS & Rute Kabel"
-                              >
-                                <Icon name="map" size={14} />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(r)}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isCopied ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}
-                              title="Salin Rangkuman Rekomendasi"
-                            >
-                              <Icon name={isCopied ? "check" : "copy"} size={14} />
-                            </button>
-                          </div>
+            {/* TABEL DATA HASIL SCAN */}
+            <div className="flex-1 overflow-auto p-3 sm:p-4 bg-slate-50/30">
+              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-black uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-3 text-center w-12">No</th>
+                      <th className="py-3 px-3.5 min-w-[180px]">Pelanggan</th>
+                      <th className="py-3 px-3.5 min-w-[200px]">Alamat & GPS</th>
+                      <th className="py-3 px-3.5 min-w-[150px]">Status Coverage</th>
+                      <th className="py-3 px-3.5 min-w-[200px]">Rekomendasi ODP Terdekat</th>
+                      <th className="py-3 px-3.5 min-w-[160px]">Alternatif ODP 2</th>
+                      <th className="py-3 px-3 text-center w-28">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {filteredResults.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center text-slate-400">
+                          <Icon name="search" size={32} className="mx-auto mb-2 opacity-40" />
+                          <p className="font-bold text-sm text-slate-600">Tidak ada pelanggan sesuai filter</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Coba ubah filter kategori atau kata kunci pencarian</p>
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    ) : (
+                      filteredResults.map((r, idx) => {
+                        const c = r.customer;
+                        const odp = r.primaryOdp;
+                        const altOdp = r.allNearOdps && r.allNearOdps[1];
+                        const isCopied = copiedId === c?.idPelanggan;
+
+                        return (
+                          <tr key={c?.idPelanggan || idx} className="hover:bg-indigo-50/40 transition-colors">
+                            <td className="py-3 px-3 text-center font-bold text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-3 px-3.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded text-[11px]">
+                                  {c?.idPelanggan || '-'}
+                                </span>
+                                {c?.stasiun && (
+                                  <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded uppercase">
+                                    {toProperCase(c.stasiun)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="font-bold text-slate-800 mt-1 truncate max-w-[180px]">
+                                {c?.namaPelanggan || '-'}
+                              </div>
+                              {c?.nomorHp && (
+                                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                  <Icon name="phone" size={10} className="text-slate-400" />
+                                  <span>{c.nomorHp}</span>
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3.5">
+                              <div className="text-slate-600 text-xs line-clamp-2 max-w-[220px]" title={c?.alamat}>
+                                {c?.alamat || '-'}
+                              </div>
+                              {r.hasCoords ? (
+                                <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono mt-1">
+                                  <Icon name="map-pin" size={10} className="text-blue-500 shrink-0" />
+                                  <span>{r.lat.toFixed(5)}, {r.lng.toFixed(5)}</span>
+                                  <a
+                                    href={`https://www.google.com/maps?q=${r.lat},${r.lng}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 ml-1"
+                                    title="Buka di Google Maps"
+                                  >
+                                    <Icon name="external-link" size={10} />
+                                  </a>
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded mt-1">
+                                  <Icon name="alert-triangle" size={10} /> Belum ada titik GPS
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3.5">
+                              {r.status === 'COVERED' && (
+                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <Icon name="check-circle" size={13} className="text-emerald-600 shrink-0" />
+                                  <span>Tercover ({r.distance}m)</span>
+                                </div>
+                              )}
+                              {r.status === 'NEARING' && (
+                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <Icon name="alert-triangle" size={13} className="text-amber-600 shrink-0" />
+                                  <span>Mendekati ({r.distance}m)</span>
+                                </div>
+                              )}
+                              {r.status === 'OUT_OF_RANGE' && (
+                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                  <Icon name="x-circle" size={13} className="text-rose-600 shrink-0" />
+                                  <span>{r.distance ? `Jauh (${r.distance}m)` : 'Tidak Tercover'}</span>
+                                </div>
+                              )}
+                              {r.status === 'PORT_FULL' && (
+                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                  <Icon name="slash" size={13} className="text-purple-600 shrink-0" />
+                                  <span>Port Penuh ({r.distance}m)</span>
+                                </div>
+                              )}
+                              {r.status === 'NO_COORDS' && (
+                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                                  <Icon name="map-pin" size={13} className="text-slate-400 shrink-0" />
+                                  <span>Tanpa GPS</span>
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3.5">
+                              {odp ? (
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono font-bold text-slate-800 text-xs">
+                                      {odp.kode_odp || odp.label}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                                      <Icon name="navigation" size={11} className="text-slate-400" />
+                                      <span>Jarak: <strong className="text-slate-900">{r.distance}m</strong></span>
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${odp.available > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                      <Icon name={odp.available > 0 ? "check" : "slash"} size={10} className={odp.available > 0 ? "text-emerald-600" : "text-rose-600"} />
+                                      <span>{odp.available > 0 ? `${odp.available}/${odp.cap} Port Sisa` : `Penuh (0/${odp.cap})`}</span>
+                                    </span>
+                                  </div>
+                                  {(odp.tahap_pembangunan || odp.tahapPembangunan) && (
+                                    <div className="text-[10px] text-slate-400 truncate max-w-[190px] mt-0.5">
+                                      Tahap: {odp.tahap_pembangunan || odp.tahapPembangunan}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs italic">-</span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3.5">
+                              {altOdp ? (
+                                <div>
+                                  <div className="font-mono font-bold text-slate-700 text-xs truncate max-w-[150px]">
+                                    {altOdp.kode_odp || altOdp.label}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 mt-0.5">
+                                    Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `${altOdp.available}/${altOdp.cap} Port` : 'Penuh'})
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs italic">-</span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                {r.hasCoords && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedCustomerForMap(c)}
+                                    className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors cursor-pointer"
+                                    title="Buka Peta Coverage GIS & Rute Kabel"
+                                  >
+                                    <Icon name="map" size={14} />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(r)}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isCopied ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}
+                                  title="Salin Rangkuman Rekomendasi"
+                                >
+                                  <Icon name={isCopied ? "check" : "copy"} size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* FOOTER MODAL */}
         <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-slate-500 text-center sm:text-left">
-            Menampilkan <strong className="text-slate-800">{filteredResults.length}</strong> dari{' '}
-            <strong className="text-slate-800">{targetList.length}</strong> pelanggan hasil scan.
-            {stats.covered > 0 && (
-              <span className="ml-1 text-emerald-700 font-bold hidden md:inline">
-                • {stats.covered} pelanggan siap diproses penarikan jaringan!
+            {isScanning ? (
+              <span className="text-slate-400 italic flex items-center gap-1.5 justify-center sm:justify-start">
+                <Icon name="loader-2" size={13} className="animate-spin text-indigo-600" /> Sedang memproses kalkulasi jaringan...
               </span>
+            ) : (
+              <>
+                Menampilkan <strong className="text-slate-800">{filteredResults.length}</strong> dari{' '}
+                <strong className="text-slate-800">{targetList.length}</strong> pelanggan hasil scan.
+                {stats.covered > 0 && (
+                  <span className="ml-1 text-emerald-700 font-bold hidden md:inline">
+                    • {stats.covered} pelanggan siap diproses penarikan jaringan!
+                  </span>
+                )}
+              </>
             )}
           </div>
 
@@ -8835,7 +8889,7 @@ function QuickScanCoverageModal({
             <button
               type="button"
               onClick={handleExportExcelScan}
-              disabled={isExporting || filteredResults.length === 0}
+              disabled={isScanning || isExporting || filteredResults.length === 0}
               className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Icon name={isExporting ? "clock" : "download"} size={15} className={isExporting ? 'animate-spin' : ''} />
