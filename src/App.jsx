@@ -1807,15 +1807,15 @@ function App({ onLogout }) {
               </h1>
             </div>
 
-            <div className="flex items-center shrink-0">
+            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
               {/* Live Auto-Sync Indicator */}
-              <div className="hidden sm:flex items-center gap-2 mr-3 bg-slate-50 border border-slate-200/80 px-2.5 py-1.5 rounded-xl shadow-inner text-xs font-bold text-slate-600 transition-all select-none">
+              <div className="hidden sm:flex items-center h-8 sm:h-9 gap-2 bg-slate-50 border border-slate-200/80 px-2.5 sm:px-3 rounded-xl shadow-2xs text-xs font-bold text-slate-600 transition-all select-none">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className="text-[11px] text-slate-500">Auto-Sync</span>
-                <span className="text-[10px] font-black text-slate-700 bg-white border border-slate-200/50 px-1.5 py-0.5 rounded-lg shadow-sm" title="Terakhir diperbarui otomatis">
+                <span className="text-[11px] text-slate-500 font-semibold">Auto-Sync</span>
+                <span className="text-[10px] font-black text-slate-700 bg-white border border-slate-200/60 px-1.5 py-0.5 rounded-md shadow-2xs" title="Terakhir diperbarui otomatis">
                   {lastSyncedTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
               </div>
@@ -1824,11 +1824,11 @@ function App({ onLogout }) {
               <button
                 type="button"
                 onClick={() => setIsWhatsNewOpen(true)}
-                className="flex items-center gap-1.5 text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-sm transition-all mr-2 relative cursor-pointer"
+                className="flex items-center h-8 sm:h-9 gap-1.5 text-xs px-2.5 sm:px-3 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs transition-all relative cursor-pointer"
                 title="Lihat Pembaruan Fitur Baru (v2.4)"
               >
-                <Icon name="sparkles" size={14} className="text-indigo-600 animate-pulse" />
-                <span className="hidden md:inline">Apa yang Baru?</span>
+                <Icon name="sparkles" size={14} className="text-indigo-600 shrink-0" />
+                <span className="hidden md:inline whitespace-nowrap">Apa yang Baru?</span>
                 {hasUnseenFeatures && (
                   <>
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute -top-0.5 -right-0.5 animate-ping"></span>
@@ -1837,18 +1837,19 @@ function App({ onLogout }) {
                 )}
               </button>
 
-              {/* PERBAIKAN 2: SATU TOMBOL PINTAR SAJA (Berganti warna saat sinkron di latar belakang) */}
+              {/* SATU TOMBOL PINTAR SINKRONKAN DATA */}
               <button
+                type="button"
                 onClick={() => fetchData(true)}
                 disabled={isLoading || isBackgroundSyncing}
-                className={`flex items-center text-[10px] sm:text-[13px] px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg font-bold transition-all shadow-sm whitespace-nowrap border ${isBackgroundSyncing
-                  ? 'bg-amber-50 text-amber-600 border-amber-200 cursor-wait'
-                  : 'bg-blue-50 text-blue-600 border-transparent hover:bg-blue-100'
+                className={`flex items-center h-8 sm:h-9 gap-1.5 text-xs px-2.5 sm:px-3.5 rounded-xl font-bold transition-all shadow-2xs whitespace-nowrap border cursor-pointer ${isBackgroundSyncing
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 cursor-wait'
+                  : 'bg-blue-50 text-blue-700 border-blue-200/80 hover:bg-blue-100 hover:border-blue-300'
                   }`}
+                title="Sinkronkan data terbaru dari server"
               >
-                <span className={`flex items-center justify-center sm:mr-2 ${(isLoading || isBackgroundSyncing) ? 'animate-spin' : ''}`}>
-                  <Icon name="refresh-cw" size={13} className="sm:hidden" />
-                  <span className="hidden sm:inline-flex"><Icon name="refresh-cw" size={14} /></span>
+                <span className={`flex items-center justify-center shrink-0 ${(isLoading || isBackgroundSyncing) ? 'animate-spin' : ''}`}>
+                  <Icon name="refresh-cw" size={13} />
                 </span>
                 <span className="hidden sm:inline">
                   {isBackgroundSyncing ? 'Background Sync...' : 'Sinkronkan Data'}
