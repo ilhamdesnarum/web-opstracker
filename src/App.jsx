@@ -9038,17 +9038,21 @@ function WhatsNewModal({ onClose, onTryFeature }) {
           </div>
         </div>
 
-        {/* BODY MODAL: 3 FITUR UNGGULAN COMPACT */}
-        <div className="p-3 sm:p-3.5 space-y-2.5 overflow-y-auto max-h-[58vh] bg-slate-50/50">
+        {/* BODY MODAL: 3 FITUR UNGGULAN ULTRA-COMPACT */}
+        <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
           {/* FITUR 1: Quick Scan Coverage */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-indigo-50/50 via-white to-white border border-indigo-100/80 hover:border-indigo-300/80 hover:shadow-2xs transition-all">
+          <div
+            onClick={() => onTryFeature('quickscan', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-indigo-50/50 via-white to-white border border-indigo-100/80 hover:border-indigo-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk coba Quick Scan"
+          >
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                 <Icon name="radar" size={16} className="animate-pulse" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-indigo-600 transition-colors">
                     Quick Scan Coverage Alpro & ODP
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-100/80 text-indigo-700">
@@ -9058,34 +9062,23 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                 <p className="text-[11px] text-slate-600 leading-snug">
                   Pindai cepat jarak pelanggan <strong className="text-slate-800">Waiting</strong> ke ODP terdekat dan cek ketersediaan port secara otomatis.
                 </p>
-                <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-indigo-100/60 flex-wrap gap-1.5">
-                  <div className="flex items-center gap-1 flex-wrap text-[10px] font-semibold text-slate-600">
-                    <span className="bg-white border border-indigo-100/80 px-1.5 py-0.5 rounded shadow-2xs">300m-500m</span>
-                    <span className="bg-white border border-indigo-100/80 px-1.5 py-0.5 rounded shadow-2xs">Sisa Port</span>
-                    <span className="bg-white border border-indigo-100/80 px-1.5 py-0.5 rounded shadow-2xs">Excel</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onTryFeature('quickscan', dontShowAgain)}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer transition-colors"
-                  >
-                    <span>Coba Quick Scan</span>
-                    <Icon name="arrow-right" size={12} />
-                  </button>
-                </div>
               </div>
             </div>
           </div>
 
           {/* FITUR 2: Kelola & Sinkronisasi ODP */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300/80 hover:shadow-2xs transition-all">
+          <div
+            onClick={() => onTryFeature('okupansi', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Okupansi ODP"
+          >
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                 <Icon name="layers" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
                     Kelola ODP & Sinkronisasi Port
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
@@ -9095,34 +9088,23 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                 <p className="text-[11px] text-slate-600 leading-snug">
                   Edit data ODP, filter stasiun/tahap, dan sinkronkan port terpakai otomatis dari database pelanggan.
                 </p>
-                <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-emerald-100/60 flex-wrap gap-1.5">
-                  <div className="flex items-center gap-1 flex-wrap text-[10px] font-semibold text-slate-600">
-                    <span className="bg-white border border-emerald-100/80 px-1.5 py-0.5 rounded shadow-2xs">Edit & Hapus</span>
-                    <span className="bg-white border border-emerald-100/80 px-1.5 py-0.5 rounded shadow-2xs">Sync Port</span>
-                    <span className="bg-white border border-emerald-100/80 px-1.5 py-0.5 rounded shadow-2xs">Filter Stasiun</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onTryFeature('okupansi', dontShowAgain)}
-                    className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-0.5 cursor-pointer transition-colors"
-                  >
-                    <span>Buka Okupansi ODP</span>
-                    <Icon name="arrow-right" size={12} />
-                  </button>
-                </div>
               </div>
             </div>
           </div>
 
           {/* FITUR 3: Smart One-Click Filter Waiting */}
-          <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300/80 hover:shadow-2xs transition-all">
+          <div
+            onClick={() => onTryFeature('database', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Data Pelanggan Waiting"
+          >
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                 <Icon name="filter" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-amber-600 transition-colors">
                     Smart One-Click Filter Waiting
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100/80 text-amber-800">
@@ -9132,20 +9114,6 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                 <p className="text-[11px] text-slate-600 leading-snug">
                   Satu klik pada kartu <strong className="text-slate-800">WAITING</strong> langsung memfilter data presisi dan memunculkan tombol Quick Scan.
                 </p>
-                <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-amber-100/60 flex-wrap gap-1.5">
-                  <div className="flex items-center gap-1 flex-wrap text-[10px] font-semibold text-slate-600">
-                    <span className="bg-white border border-amber-100/80 px-1.5 py-0.5 rounded shadow-2xs">Filter Presisi</span>
-                    <span className="bg-white border border-amber-100/80 px-1.5 py-0.5 rounded shadow-2xs">Ikon SVG</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onTryFeature('database', dontShowAgain)}
-                    className="text-[11px] font-bold text-amber-600 hover:text-amber-800 flex items-center gap-0.5 cursor-pointer transition-colors"
-                  >
-                    <span>Buka Pelanggan Waiting</span>
-                    <Icon name="arrow-right" size={12} />
-                  </button>
-                </div>
               </div>
             </div>
           </div>
