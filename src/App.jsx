@@ -8105,10 +8105,11 @@ function QuickScanCoverageModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedCustomerForMap, onClose]);
 
-  // Tentukan target pelanggan berdasarkan scope
+  // Tentukan target pelanggan berdasarkan scope (HANYA PELANGGAN WAITING)
   const targetList = useMemo(() => {
-    if (scanScope === 'WAITING_ALL' && Array.isArray(allCustomers)) {
-      return allCustomers.filter(item => {
+    const filterWaitingOnly = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list.filter(item => {
         const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
         const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
         const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
@@ -8124,8 +8125,12 @@ function QuickScanCoverageModal({
         else finalStatus = globalStat;
         return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
       });
+    };
+
+    if (scanScope === 'WAITING_ALL' && Array.isArray(allCustomers)) {
+      return filterWaitingOnly(allCustomers);
     }
-    return customers;
+    return filterWaitingOnly(customers);
   }, [scanScope, customers, allCustomers]);
 
   // Total pelanggan status WAITING di seluruh database
@@ -8464,7 +8469,7 @@ function QuickScanCoverageModal({
                   onClick={() => setScanScope('CURRENT')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${scanScope === 'CURRENT' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                 >
-                  Target Saat Ini ({customers.length})
+                  Target Saat Ini ({targetList.length})
                 </button>
                 <button
                   type="button"
@@ -12370,7 +12375,11 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const currentData = filteredData.slice(startIndex, endIndex);
 
   const activeFilterCount = (filterStation ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0);
-  const isWaitingFilterActive = Boolean(filterStatus && filterStatus.includes('WAITING'));
+  const isWaitingFilterActive = Boolean(
+    Array.isArray(filterStatus) &&
+    filterStatus.length === 1 &&
+    filterStatus[0] === 'WAITING'
+  );
 
   const handleSelectAllOnPage = (e) => {
     if (e.target.checked) {
@@ -12581,9 +12590,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
               <div
                 key={c.key}
                 onClick={() => {
-                  const newFilter = isActive
-                    ? filterStatus.filter(s => s !== c.key)
-                    : [...(filterStatus || []), c.key];
+                  const newFilter = isActive ? [] : [c.key];
                   setFilterStatus(newFilter);
                   setTempFilterStatus(newFilter);
                 }}
