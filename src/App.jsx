@@ -9033,13 +9033,13 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               Apa yang Baru di OpsTracker?
             </h2>
             <p className="text-xs sm:text-[13px] text-blue-100/90 font-medium mt-1 leading-relaxed">
-              Pembaruan rilis terbaru untuk mempercepat alur kerja & akurasi data operasional Anda:
+              Ringkasan pembaruan v2.4 alur kerja operasional:
             </p>
           </div>
         </div>
 
         {/* BODY MODAL: 3 FITUR UNGGULAN DENGAN KARTU GRADASI LEMBUT */}
-        <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto max-h-[60vh] bg-slate-50/50">
+        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto max-h-[60vh] bg-slate-50/50">
           {/* FITUR 1: Quick Scan Coverage */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-indigo-50/50 via-white to-white border border-indigo-100/80 hover:border-indigo-300/80 hover:shadow-xs transition-all duration-200">
             <div className="flex items-start gap-3.5">
@@ -9056,12 +9056,12 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Scan instan jarak pelanggan status <strong className="text-slate-800">Waiting</strong> ke titik ODP terdekat dan periksa sisa port siap tarik tanpa perlu membuka detail pelanggan satu per satu.
+                  Pindai cepat jarak pelanggan <strong className="text-slate-800">Waiting</strong> ke ODP terdekat dan cek ketersediaan port secara otomatis.
                 </p>
-                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-indigo-100/60 flex-wrap gap-2">
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-indigo-100/60 flex-wrap gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
                     <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Radius 300m - 500m</span>
-                    <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Deteksi Sisa Port</span>
+                    <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Sisa Port ODP</span>
                     <span className="bg-white border border-indigo-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Ekspor Excel</span>
                   </div>
                   <button
@@ -9086,20 +9086,20 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h3 className="text-sm font-black text-slate-800 tracking-tight">
-                    Kelola ODP & Sinkronisasi Port Otomatis
+                    Kelola ODP & Sinkronisasi Port
                   </h3>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
                     Fitur Baru
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Manajemen data titik alpro ODP lebih lengkap pada menu <strong className="text-slate-800">Okupansi</strong>: Tambah & edit data ODP, filter per stasiun/tahap, hingga sinkronisasi otomatis port terpakai dari database pelanggan aktif.
+                  Edit data ODP, filter stasiun/tahap, dan sinkronkan port terpakai otomatis dari database pelanggan.
                 </p>
-                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-emerald-100/60 flex-wrap gap-2">
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-emerald-100/60 flex-wrap gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
                     <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Edit & Hapus ODP</span>
                     <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Sync Port Terpakai</span>
-                    <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Stasiun & Tahap</span>
+                    <span className="bg-white border border-emerald-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Stasiun</span>
                   </div>
                   <button
                     type="button"
@@ -9130,11 +9130,11 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Cukup 1 kali klik pada kartu ringkasan status <strong className="text-slate-800">WAITING</strong> di halaman pelanggan untuk menyaring data secara presisi, sekaligus memunculkan tombol akses cepat Quick Scan.
+                  Satu klik pada kartu <strong className="text-slate-800">WAITING</strong> langsung memfilter data presisi dan memunculkan tombol Quick Scan.
                 </p>
-                <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-amber-100/60 flex-wrap gap-2">
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-amber-100/60 flex-wrap gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap text-[10px] sm:text-[11px] font-semibold text-slate-600">
-                    <span className="bg-white border border-amber-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Tunggal Presisi</span>
+                    <span className="bg-white border border-amber-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Filter Presisi</span>
                     <span className="bg-white border border-amber-100/80 px-2 py-0.5 rounded-lg shadow-2xs">Ikon SVG Bersih</span>
                   </div>
                   <button
