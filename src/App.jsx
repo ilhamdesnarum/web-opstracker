@@ -12355,6 +12355,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const currentData = filteredData.slice(startIndex, endIndex);
 
   const activeFilterCount = (filterStation ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0);
+  const isWaitingFilterActive = Boolean(filterStatus && filterStatus.includes('WAITING'));
 
   const handleSelectAllOnPage = (e) => {
     if (e.target.checked) {
@@ -12646,17 +12647,19 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 <span className="sm:hidden">Ekspor</span> ({selectedIds.length})
               </button>
 
-              {/* TOMBOL QUICK SCAN COVERAGE PILIHAN */}
-              <button
-                type="button"
-                onClick={() => setIsQuickScanOpen(true)}
-                className="flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold shadow-sm shadow-amber-500/20 transition-all cursor-pointer"
-                title="Quick Scan Coverage Alpro ODP untuk data terpilih"
-              >
-                <Icon name="zap" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5 fill-current" />
-                <span className="hidden sm:inline">Scan Coverage</span>
-                <span className="sm:hidden">Scan</span> ({selectedIds.length})
-              </button>
+              {/* TOMBOL QUICK SCAN COVERAGE PILIHAN (HANYA SAAT FILTER WAITING AKTIF) */}
+              {isWaitingFilterActive && (
+                <button
+                  type="button"
+                  onClick={() => setIsQuickScanOpen(true)}
+                  className="flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold shadow-sm shadow-amber-500/20 transition-all cursor-pointer animate-fade"
+                  title="Quick Scan Coverage Alpro ODP untuk data terpilih"
+                >
+                  <Icon name="zap" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5 fill-current" />
+                  <span className="hidden sm:inline">Scan Coverage</span>
+                  <span className="sm:hidden">Scan</span> ({selectedIds.length})
+                </button>
+              )}
             </div>
           )}
 
@@ -12794,21 +12797,23 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           {/* Sembunyikan Tombol Baru Jika Ada Pilihan Massal */}
           {selectedIds.length === 0 && (
             <>
-              {/* TOMBOL QUICK SCAN COVERAGE */}
-              <button
-                type="button"
-                onClick={() => setIsQuickScanOpen(true)}
-                disabled={filteredData.length === 0}
-                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold shadow-sm shadow-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                title={`Quick scan coverage alpro ODP untuk ${filteredData.length} data saat ini`}
-              >
-                <Icon name="zap" size={14} className="sm:w-4 sm:h-4 fill-current" />
-                <span className="hidden sm:inline">Quick Scan</span>
-                <span className="sm:hidden">Scan</span>
-                <span className="bg-amber-700/80 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none">
-                  {filteredData.length}
-                </span>
-              </button>
+              {/* TOMBOL QUICK SCAN COVERAGE (HANYA MUNCUL SAAT FILTER WAITING AKTIF) */}
+              {isWaitingFilterActive && (
+                <button
+                  type="button"
+                  onClick={() => setIsQuickScanOpen(true)}
+                  disabled={filteredData.length === 0}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold shadow-sm shadow-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer animate-fade"
+                  title={`Quick scan coverage alpro ODP untuk ${filteredData.length} pelanggan Waiting`}
+                >
+                  <Icon name="zap" size={14} className="sm:w-4 sm:h-4 fill-current" />
+                  <span className="hidden sm:inline">Quick Scan</span>
+                  <span className="sm:hidden">Scan</span>
+                  <span className="bg-amber-700/80 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none">
+                    {filteredData.length}
+                  </span>
+                </button>
+              )}
 
               {/* TOMBOL EKSPOR EXCEL DINAMIS (SESUAI FILTER ATAU SEMUA) */}
               <button
