@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  BarChart, Bar, Rectangle, PieChart, Pie, Cell, ResponsiveContainer,
+  BarChart, Bar, Rectangle, LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts';
 import { toProperCase } from '../utils';
@@ -38,9 +38,27 @@ const ISSUE_COLORS = [
   '#64748b'  // Slate - Lainnya
 ];
 
+// Palet warna modern untuk komparasi stasiun
+const STATION_PALETTE = [
+  '#2563eb', // Blue
+  '#8b5cf6', // Violet
+  '#10b981', // Emerald
+  '#f59e0b', // Amber
+  '#f43f5e', // Rose
+  '#06b6d4', // Cyan
+  '#ec4899', // Pink
+  '#6366f1', // Indigo
+  '#14b8a6', // Teal
+  '#e11d48', // Crimson
+  '#64748b'  // Slate
+];
+
 export default function GangguanAnalytics({ visitData = [] }) {
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(() => now.getFullYear());
+  const [selectedStation, setSelectedStation] = useState('ALL');
+  const [chartType, setChartType] = useState('bar'); // 'bar' | 'line'
+  const [hiddenStations, setHiddenStations] = useState(new Set());
 
   // Kategori normalisasi keluhan
   const categorizeKeluhan = (raw) => {
@@ -55,13 +73,51 @@ export default function GangguanAnalytics({ visitData = [] }) {
     return 'Keluhan Lainnya';
   };
 
-  // Kalkulasi data tren bulanan untuk tahun terpilih
+  // Kalkulasi stasiun dan total tiket tahun terpilih (diurutkan terbanyak)
+  const stationStats = useMemo(() => {
+    const map = {};
+    (visitData || []).forEach(v => {
+      if (!v.timestamp || !v.stasiun) return;
+      const str = String(v.timestamp).trim();
+      let dObj = null;
+      const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+      if (dmyMatch) {
+        dObj = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+      } else {
+        const parsed = Date.parse(str);
+        if (!isNaN(parsed)) dObj = new Date(parsed);
+      }
+      if (dObj && dObj.getFullYear() === selectedYear) {
+        const st = toProperCase(v.stasiun);
+        map[st] = (map[st] || 0) + 1;
+      }
+    });
+
+    return Object.entries(map)
+      .map(([name, count], idx) => ({
+        name,
+        count,
+        color: STATION_PALETTE[idx % STATION_PALETTE.length]
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [visitData, selectedYear]);
+
+  // Total tiket dari semua stasiun pada tahun terpilih
+  const totalTiketTahunSemua = useMemo(() => {
+    return stationStats.reduce((acc, curr) => acc + curr.count, 0);
+  }, [stationStats]);
+
+  // Kalkulasi data tren bulanan (difilter jika stasiun spesifik dipilih)
   const monthlyData = useMemo(() => {
     const counts = new Array(12).fill(0);
     const resolvedCounts = new Array(12).fill(0);
 
     (visitData || []).forEach(v => {
       if (!v.timestamp) return;
+      if (selectedStation !== 'ALL' && toProperCase(v.stasiun) !== selectedStation) {
+        return;
+      }
+
       const str = String(v.timestamp).trim();
       let dObj = null;
 
@@ -93,15 +149,60 @@ export default function GangguanAnalytics({ visitData = [] }) {
       selesai: resolvedCounts[idx],
       isCurrentMonth: idx === now.getMonth() && selectedYear === now.getFullYear()
     }));
-  }, [visitData, selectedYear, now]);
+  }, [visitData, selectedYear, selectedStation, now]);
 
-  // Kalkulasi distribusi kategori keluhan (semua / tahun terpilih)
+  // Kalkulasi data multi-line untuk perbandingan stasiun per bulan
+  const multiLineData = useMemo(() => {
+    const data = MONTH_LABELS.map((name, idx) => {
+      const obj = {
+        name,
+        fullName: MONTH_FULL[idx],
+        total: 0
+      };
+      stationStats.forEach(st => {
+        obj[st.name] = 0;
+      });
+      return obj;
+    });
+
+    (visitData || []).forEach(v => {
+      if (!v.timestamp || !v.stasiun) return;
+      const str = String(v.timestamp).trim();
+      let dObj = null;
+      const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+      if (dmyMatch) {
+        dObj = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+      } else {
+        const parsed = Date.parse(str);
+        if (!isNaN(parsed)) dObj = new Date(parsed);
+      }
+
+      if (dObj && dObj.getFullYear() === selectedYear) {
+        const m = dObj.getMonth();
+        if (m >= 0 && m < 12) {
+          const st = toProperCase(v.stasiun);
+          if (data[m][st] !== undefined) {
+            data[m][st]++;
+            data[m].total++;
+          }
+        }
+      }
+    });
+
+    return data;
+  }, [visitData, selectedYear, stationStats]);
+
+  // Kalkulasi distribusi kategori keluhan (semua / stasiun terpilih pada tahun terpilih)
   const { keluhanData, totalKeluhanTahunIni } = useMemo(() => {
     const counts = {};
     let total = 0;
 
     (visitData || []).forEach(v => {
       if (!v.timestamp) return;
+      if (selectedStation !== 'ALL' && toProperCase(v.stasiun) !== selectedStation) {
+        return;
+      }
+
       const str = String(v.timestamp).trim();
       let dObj = null;
 
@@ -129,7 +230,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
       .sort((a, b) => b.value - a.value);
 
     return { keluhanData: sorted, totalKeluhanTahunIni: total };
-  }, [visitData, selectedYear]);
+  }, [visitData, selectedYear, selectedStation]);
 
   // Kalkulasi stasiun dengan gangguan terbanyak vs paling sedikit tahun ini
   const stationInsights = useMemo(() => {
@@ -205,6 +306,47 @@ export default function GangguanAnalytics({ visitData = [] }) {
     return null;
   };
 
+  // Tooltip custom untuk multi-line chart komparasi
+  const CustomLineTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const validEntries = payload
+        .filter(p => p.value !== undefined && p.value !== null && p.value > 0)
+        .sort((a, b) => (b.value || 0) - (a.value || 0));
+
+      const totalBulanIni = validEntries.reduce((acc, curr) => acc + (curr.value || 0), 0);
+
+      return (
+        <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none min-w-[170px] max-w-[260px] animate-fade">
+          <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5 mb-2 gap-3">
+            <span className="font-bold text-slate-100">{label} {selectedYear}</span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/25 text-blue-300 border border-blue-400/30 shrink-0">
+              Total: {totalBulanIni}
+            </span>
+          </div>
+          {validEntries.length === 0 ? (
+            <p className="text-[11px] text-slate-400 italic">Tidak ada gangguan di bulan ini</p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {validEntries.map((item) => (
+                <div key={item.dataKey} className="flex items-center justify-between gap-3 text-[11px]">
+                  <span className="text-slate-300 flex items-center gap-1.5 truncate">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: item.stroke || item.color }}
+                    />
+                    <span className="truncate">{item.name}</span>
+                  </span>
+                  <span className="font-black text-white shrink-0">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
       {/* HEADER SECTION ANALISA */}
@@ -255,7 +397,9 @@ export default function GangguanAnalytics({ visitData = [] }) {
             <Icon name="ticket" size={16} />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] uppercase font-bold text-slate-400">Total Tiket {selectedYear}</p>
+            <p className="text-[10px] uppercase font-bold text-slate-400">
+              {selectedStation === 'ALL' ? `Total Tiket ${selectedYear}` : `Total Tiket (${selectedStation})`}
+            </p>
             <p className="text-base font-black text-slate-800 leading-tight">{totalKeluhanTahunIni} Tiket</p>
           </div>
         </div>
@@ -285,82 +429,228 @@ export default function GangguanAnalytics({ visitData = [] }) {
         </div>
       </div>
 
-      {/* CHARTS GRID (2 KOLOM: BAR CHART BULANAN + DONUT CHART KATEGORI) */}
+      {/* CHARTS GRID (2 KOLOM: BAR / LINE CHART BULANAN + DONUT CHART KATEGORI) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 p-3.5 sm:p-6">
         {/* 1. GRAFIK TREN BULANAN (7 KOLOM) */}
         <div className="lg:col-span-7 flex flex-col">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
             <div>
               <h4 className="text-xs sm:text-sm font-black text-slate-800">
-                Tren Gangguan Bulanan Semua Stasiun
+                {selectedStation === 'ALL'
+                  ? (chartType === 'line' ? 'Komparasi Tren Bulanan Stasiun' : 'Tren Gangguan Bulanan Semua Stasiun')
+                  : `Tren Gangguan Bulanan - ${selectedStation}`}
               </h4>
               <p className="text-[11px] text-slate-500">
-                Grafik total tiket visit per bulan di tahun {selectedYear}
+                {selectedStation === 'ALL'
+                  ? (chartType === 'line' ? `Perbandingan tren gangguan per stasiun di tahun ${selectedYear}` : `Grafik total tiket visit per bulan di tahun ${selectedYear}`)
+                  : `Riwayat tiket visit stasiun ${selectedStation} di tahun ${selectedYear}`}
               </p>
+            </div>
+
+            {/* CONTROLS: DROPDOWN STASIUN + TOGGLE BATANG / GARIS */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* DROPDOWN FILTER STASIUN */}
+              <div className="relative">
+                <select
+                  value={selectedStation}
+                  onChange={(e) => setSelectedStation(e.target.value)}
+                  className="text-[11px] font-bold text-slate-700 bg-white border border-slate-200 rounded-lg pl-2.5 pr-7 py-1.5 hover:border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 shadow-2xs cursor-pointer appearance-none"
+                >
+                  <option value="ALL">Semua Stasiun ({totalTiketTahunSemua})</option>
+                  {stationStats.map(st => (
+                    <option key={st.name} value={st.name}>
+                      {st.name} ({st.count} Tiket)
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400">
+                  <Icon name="chevron-down" size={12} />
+                </div>
+              </div>
+
+              {/* SEGMENTED TOGGLE: BATANG VS GARIS */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setChartType('bar')}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                    chartType === 'bar'
+                      ? 'bg-white text-blue-600 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                  title="Tampilan Grafik Batang"
+                >
+                  <Icon name="bar-chart-3" size={13} />
+                  <span>Batang</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartType('line')}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                    chartType === 'line'
+                      ? 'bg-white text-blue-600 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                  title="Tampilan Komparasi Garis"
+                >
+                  <Icon name="trending-up" size={13} />
+                  <span>Garis</span>
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* CHIPS FILTER STASIUN (HANYA AKTIF SAAT LINE CHART & SEMUA STASIUN) */}
+          {chartType === 'line' && selectedStation === 'ALL' && stationStats.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-2 pt-0.5">
+              <span className="text-[10px] font-bold text-slate-400 mr-0.5 uppercase tracking-wider">Filter:</span>
+              {stationStats.map((st) => {
+                const isHidden = hiddenStations.has(st.name);
+                return (
+                  <button
+                    key={st.name}
+                    type="button"
+                    onClick={() => {
+                      setHiddenStations(prev => {
+                        const next = new Set(prev);
+                        if (next.has(st.name)) next.delete(st.name);
+                        else next.add(st.name);
+                        return next;
+                      });
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                      isHidden
+                        ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-40 line-through'
+                        : 'bg-white border-slate-200 text-slate-700 shadow-2xs hover:border-slate-300'
+                    }`}
+                    title={`Klik untuk menyembunyikan/menampilkan ${st.name}`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: isHidden ? '#94a3b8' : st.color }}
+                    />
+                    <span>{st.name}</span>
+                    <span className="text-[9px] text-slate-400 font-normal">({st.count})</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* AREA GRAFIK (RESPONSIVE) */}
           <div className="h-64 sm:h-72 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={monthlyData}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip content={<CustomBarTooltip />} cursor={false} />
-                <Bar
-                  dataKey="tiket"
-                  radius={[6, 6, 0, 0]}
-                  maxBarSize={48}
-                  activeBar={(props) => {
-                    const isCurrent = props.payload?.isCurrentMonth;
-                    return (
-                      <Rectangle
-                        {...props}
-                        fill={isCurrent ? '#1d4ed8' : '#2563eb'}
-                        radius={[6, 6, 0, 0]}
-                        style={{
-                          filter: 'drop-shadow(0 2px 6px rgba(37, 99, 235, 0.35))',
-                          cursor: 'pointer'
-                        }}
-                      />
-                    );
-                  }}
+              {chartType === 'bar' ? (
+                <BarChart
+                  data={monthlyData}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                 >
-                  {monthlyData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={entry.isCurrentMonth ? '#3b82f6' : '#93c5fd'}
-                      className="cursor-pointer"
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={<CustomBarTooltip />} cursor={false} />
+                  <Bar
+                    dataKey="tiket"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={48}
+                    activeBar={(props) => {
+                      const isCurrent = props.payload?.isCurrentMonth;
+                      return (
+                        <Rectangle
+                          {...props}
+                          fill={isCurrent ? '#1d4ed8' : '#2563eb'}
+                          radius={[6, 6, 0, 0]}
+                          style={{
+                            filter: 'drop-shadow(0 2px 6px rgba(37, 99, 235, 0.35))',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      );
+                    }}
+                  >
+                    {monthlyData.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.isCurrentMonth ? '#3b82f6' : '#93c5fd'}
+                        className="cursor-pointer"
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <LineChart
+                  data={selectedStation === 'ALL' ? multiLineData : monthlyData}
+                  margin={{ top: 10, right: 15, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    content={selectedStation === 'ALL' ? <CustomLineTooltip /> : <CustomBarTooltip />}
+                  />
+                  {selectedStation === 'ALL' ? (
+                    stationStats.map((st) => (
+                      <Line
+                        key={st.name}
+                        type="monotone"
+                        dataKey={st.name}
+                        name={st.name}
+                        stroke={st.color}
+                        strokeWidth={2.2}
+                        dot={{ r: 3, fill: st.color, strokeWidth: 0 }}
+                        activeDot={{ r: 6, stroke: '#ffffff', strokeWidth: 2 }}
+                        hide={hiddenStations.has(st.name)}
+                      />
+                    ))
+                  ) : (
+                    <Line
+                      type="monotone"
+                      dataKey="tiket"
+                      name={selectedStation}
+                      stroke="#2563eb"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#2563eb', strokeWidth: 2, stroke: '#ffffff' }}
+                      activeDot={{ r: 7, stroke: '#ffffff', strokeWidth: 2.5 }}
                     />
-                  ))}
-                </Bar>
-              </BarChart>
+                  )}
+                </LineChart>
+              )}
             </ResponsiveContainer>
           </div>
 
-          <div className="flex items-center justify-center gap-4 text-[11px] text-slate-500 mt-2">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-blue-500"></span>
-              <span>Bulan Berjalan ({MONTH_FULL[now.getMonth()]})</span>
+          {/* KETERANGAN BULAN PADA BAR CHART */}
+          {chartType === 'bar' && (
+            <div className="flex items-center justify-center gap-4 text-[11px] text-slate-500 mt-2">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded bg-blue-500"></span>
+                <span>Bulan Berjalan ({MONTH_FULL[now.getMonth()]})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded bg-blue-300"></span>
+                <span>Bulan Lainnya</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-blue-300"></span>
-              <span>Bulan Lainnya</span>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* 2. DONUT CHART DISTRIBUSI KELUHAN (5 KOLOM) */}
@@ -370,7 +660,9 @@ export default function GangguanAnalytics({ visitData = [] }) {
               Distribusi Jenis Gangguan
             </h4>
             <p className="text-[11px] text-slate-500">
-              Proporsi kendala teknis yang dilaporkan pelanggan
+              {selectedStation === 'ALL'
+                ? 'Proporsi kendala teknis yang dilaporkan pelanggan'
+                : `Proporsi kendala teknis di stasiun ${selectedStation}`}
             </p>
           </div>
 
