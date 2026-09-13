@@ -836,6 +836,9 @@ const MobileApp = () => {
       const todayStrLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       
       const sheetItems = data.dataKendalaSheet.filter(p => {
+        const matched = (data.pelangganData || []).find(pl => String(pl.idPelanggan || pl.id_pelanggan || '').trim().toUpperCase() === String(p.idPelanggan || '').trim().toUpperCase());
+        if (matched && getFinalPelangganStatus(matched) !== 'KENDALA') return false;
+        if (!matched && getFinalPelangganStatus(p) !== 'KENDALA') return false;
         const reporter = p.reporterKendala || 'Unknown';
         const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
         return reporter === petugasName && tglKendala === todayStrLocal;
@@ -1012,7 +1015,7 @@ const MobileApp = () => {
               visitData: finalVisit || prev.visitData,
               odpData: finalOdp || prev.odpData,
               dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
-              dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => p.issueKendala && p.issueKendala.trim() !== "") : prev.dataKendalaSheet),
+              dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getFinalPelangganStatus(p) === 'KENDALA') : prev.dataKendalaSheet),
               petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
               stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
               detailPoData: fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData,
@@ -1255,6 +1258,9 @@ const MobileApp = () => {
     // 2.5 Kendala Harian: Gunakan HANYA dari sheet BI6:BN jika ada, sesuai permintaan
     if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
       data.dataKendalaSheet.forEach(p => {
+        const matched = (data.pelangganData || []).find(pl => String(pl.idPelanggan || pl.id_pelanggan || '').trim().toUpperCase() === String(p.idPelanggan || '').trim().toUpperCase());
+        if (matched && getFinalPelangganStatus(matched) !== 'KENDALA') return;
+        if (!matched && getFinalPelangganStatus(p) !== 'KENDALA') return;
         const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
         if (tglKendala === todayStr) {
           const ptgsKdl = p.reporterKendala || 'Unknown';

@@ -1506,7 +1506,7 @@ function App({ onLogout }) {
               ...prev,
               ...fastResult,
               visitData: cachedVisit || prev.visitData,
-              dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => p.issueKendala && p.issueKendala.trim() !== ""),
+              dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
               pelangganData: parsedPelanggan || prev.pelangganData,
               odpData: parsedOdp || prev.odpData
             }));
@@ -1537,7 +1537,7 @@ function App({ onLogout }) {
       setData(prev => ({
         ...prev,
         dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
-        dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => p.issueKendala && p.issueKendala.trim() !== "") : prev.dataKendalaSheet),
+        dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getGlobalStatusStr(p) === 'KENDALA') : prev.dataKendalaSheet),
         petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
         stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
         detailPoData: fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData,
@@ -5671,6 +5671,13 @@ function DashboardView({ data, isSyncing }) {
     // Gunakan HANYA dari sumber data kendala sheet (BI6:BN) sesuai permintaan
     if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
       return data.dataKendalaSheet.filter(item => {
+        const matched = (data.pelangganData || []).find(p => String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase() === String(item.idPelanggan || '').trim().toUpperCase());
+        if (matched) {
+          if (getGlobalStatusStr(matched) !== 'KENDALA') return false;
+        } else {
+          if (getGlobalStatusStr(item) !== 'KENDALA') return false;
+        }
+
         const itemDate = standardizeDate(item.tanggalKendala || item.timestampKendala || item.tglAktivasi || item.timestampAktivasi || item.tanggal || item.timestamp || item.waktuLapor);
         return itemDate === selectedDate;
       }).map(item => {
