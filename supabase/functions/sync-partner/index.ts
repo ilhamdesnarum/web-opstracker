@@ -44,6 +44,21 @@ function formatKeWIB(isoString?: string | null): string {
   return isoString.substring(0, 19).replace("T", " ");
 }
 
+function extractSalesName(c: any): string {
+  if (c.sales_id && typeof c.sales_id === 'object' && c.sales_id.name) {
+    return String(c.sales_id.name).trim();
+  }
+  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.sales_id) {
+    const s = c.customer_id.sales_id;
+    if (typeof s === 'object' && s.name) return String(s.name).trim();
+    if (typeof s === 'string' && s.trim()) return s.trim();
+  }
+  if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
+    return c.sales_id.trim();
+  }
+  return "Daftar Mandiri";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -279,6 +294,8 @@ Deno.serve(async (req: Request) => {
                 } catch (_e) {}
               }
 
+              const namaSales = extractSalesName(customer);
+
               let tStatus = "Sudah";
               let tIkr = "Sudah";
               if (currentStatus === "suspend") tStatus = "Suspend";
@@ -292,7 +309,7 @@ Deno.serve(async (req: Request) => {
               const existsInSupabase = existingSupabaseSet.has(idPelanggan) || existingSupabaseSet.has(idPelangganUpper);
 
               if (isTarikPelangganBaru && existsInSupabase) {
-                // [!] JANGAN update status_ikr & status_aktivasi untuk pelanggan yang sudah ada di Supabase
+                // [!] JANGAN update status_ikr, status_aktivasi, koordinat, dan nama_sales untuk pelanggan lama
                 const existingRowPayload: Record<string, any> = {
                   id_pelanggan: idPelanggan,
                   nama_pelanggan: nama,
@@ -305,8 +322,6 @@ Deno.serve(async (req: Request) => {
                   stasiun: stationName,
                   odp: odp,
                   port_odp: portOdp,
-                  ...(lat ? { latitude: lat } : {}),
-                  ...(lng ? { longitude: lng } : {}),
                   updated_at: new Date().toISOString()
                 };
                 allStationRowsExistingNoStatus.push(existingRowPayload);
@@ -325,8 +340,10 @@ Deno.serve(async (req: Request) => {
                   stasiun: stationName,
                   odp: odp,
                   port_odp: portOdp,
-                  ...(lat ? { latitude: lat } : {}),
-                  ...(lng ? { longitude: lng } : {}),
+                  // Hanya sertakan nama_sales dan koordinat untuk pelanggan BARU murni
+                  ...(isTarikPelangganBaru ? { nama_sales: namaSales } : {}),
+                  ...(isTarikPelangganBaru && lat ? { latitude: lat } : {}),
+                  ...(isTarikPelangganBaru && lng ? { longitude: lng } : {}),
                   updated_at: new Date().toISOString()
                 };
                 allStationRowsWithStatus.push(rowPayload);

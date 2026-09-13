@@ -29,6 +29,22 @@ function formatKeWIB(isoString) {
     return isoString.substring(0, 19).replace("T", " ");
 }
 
+// [+] EKSTRAKSI NAMA SALES DARI PARTNER API
+function extractSalesName(customer) {
+    if (customer.sales_id && typeof customer.sales_id === 'object' && customer.sales_id.name) {
+        return String(customer.sales_id.name).trim();
+    }
+    if (customer.customer_id && typeof customer.customer_id === 'object' && customer.customer_id.sales_id) {
+        var sObj = customer.customer_id.sales_id;
+        if (typeof sObj === 'object' && sObj.name) return String(sObj.name).trim();
+        if (typeof sObj === 'string' && sObj.trim()) return sObj.trim();
+    }
+    if (typeof customer.sales_id === 'string' && customer.sales_id.trim()) {
+        return customer.sales_id.trim();
+    }
+    return "Daftar Mandiri";
+}
+
 // ==========================================
 // FUNGSI CEK DATA EXISTING DI SUPABASE
 // ==========================================
@@ -52,7 +68,7 @@ function checkExistingInSupabase(customerIds, existingMap) {
     // Batasi chunk max 50 ID per query URL GET Supabase
     for (var c = 0; c < cleanIds.length; c += 50) {
         var chunk = cleanIds.slice(c, c + 50);
-        var url = SUPABASE_URL + "/rest/v1/data_pelanggan?id_pelanggan=in.(" + chunk.join(",") + ")&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude";
+        var url = SUPABASE_URL + "/rest/v1/data_pelanggan?id_pelanggan=in.(" + chunk.join(",") + ")&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,nama_sales";
         var options = {
             method: "get",
             headers: {
@@ -279,8 +295,21 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                 }
             }
 
-            // OPTIMASI BATCH UPDATE: Ambil kolom 9 (Status) dan 38 (Tgl) ke memory
+            // OPTIMASI BATCH UPDATE: Ambil kolom 9 (Status), 38 (Tgl), dan Sales ke memory
             // Agar tidak timeout gara-gara setValue berulang kali
+            var headerRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 38)).getValues()[0];
+            var idxSalesCol = -1;
+            for (var h = 0; h < headerRow.length; h++) {
+                var hName = String(headerRow[h] || '').toLowerCase().trim();
+                if (hName === 'sales' || hName === 'nama sales' || hName === 'marketing') {
+                    idxSalesCol = h;
+                    break;
+                }
+            }
+            if (idxSalesCol === -1 && headerRow.length >= 25) {
+                idxSalesCol = 24; // Kolom Y (SALES)
+            }
+
             var statusColValues = [];
             var ikrColValues = [];
             var tglColValues = [];
@@ -288,9 +317,11 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
             var lngColValues = [];
             var odpColValues = [];
             var portOdpColValues = [];
+            var salesColValues = [];
             var isColValuesModified = false;
             var isLatLngModified = false;
             var isOdpModified = false;
+            var isSalesModified = false;
 
             if (realLastRow > 0) {
                 latColValues = sheet.getRange(1, 6, realLastRow, 1).getValues();
@@ -300,6 +331,9 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                 odpColValues = sheet.getRange(1, 13, realLastRow, 1).getValues();   // Kolom M (13 - ODP)
                 portOdpColValues = sheet.getRange(1, 14, realLastRow, 1).getValues(); // Kolom N (14 - Port ODP)
                 tglColValues = sheet.getRange(1, 38, realLastRow, 1).getValues();
+                if (idxSalesCol !== -1) {
+                    salesColValues = sheet.getRange(1, idxSalesCol + 1, realLastRow, 1).getValues();
+                }
             }
 
             var totalUpdateTanggal = 0;
@@ -420,6 +454,7 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                             var telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
                             var alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
                             var patokan = customer.notes || "";
+                            var namaSales = extractSalesName(customer);
 
                             // --- EKSTRAKSI LATITUDE & LONGITUDE LENGKAP & DEFENSIVE ---
                             var lat = "";
@@ -566,23 +601,17 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
 
                             var isProtectedKendala = isCurrentlyKendalaInSheet || isCurrentlyKendalaInSupabase;
 
+                            var cleanLat = lat ? String(lat).replace(/^'+/, "").trim().replace(",", ".") : "";
+                            var cleanLng = lng ? String(lng).replace(/^'+/, "").trim().replace(",", ".") : "";
+
                             if (alreadyExists) {
-                                // DATA LAMA / SUDAH ADA DI DATABASE
+                                // DATA LAMA / SUDAH ADA DI DATABASE (PELANGGAN LAMA)
+                                // [PROTEKSI MUTLAK]:
+                                // 1. JANGAN PERNAH perbarui Latitude & Longitude (sudah presisi saat aktivasi)
+                                // 2. JANGAN PERNAH timpa Nama Sales (pelanggan lama sudah disinkronkan manual)
 
                                 // 1. UPDATE GOOGLE SHEET
                                 if (targetRow && targetRow <= realLastRow) {
-                                    // Update Latitude & Longitude di Google Sheet jika kosong atau ada data baru
-                                    var currSheetLat = latColValues[targetRow - 1][0] ? String(latColValues[targetRow - 1][0]).trim() : "";
-                                    var currSheetLng = lngColValues[targetRow - 1][0] ? String(lngColValues[targetRow - 1][0]).trim() : "";
-                                    if (lat && (!currSheetLat || currSheetLat === "-" || currSheetLat === "''")) {
-                                        latColValues[targetRow - 1][0] = "'" + lat;
-                                        isLatLngModified = true;
-                                    }
-                                    if (lng && (!currSheetLng || currSheetLng === "-" || currSheetLng === "''")) {
-                                        lngColValues[targetRow - 1][0] = "'" + lng;
-                                        isLatLngModified = true;
-                                    }
-
                                     // [!] PROTEKSI MUTLAK:
                                     // - JANGAN timpa jika isTarikPelangganBaru = true
                                     // - JANGAN timpa jika data saat ini sudah berstatus KENDALA di Sheet/Supabase
@@ -603,7 +632,7 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
 
                                 // 2. UPDATE KE SUPABASE
                                 if (!isTarikPelangganBaru && !isProtectedKendala) {
-                                    // Normal status update (Active, Suspend, Dismantle)
+                                    // Normal status update (Active, Suspend, Dismantle) - TANPA koordinat & TANPA nama_sales
                                     var updatePayload = {
                                         id_pelanggan: idPelanggan,
                                         status_ikr: tIkr,
@@ -611,13 +640,11 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                         tanggal_berakhir: tanggalBerakhir || null,
                                         telat_bayar_hari: telatBayarHari
                                     };
-                                    if (lat) updatePayload.latitude = lat;
-                                    if (lng) updatePayload.longitude = lng;
                                     supabasePayloadUpdateWithStatus.push(updatePayload);
                                     totalUpdateTanggal++;
                                 } else {
                                     // [!] KHUSUS TARIK PELANGGAN BARU ATAU STATUS KENDALA:
-                                    // Sertakan data umum + koordinat (TANPA menimpa status_ikr & status_aktivasi)
+                                    // Update data kontak/alamat saja - TANPA menimpa koordinat, nama_sales, status_ikr, & status_aktivasi
                                     var existingUpdatePayload = {
                                         id_pelanggan: idPelanggan,
                                         nama_pelanggan: nama,
@@ -631,8 +658,6 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                         odp: odp,
                                         port_odp: portOdp
                                     };
-                                    if (lat) existingUpdatePayload.latitude = lat;
-                                    if (lng) existingUpdatePayload.longitude = lng;
                                     supabasePayloadExistingNoStatus.push(existingUpdatePayload);
                                     totalUpdateTanggal++;
                                 }
@@ -644,16 +669,18 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                 existingSupabaseMap[idPelanggan] = true;
                                 existingSupabaseMap[idPelangganUpper] = true;
 
-                                var newRow = new Array(38).fill("");
+                                var totalCols = Math.max(38, idxSalesCol !== -1 ? idxSalesCol + 1 : 38);
+                                var newRow = new Array(totalCols).fill("");
                                 newRow[0] = idPelanggan;
                                 newRow[1] = nama;
                                 newRow[2] = telepon;
                                 newRow[3] = alamat;
                                 newRow[4] = patokan;
-                                newRow[5] = lat ? "'" + lat.toString().replace(",", ".") : "";
-                                newRow[6] = lng ? "'" + lng.toString().replace(",", ".") : "";
+                                newRow[5] = cleanLat ? "'" + cleanLat : ""; // Format string teks biasa
+                                newRow[6] = cleanLng ? "'" + cleanLng : ""; // Format string teks biasa
                                 newRow[7] = tIkr;
                                 newRow[8] = tStatus;
+                                if (idxSalesCol !== -1) newRow[idxSalesCol] = namaSales;
                                 newRow[12] = odp;     // Kolom M (13 - ODP)
                                 newRow[13] = portOdp; // Kolom N (14 - Port ODP)
                                 newRow[32] = stationName;
@@ -666,8 +693,9 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                     nomor_hp: telepon,
                                     alamat: alamat,
                                     catatan: patokan,
-                                    latitude: lat ? lat.toString().replace(",", ".") : "",
-                                    longitude: lng ? lng.toString().replace(",", ".") : "",
+                                    nama_sales: namaSales,
+                                    latitude: cleanLat,
+                                    longitude: cleanLng,
                                     status_ikr: tIkr,
                                     status_aktivasi: tStatus,
                                     tanggal_registrasi: tglRegistrasi,
@@ -700,8 +728,20 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
             }
 
             if (isLatLngModified && realLastRow > 0) {
-                sheet.getRange(1, 6, realLastRow, 1).setValues(latColValues);
-                sheet.getRange(1, 7, realLastRow, 1).setValues(lngColValues);
+                // [PENTING] Set format teks biasa (@) untuk kolom Latitude (6) dan Longitude (7)
+                // agar Google Sheets TIDAK mengubah koordinat menjadi format angka ribuan
+                var updateRangeLat = sheet.getRange(1, 6, realLastRow, 1);
+                var updateRangeLng = sheet.getRange(1, 7, realLastRow, 1);
+                updateRangeLat.setNumberFormat("@");
+                updateRangeLng.setNumberFormat("@");
+                updateRangeLat.setValues(latColValues);
+                updateRangeLng.setValues(lngColValues);
+                updateRangeLat.setNumberFormat("@");
+                updateRangeLng.setNumberFormat("@");
+            }
+
+            if (isSalesModified && realLastRow > 0 && idxSalesCol !== -1) {
+                sheet.getRange(1, idxSalesCol + 1, realLastRow, 1).setValues(salesColValues);
             }
 
             if (isOdpModified && realLastRow > 0) {
@@ -710,7 +750,14 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
             }
 
             if (newRowsSheet.length > 0) {
-                sheet.getRange(realLastRow + 1, 1, newRowsSheet.length, 38).setValues(newRowsSheet);
+                // [PENTING] Format sel kolom Latitude dan Longitude sebagai Plain Text (@) sebelum dan sesudah penulisan
+                var newRangeLat = sheet.getRange(realLastRow + 1, 6, newRowsSheet.length, 1);
+                var newRangeLng = sheet.getRange(realLastRow + 1, 7, newRowsSheet.length, 1);
+                newRangeLat.setNumberFormat("@");
+                newRangeLng.setNumberFormat("@");
+                sheet.getRange(realLastRow + 1, 1, newRowsSheet.length, newRowsSheet[0].length).setValues(newRowsSheet);
+                newRangeLat.setNumberFormat("@");
+                newRangeLng.setNumberFormat("@");
             }
 
             // --- PUSH KE SUPABASE (Memanggil Fungsi upsertToSupabase yg ada di file lain) ---

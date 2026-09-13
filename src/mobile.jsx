@@ -87,7 +87,8 @@ const parseSupabaseDocument = (fields) => {
     fotoRumahPelanggan: fields.foto_rumah_pelanggan || "",
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
-    telatBayarHari: (fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null && fields.telat_bayar_hari !== "") ? Number(fields.telat_bayar_hari) : null
+    telatBayarHari: (fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null && fields.telat_bayar_hari !== "") ? Number(fields.telat_bayar_hari) : null,
+    namaSales: fields.nama_sales || fields.sales || ""
   };
 };
 
@@ -950,7 +951,7 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
-        const pelangganCols = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari';
+        const pelangganCols = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales';
         fetchPromises.push(
           fetchAllSupabaseData('data_pelanggan', pelangganCols, 'id_pelanggan')
             .then((sbData) => {
@@ -5142,6 +5143,7 @@ const MobileApp = () => {
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Port ODP" fieldKey="portOdp" value={sp.portOdp || sp.port || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="SN ONT" fieldKey="snOnt" value={sp.snOnt || sp.sn || sp.serialNumber || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Kabel Precon" fieldKey="kabelPrecon" value={sp.kabelPrecon || sp.panjangKabel || '-'} />
+                <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Nama Sales" fieldKey="namaSales" value={sp.namaSales || '-'} />
 
                 {/* Status Info */}
                 <div className="text-[10px] font-black text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-lg flex items-center gap-1.5 mb-2 mt-4">

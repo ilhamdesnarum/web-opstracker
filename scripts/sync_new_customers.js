@@ -137,6 +137,21 @@ function extractOdpInfo(c) {
   return { odp, portOdp };
 }
 
+function extractSalesName(c) {
+  if (c.sales_id && typeof c.sales_id === 'object' && c.sales_id.name) {
+    return String(c.sales_id.name).trim();
+  }
+  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.sales_id) {
+    const s = c.customer_id.sales_id;
+    if (typeof s === 'object' && s.name) return String(s.name).trim();
+    if (typeof s === 'string' && s.trim()) return s.trim();
+  }
+  if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
+    return c.sales_id.trim();
+  }
+  return "Daftar Mandiri";
+}
+
 async function checkExistingInSupabase(customerIds) {
   const map = new Map();
   if (!customerIds || customerIds.length === 0) return map;
@@ -146,7 +161,7 @@ async function checkExistingInSupabase(customerIds) {
 
   for (let i = 0; i < cleanIds.length; i += 50) {
     const chunk = cleanIds.slice(i, i + 50);
-    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${chunk.join(',')})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi`;
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${chunk.join(',')})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales`;
     try {
       const res = await fetch(url, {
         headers: {
@@ -195,6 +210,50 @@ async function upsertToSupabase(rows) {
     return true;
   } catch (err) {
     console.error(`   ❌ Supabase Network Error:`, err.message);
+    return false;
+  }
+}
+
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || 
+  "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
+
+async function writeNewCustomerToSheet(row) {
+  try {
+    const payload = {
+      stasiun: row.stasiun,
+      idPelanggan: row.id_pelanggan,
+      namaPelanggan: row.nama_pelanggan,
+      alamat: row.alamat,
+      nomorHp: row.nomor_hp,
+      odpAktual: row.odp,
+      portOdp: row.port_odp,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      namaSales: row.nama_sales,
+      aktivasi: "Belum",
+      catatan: row.catatan || ""
+    };
+
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'insertPelangganBaru', payload: payload }),
+      signal: AbortSignal.timeout(30000)
+    });
+
+    const txt = await res.text();
+    let json = {};
+    try { json = JSON.parse(txt); } catch (_) {}
+
+    if (res.ok && !json.error) {
+      console.log(`   📄 [Dual-Write Sheet] Sukses tulis ${row.id_pelanggan} ke spreadsheet ${row.stasiun}`);
+      return true;
+    } else {
+      console.warn(`   ⚠️ [Dual-Write Sheet] Respon ${row.id_pelanggan}: ${json.error || txt || res.statusText}`);
+      return false;
+    }
+  } catch (err) {
+    console.warn(`   ⚠️ [Dual-Write Sheet] Gagal kirim ${row.id_pelanggan} ke Apps Script: ${err.message}`);
     return false;
   }
 }
@@ -309,12 +368,15 @@ async function main() {
       const { lat, lng } = extractCoordinates(item);
       const tglRegistrasi = extractRegDate(item);
       const { odp, portOdp } = extractOdpInfo(item);
+      const namaSales = extractSalesName(item);
 
       const existingData = existingSupabaseMap.get(idPelanggan) || existingSupabaseMap.get(idPelanggan.toUpperCase());
 
       if (existingData) {
-        // [!] SUDAH ADA DI SUPABASE:
-        // JANGAN SERTAKAN status_ikr & status_aktivasi agar status kendala aman
+        // [!] SUDAH ADA DI SUPABASE (PELANGGAN LAMA):
+        // 1. JANGAN SERTAKAN status_ikr & status_aktivasi agar status kendala aman.
+        // 2. JANGAN PERNAH perbarui latitude & longitude (sudah diatur presisi saat aktivasi).
+        // 3. JANGAN timpa nama_sales (pelanggan lama sudah disinkronkan manual).
         const payloadExisting = {
           id_pelanggan: idPelanggan,
           nama_pelanggan: nama,
@@ -324,12 +386,6 @@ async function main() {
           stasiun: stationName,
           updated_at: new Date().toISOString()
         };
-
-        // Update koordinat jika ada di API atau pertahankan yang sudah ada
-        const finalLat = lat || (existingData.latitude ? String(existingData.latitude).trim() : "");
-        const finalLng = lng || (existingData.longitude ? String(existingData.longitude).trim() : "");
-        if (finalLat) payloadExisting.latitude = finalLat;
-        if (finalLng) payloadExisting.longitude = finalLng;
 
         const finalTgl = tglRegistrasi || existingData.tanggal_registrasi;
         if (finalTgl) payloadExisting.tanggal_registrasi = finalTgl;
@@ -348,6 +404,7 @@ async function main() {
           nomor_hp: telepon,
           alamat: alamat,
           catatan: catatan,
+          nama_sales: namaSales,
           status_ikr: initialStatus,
           status_aktivasi: initialStatus,
           latitude: lat || "",
@@ -364,11 +421,16 @@ async function main() {
       }
     }
 
-    // Push ke Supabase per stasiun
+    // Push ke Supabase & Dual-Write ke Google Spreadsheet per stasiun
     if (rowsNew.length > 0) {
       console.log(`   ✨ Menambahkan ${rowsNew.length} pelanggan baru ke Supabase...`);
       await upsertToSupabase(rowsNew);
       totalNewInserted += rowsNew.length;
+
+      console.log(`   📄 Melakukan dual-write ${rowsNew.length} pelanggan baru ke Google Spreadsheet...`);
+      for (const newCust of rowsNew) {
+        await writeNewCustomerToSheet(newCust);
+      }
     }
 
     if (rowsExistingNoStatus.length > 0) {

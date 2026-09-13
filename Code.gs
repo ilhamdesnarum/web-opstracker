@@ -785,6 +785,8 @@ function updatePelangganData(payload) {
     const idxPort = getColIdx(['port']);
     const idxLat = getColIdx(['latitude', 'lat']);
     const idxLng = getColIdx(['longitude', 'lng', 'long']);
+    let idxSales = getColIdx(['sales', 'nama sales', 'marketing']);
+    if (idxSales === -1 && headers.length >= 25) idxSales = 24; // Kolom Y (SALES)
 
     // --- PERBAIKAN BARU: Tambahkan pencarian kolom Aktivasi, IKR, dan Catatan ---
     const idxAktivasi = getColIdx(['aktivasi']);
@@ -806,15 +808,27 @@ function updatePelangganData(payload) {
 
     if (targetRow === -1) throw new Error("Pelanggan dengan ID " + payload.idPelanggan + " tidak ditemukan di database stasiun " + stasiunKey);
 
-    // 4. Update kolom jika ditemukan (tambahkan ' agar format angka tidak rusak/hilang nol di depannya)
+    // 4. Update kolom jika ditemukan (tambahkan ' dan setNumberFormat @ agar format teks koordinat tidak berubah jadi ribuan)
+    let cleanLat = payload.latitude ? String(payload.latitude).replace(/^'+/, '').trim().replace(',', '.') : "";
+    let cleanLng = payload.longitude ? String(payload.longitude).replace(/^'+/, '').trim().replace(',', '.') : "";
+
     if (idxNama !== -1) dbSheet.getRange(targetRow, idxNama + 1).setValue(payload.namaPelanggan);
     if (idxAlamat !== -1) dbSheet.getRange(targetRow, idxAlamat + 1).setValue(payload.alamat);
     if (idxStasiun !== -1) dbSheet.getRange(targetRow, idxStasiun + 1).setValue(payload.stasiun);
     if (idxHp !== -1) dbSheet.getRange(targetRow, idxHp + 1).setValue(payload.nomorHp ? "'" + payload.nomorHp : "");
     if (idxOdp !== -1) dbSheet.getRange(targetRow, idxOdp + 1).setValue(payload.odpAktual);
     if (idxPort !== -1) dbSheet.getRange(targetRow, idxPort + 1).setValue(payload.portOdp);
-    if (idxLat !== -1) dbSheet.getRange(targetRow, idxLat + 1).setValue(payload.latitude ? "'" + payload.latitude : "");
-    if (idxLng !== -1) dbSheet.getRange(targetRow, idxLng + 1).setValue(payload.longitude ? "'" + payload.longitude : "");
+    if (idxLat !== -1) {
+      dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
+      dbSheet.getRange(targetRow, idxLat + 1).setValue(cleanLat ? "'" + cleanLat : "");
+      dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
+    }
+    if (idxLng !== -1) {
+      dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
+      dbSheet.getRange(targetRow, idxLng + 1).setValue(cleanLng ? "'" + cleanLng : "");
+      dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
+    }
+    if (idxSales !== -1 && payload.namaSales !== undefined) dbSheet.getRange(targetRow, idxSales + 1).setValue(payload.namaSales);
     if (idxAktivasi !== -1 && payload.aktivasi !== undefined) dbSheet.getRange(targetRow, idxAktivasi + 1).setValue(payload.aktivasi);
     if (idxIkr !== -1 && payload.ikr !== undefined) dbSheet.getRange(targetRow, idxIkr + 1).setValue(payload.ikr);
     if (idxCatatan !== -1 && payload.catatan !== undefined) dbSheet.getRange(targetRow, idxCatatan + 1).setValue(payload.catatan);
@@ -832,15 +846,19 @@ function updatePelangganData(payload) {
         nomor_hp: payload.nomorHp,
         odp: String(payload.odpAktual || "").trim().toUpperCase(),
         port_odp: payload.portOdp,
-        latitude: payload.latitude,
-        longitude: payload.longitude,
+        latitude: cleanLat || null,
+        longitude: cleanLng || null,
         status_aktivasi: payload.aktivasi || "Belum",
         status_ikr: payload.ikr || "Belum",
         catatan: payload.catatan !== undefined ? payload.catatan : "",
         issue_kendala: payload.issueKendala !== undefined ? payload.issueKendala : "",
-        reporter_kendala: payload.issueKendala ? (payload.reporterKendala || null) : null,
-        tanggal_kendala: payload.issueKendala ? (payload.tanggalKendala || null) : null
+        reporter_kendala: payload.reporterKendala !== undefined ? payload.reporterKendala : null,
+        tanggal_kendala: payload.issueKendala ? (payload.tanggalKendala || new Date().toISOString()) : null
       };
+
+      if (payload.namaSales !== undefined) {
+        supabasePayload.nama_sales = payload.namaSales;
+      }
 
       // Mencegah error 'invalid input syntax for type numeric: ""' di Postgres 
       Object.keys(supabasePayload).forEach(key => {
@@ -1016,6 +1034,8 @@ function insertPelangganBaru(payload) {
     const idxPort = getColIdx(['port']);
     const idxLat = getColIdx(['latitude', 'lat']);
     const idxLng = getColIdx(['longitude', 'lng', 'long']);
+    let idxSales = getColIdx(['sales', 'nama sales', 'marketing']);
+    if (idxSales === -1 && headers.length >= 25) idxSales = 24; // Kolom Y (SALES)
 
     // PENDETEKSI KOLOM STATUS & CATATAN
     const idxAktivasi = getColIdx(['aktivasi', 'status']);
@@ -1039,7 +1059,10 @@ function insertPelangganBaru(payload) {
       }
     }
 
-    // Susun array untuk baris baru
+    // Susun array untuk baris baru (Format teks koordinat bersih)
+    let cleanLat = payload.latitude ? String(payload.latitude).replace(/^'+/, '').trim().replace(',', '.') : "";
+    let cleanLng = payload.longitude ? String(payload.longitude).replace(/^'+/, '').trim().replace(',', '.') : "";
+
     const newRow = new Array(headers.length).fill('');
 
     if (idxId !== -1) newRow[idxId] = String(payload.idPelanggan).toUpperCase();
@@ -1049,8 +1072,9 @@ function insertPelangganBaru(payload) {
     if (idxHp !== -1) newRow[idxHp] = payload.nomorHp ? "'" + payload.nomorHp : "";
     if (idxOdp !== -1) newRow[idxOdp] = payload.odpAktual || "";
     if (idxPort !== -1) newRow[idxPort] = payload.portOdp || "";
-    if (idxLat !== -1) newRow[idxLat] = payload.latitude ? "'" + payload.latitude : "";
-    if (idxLng !== -1) newRow[idxLng] = payload.longitude ? "'" + payload.longitude : "";
+    if (idxLat !== -1) newRow[idxLat] = cleanLat ? "'" + cleanLat : "";
+    if (idxLng !== -1) newRow[idxLng] = cleanLng ? "'" + cleanLng : "";
+    if (idxSales !== -1) newRow[idxSales] = payload.namaSales || payload.sales || "Daftar Mandiri";
 
     // SET DEFAULT "BELUM" UNTUK AKTIVASI DAN IKR
     if (idxAktivasi !== -1) newRow[idxAktivasi] = payload.aktivasi || 'Belum';
@@ -1059,9 +1083,13 @@ function insertPelangganBaru(payload) {
     if (idxCatatan !== -1) newRow[idxCatatan] = payload.catatan || '';
     if (idxKendala !== -1) newRow[idxKendala] = payload.issueKendala || '';
 
-    // Tulis data tepat di bawah pelanggan terakhir
+    // Tulis data tepat di bawah pelanggan terakhir (Format teks biasa @ agar koordinat tidak jadi angka ribuan)
     const targetRow = trueLastRow + 1;
+    if (idxLat !== -1) dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
+    if (idxLng !== -1) dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
     dbSheet.getRange(targetRow, 1, 1, newRow.length).setValues([newRow]);
+    if (idxLat !== -1) dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
+    if (idxLng !== -1) dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
 
     // --- SUPABASE DUAL WRITE TRIGGER ---
     try {
@@ -1076,8 +1104,9 @@ function insertPelangganBaru(payload) {
         nomor_hp: payload.nomorHp,
         odp: String(payload.odpAktual || "").trim().toUpperCase(),
         port_odp: payload.portOdp,
-        latitude: payload.latitude,
-        longitude: payload.longitude,
+        latitude: cleanLat,
+        longitude: cleanLng,
+        nama_sales: payload.namaSales || payload.sales || "Daftar Mandiri",
         status_ikr: "Belum",
         status_aktivasi: payload.aktivasi || "Belum",
         catatan: payload.catatan || "",

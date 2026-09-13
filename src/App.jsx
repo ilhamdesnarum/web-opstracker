@@ -62,7 +62,8 @@ const parseSupabaseDocument = (fields) => {
     fotoRumahPelanggan: fields.foto_rumah_pelanggan || "",
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
-    telatBayarHari: fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null ? Number(fields.telat_bayar_hari) : null
+    telatBayarHari: fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null ? Number(fields.telat_bayar_hari) : null,
+    namaSales: fields.nama_sales || fields.sales || ""
   };
 };
 
@@ -118,7 +119,7 @@ const deduplicateVisitData = (items) => {
     if (!item) return;
     const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
     const key = (item.id ? `id_${item.id}` : '') || `${item.idPelanggan || item.id_pelanggan}_${item.timestamp || ''}`;
-    
+
     if (!map.has(key)) {
       map.set(key, item);
     } else {
@@ -142,7 +143,7 @@ const deduplicateVisitData = (items) => {
       const existing = secondMap.get(secKey);
       const existingIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
       const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
-      
+
       if (!existing.id && item.id) {
         secondMap.set(secKey, { ...existing, ...item });
       } else if (itemIsDone && !existingIsDone) {
@@ -1179,7 +1180,7 @@ function App({ onLogout }) {
       try {
         localStorage.setItem('opstracker_last_seen_version', CURRENT_APP_VERSION);
         setHasUnseenFeatures(false);
-      } catch (e) {}
+      } catch (e) { }
     }
   };
 
@@ -1457,7 +1458,7 @@ function App({ onLogout }) {
 
       if (!parsedPelanggan || !parsedOdp || !cachedVisit) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari';
+        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales';
         const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
         const [supabasePelanggan, supabaseOdp, supabaseVisit] = await Promise.all([
@@ -3072,14 +3073,14 @@ export function OkupansiView({ data, setData }) {
 
   const isSaveDisabled = addOdpTab === 'manual'
     ? (
-        !(manualStation || manageStationFilter || selectedStation) ||
-        !(isManualNewTahap ? manualNewTahapInput.trim() : manualTahap.trim()) ||
-        manualOdpRows.every(r => !r.kodeOdp || !r.kodeOdp.trim())
-      )
+      !(manualStation || manageStationFilter || selectedStation) ||
+      !(isManualNewTahap ? manualNewTahapInput.trim() : manualTahap.trim()) ||
+      manualOdpRows.every(r => !r.kodeOdp || !r.kodeOdp.trim())
+    )
     : (
-        parsedExcelData.length === 0 ||
-        !(manageTahapFilter || inputTahap).trim()
-      );
+      parsedExcelData.length === 0 ||
+      !(manageTahapFilter || inputTahap).trim()
+    );
 
   // 2. OLAH DATA ODP DARI DATABASE MENGGUNAKAN GROUPING ODC
   const okupansiData = useMemo(() => {
@@ -3696,11 +3697,10 @@ export function OkupansiView({ data, setData }) {
               <button
                 type="button"
                 onClick={() => setAddOdpTab('manual')}
-                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${
-                  addOdpTab === 'manual'
+                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'manual'
                     ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                     : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
-                }`}
+                  }`}
               >
                 <Icon name="edit-3" size={15} className={addOdpTab === 'manual' ? 'text-emerald-600' : 'text-slate-400'} />
                 <span>✍️ Input Manual (1 - 2 ODP)</span>
@@ -3711,11 +3711,10 @@ export function OkupansiView({ data, setData }) {
               <button
                 type="button"
                 onClick={() => setAddOdpTab('excel')}
-                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${
-                  addOdpTab === 'excel'
+                className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'excel'
                     ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                     : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
-                }`}
+                  }`}
               >
                 <Icon name="file-spreadsheet" size={15} className={addOdpTab === 'excel' ? 'text-emerald-600' : 'text-slate-400'} />
                 <span>📁 Upload File Excel (Massal)</span>
@@ -3907,11 +3906,10 @@ export function OkupansiView({ data, setData }) {
                                   type="button"
                                   onClick={() => handleRemoveManualRow(idx)}
                                   disabled={manualOdpRows.length <= 1}
-                                  className={`p-1.5 rounded-lg transition-colors ${
-                                    manualOdpRows.length <= 1
+                                  className={`p-1.5 rounded-lg transition-colors ${manualOdpRows.length <= 1
                                       ? 'text-slate-300 cursor-not-allowed'
                                       : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
-                                  }`}
+                                    }`}
                                   title={manualOdpRows.length <= 1 ? 'Minimal 1 baris ODP' : 'Hapus baris ini'}
                                 >
                                   <Icon name="trash-2" size={14} />
@@ -4219,9 +4217,8 @@ export function OkupansiView({ data, setData }) {
                     }
                   }}
                   disabled={isUploading || isSaveDisabled}
-                  className={`px-5 py-2 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-2 ${
-                    isSaveDisabled ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer active:scale-95'
-                  }`}
+                  className={`px-5 py-2 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-2 ${isSaveDisabled ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer active:scale-95'
+                    }`}
                 >
                   {isUploading ? (
                     <><Icon name="loader" size={16} className="animate-spin" /> Memproses...</>
@@ -4557,11 +4554,10 @@ export function OkupansiView({ data, setData }) {
                               </span>
                             </td>
                             <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-                                pct >= 100 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
-                                pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                                'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                              }`}>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${pct >= 100 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
+                                  pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                    'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                }`}>
                                 {terpakai}/{kapasitas} ({pct.toFixed(0)}%)
                               </span>
                             </td>
@@ -6948,26 +6944,26 @@ function DashboardView({ data, isSyncing }) {
                                 </div>
                               )}
                             </td>
-                          <td className="px-6 py-3 text-xs font-medium text-slate-600 align-top pt-4">
-                            {ticket.petugas ? (
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-[10px] shrink-0 shadow-sm">
-                                  {ticket.petugas.charAt(0).toUpperCase()}
+                            <td className="px-6 py-3 text-xs font-medium text-slate-600 align-top pt-4">
+                              {ticket.petugas ? (
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-[10px] shrink-0 shadow-sm">
+                                    {ticket.petugas.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-[11px] text-slate-700">{ticket.petugas}</span>
+                                    <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold mt-0.5">Teknisi</span>
+                                  </div>
                                 </div>
-                                <div className="flex flex-col">
-                                  <span className="font-bold text-[11px] text-slate-700">{ticket.petugas}</span>
-                                  <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold mt-0.5">Teknisi</span>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 italic text-[10px] flex items-center gap-1">
-                                <Icon name="user-minus" size={12} /> Belum Ada
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              ) : (
+                                <span className="text-slate-400 italic text-[10px] flex items-center gap-1">
+                                  <Icon name="user-minus" size={12} /> Belum Ada
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </>
@@ -8440,8 +8436,8 @@ function QuickScanCoverageModal({
             "Longitude": r.lng || c?.longitude || '',
             "Status Coverage": r.status === 'COVERED' ? `TERCOVER (${r.distance}m)` :
               r.status === 'NEARING' ? `MENDEKATI (${r.distance}m)` :
-              r.status === 'PORT_FULL' ? `PORT PENUH (${r.distance}m)` :
-              r.status === 'NO_COORDS' ? 'TANPA TITIK GPS' : `DI LUAR JANGKAUAN (${r.distance || '>500'}m)`,
+                r.status === 'PORT_FULL' ? `PORT PENUH (${r.distance}m)` :
+                  r.status === 'NO_COORDS' ? 'TANPA TITIK GPS' : `DI LUAR JANGKAUAN (${r.distance || '>500'}m)`,
             "ODP Terdekat": odp ? (odp.kode_odp || odp.label) : '-',
             "Jarak ODP (m)": r.distance !== null ? r.distance : '-',
             "Port Sisa": odp ? `${odp.available}/${odp.cap}` : '-',
@@ -8453,7 +8449,7 @@ function QuickScanCoverageModal({
 
         const ws = XLSX.utils.json_to_sheet(rows);
         const colWidths = [
-          { wch: 6 },  { wch: 14 }, { wch: 25 }, { wch: 15 },
+          { wch: 6 }, { wch: 14 }, { wch: 25 }, { wch: 15 },
           { wch: 35 }, { wch: 14 }, { wch: 18 }, { wch: 15 },
           { wch: 15 }, { wch: 24 }, { wch: 28 }, { wch: 14 },
           { wch: 14 }, { wch: 22 }, { wch: 28 }, { wch: 14 }
@@ -8542,7 +8538,7 @@ function QuickScanCoverageModal({
             </button>
           </div>
         </div>
-                 {/* BODY MODAL: ON-DEMAND SCAN LOADER ATAU HASIL SCAN */}
+        {/* BODY MODAL: ON-DEMAND SCAN LOADER ATAU HASIL SCAN */}
         {isScanning ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-14 bg-slate-50/50 min-h-[380px] select-none">
             <div className="relative w-20 h-20 flex items-center justify-center mb-4">
@@ -9162,6 +9158,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
     namaPelanggan: data?.namaPelanggan || '',
+    namaSales: data?.namaSales || '',
     alamat: data?.alamat || '',
     stasiun: data?.stasiun || '',
     nomorHp: data?.nomorHp || '',
@@ -9282,11 +9279,11 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
       if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
       else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
 
-      const { error } = await supabase.from('data_pelanggan').update({
+      const updateData = {
         nomor_hp: payload.nomorHp,
         alamat: payload.alamat,
-        latitude: payload.latitude,
-        longitude: payload.longitude,
+        latitude: payload.latitude ? String(payload.latitude).replace(/^'+/, '').trim().replace(',', '.') : null,
+        longitude: payload.longitude ? String(payload.longitude).replace(/^'+/, '').trim().replace(',', '.') : null,
         odp: payload.odpAktual,
         port_odp: payload.portOdp,
         sn_ont: payload.snOnt,
@@ -9299,7 +9296,10 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         petugas_ikr: payload.petugasIkr,
         catatan: payload.catatan,
         issue_kendala: payload.issueKendala
-      }).eq('id_pelanggan', payload.idPelanggan);
+      };
+      if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
+
+      const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
 
       if (error) throw error;
 
@@ -9434,10 +9434,11 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           alamat: formData.alamat || '',
           stasiun: formData.stasiun || '',
           nomor_hp: formData.nomorHp || '',
+          nama_sales: formData.namaSales || 'Daftar Mandiri',
           odp: String(formData.odpAktual || '').trim().toUpperCase(),
           port_odp: formData.portOdp || '',
-          latitude: formData.latitude || '',
-          longitude: formData.longitude || '',
+          latitude: formData.latitude ? String(formData.latitude).replace(/^'+/, '').trim().replace(',', '.') : '',
+          longitude: formData.longitude ? String(formData.longitude).replace(/^'+/, '').trim().replace(',', '.') : '',
           status_ikr: 'Belum',
           status_aktivasi: formData.aktivasi || 'Belum',
           catatan: formData.catatan || '',
@@ -9528,11 +9529,11 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
           else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
 
-          const { error } = await supabase.from('data_pelanggan').update({
+          const updateData = {
             nomor_hp: updatePayload.nomorHp,
             alamat: updatePayload.alamat,
-            latitude: updatePayload.latitude,
-            longitude: updatePayload.longitude,
+            latitude: updatePayload.latitude ? String(updatePayload.latitude).replace(/^'+/, '').trim().replace(',', '.') : null,
+            longitude: updatePayload.longitude ? String(updatePayload.longitude).replace(/^'+/, '').trim().replace(',', '.') : null,
             odp: updatePayload.odpAktual,
             port_odp: updatePayload.portOdp,
             sn_ont: updatePayload.snOnt,
@@ -9545,7 +9546,10 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             petugas_ikr: updatePayload.petugasIkr,
             catatan: updatePayload.catatan,
             issue_kendala: updatePayload.issueKendala
-          }).eq('id_pelanggan', updatePayload.idPelanggan);
+          };
+          if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
+
+          const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
 
           if (error) throw error;
 
@@ -9634,6 +9638,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
                 {renderEditableDetailRow({ label: "Stasiun", fieldKey: "stasiun", options: stationOptionsList })}
                 {renderEditableDetailRow({ label: "ID Pelanggan", fieldKey: "idPelanggan" })}
+                {renderEditableDetailRow({ label: "Nama Sales", fieldKey: "namaSales" })}
                 {renderEditableDetailRow({ label: "Nomor HP", fieldKey: "nomorHp" })}
                 {renderEditableDetailRow({ label: "Alamat", fieldKey: "alamat", fullWidth: true })}
                 {renderEditableDetailRow({ label: "Latitude", fieldKey: "latitude" })}
@@ -9767,6 +9772,14 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                   <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">No Handphone</label>
                   <input type="text" name="nomorHp" value={formData.nomorHp} onChange={handleInputChange} disabled={isSaving} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
                 </div>
+
+                {/* 4B. Nama Sales */}
+                {type === 'add' && (
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Nama Sales <span className="text-slate-400 font-medium normal-case">(Default: Daftar Mandiri)</span></label>
+                    <input type="text" name="namaSales" value={formData.namaSales || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Misal: Izul kradenan (Kosongkan jika Daftar Mandiri)" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                  </div>
+                )}
 
                 {/* 5. Alamat Lengkap */}
                 <div className="md:col-span-2">
@@ -12411,11 +12424,14 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isStationDropdownOpen, setIsStationDropdownOpen] = useState(false);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isSalesDropdownOpen, setIsSalesDropdownOpen] = useState(false);
 
   const [filterStation, setFilterStation] = useState(initialStationFilter);
+  const [filterSales, setFilterSales] = useState('');
   const [filterStatus, setFilterStatus] = useState(initialStatusFilter ? [initialStatusFilter] : []);
 
   const [tempFilterStation, setTempFilterStation] = useState('');
+  const [tempFilterSales, setTempFilterSales] = useState('');
   const [tempFilterStatus, setTempFilterStatus] = useState([]);
 
   const [actionModal, setActionModal] = useState({ type: null, data: null });
@@ -12438,7 +12454,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     { val: 'KENDALA', label: 'Kendala' }
   ];
 
-  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterStatus]);
+  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus]);
 
   useEffect(() => {
     if (initialStatusFilter) {
@@ -12450,6 +12466,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     if (!isFilterModalOpen) {
       setIsStationDropdownOpen(false);
       setIsStatusDropdownOpen(false);
+      setIsSalesDropdownOpen(false);
     }
   }, [isFilterModalOpen]);
 
@@ -12460,6 +12477,25 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     return [...new Set(properStations)].sort();
   }, [pelangganData]);
 
+  // List sales yang mengerucut berdasarkan stasiun yang sedang dipilih di filter modal (tempFilterStation)
+  const availableSalesOptions = useMemo(() => {
+    if (!pelangganData || !Array.isArray(pelangganData)) return [];
+    const source = tempFilterStation
+      ? pelangganData.filter(item => String(item.stasiun || '').toLowerCase().trim() === String(tempFilterStation).toLowerCase().trim())
+      : pelangganData;
+
+    const salesSet = new Set();
+    source.forEach(item => {
+      const s = String(item.namaSales || '').trim();
+      if (s && s !== '-') salesSet.add(s);
+    });
+    return Array.from(salesSet).sort((a, b) => {
+      if (a === 'Daftar Mandiri') return 1;
+      if (b === 'Daftar Mandiri') return -1;
+      return a.localeCompare(b);
+    });
+  }, [pelangganData, tempFilterStation]);
+
   const filteredData = useMemo(() => {
     if (!pelangganData || !Array.isArray(pelangganData)) return [];
 
@@ -12469,6 +12505,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         String(item.alamat || '').toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
+      const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
 
       const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
       const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
@@ -12508,7 +12545,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         });
       }
 
-      return matchSearch && matchStation && matchStatus;
+      return matchSearch && matchStation && matchSales && matchStatus;
     });
 
     if (sortAgeOrder) {
@@ -12576,14 +12613,15 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     }
 
     return filtered;
-  }, [pelangganData, searchTerm, filterStation, filterStatus, sortAgeOrder]);
+  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder]);
 
   const summaryCounts = useMemo(() => {
     const counts = { WAITING: 0, AKTIF: 0, SUSPEND: 0, 'READY TO DISMANTLE': 0, DISMANTLED: 0, KENDALA: 0 };
     if (pelangganData && Array.isArray(pelangganData)) {
       pelangganData.forEach(item => {
         const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
-        if (!matchStation) return;
+        const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
+        if (!matchStation || !matchSales) return;
 
         const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
         const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
@@ -12605,7 +12643,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
       });
     }
     return counts;
-  }, [pelangganData, filterStation]);
+  }, [pelangganData, filterStation, filterSales]);
 
   const colorStyles = {
     amber: { active: 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-amber-300 hover:bg-amber-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-amber-100 text-amber-600' },
@@ -12622,7 +12660,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const currentData = filteredData.slice(startIndex, endIndex);
 
-  const activeFilterCount = (filterStation ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0);
+  const activeFilterCount = (filterStation ? 1 : 0) + (filterSales ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0);
   const isWaitingFilterActive = Boolean(
     Array.isArray(filterStatus) &&
     filterStatus.length === 1 &&
@@ -12750,9 +12788,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           nameParts.push(customLabel);
         } else {
           if (filterStation) nameParts.push(String(filterStation).trim().replace(/\s+/g, '_'));
+          if (filterSales) nameParts.push(String(filterSales).trim().replace(/\s+/g, '_'));
           if (filterStatus && filterStatus.length > 0) nameParts.push(filterStatus.join('_').replace(/\s+/g, '-'));
           if (searchTerm) nameParts.push('Search');
-          if (!filterStation && (!filterStatus || filterStatus.length === 0) && !searchTerm) {
+          if (!filterStation && !filterSales && (!filterStatus || filterStatus.length === 0) && !searchTerm) {
             nameParts = ['Data_Semua_Pelanggan'];
           }
         }
@@ -12912,7 +12951,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 className="flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg text-xs sm:text-sm font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-500/20 transition-colors disabled:opacity-50"
                 title="Ekspor baris yang dipilih ke Excel"
               >
-                <Icon name="download" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5" /> 
+                <Icon name="download" size={14} className="sm:w-4 sm:h-4 w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Ekspor Pilihan</span>
                 <span className="sm:hidden">Ekspor</span> ({selectedIds.length})
               </button>
@@ -12939,6 +12978,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 setIsFilterModalOpen(!isFilterModalOpen);
                 if (!isFilterModalOpen) {
                   setTempFilterStation(filterStation);
+                  setTempFilterSales(filterSales);
                   setTempFilterStatus(filterStatus);
                 }
               }}
@@ -12954,8 +12994,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
             {isFilterModalOpen && (
               <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 sm:mt-3 w-64 sm:w-72 bg-white border border-slate-200 shadow-2xl rounded-xl sm:rounded-2xl p-4 sm:p-5 z-50 origin-top-left sm:origin-top-right animate-dropdown">
-                {(isStationDropdownOpen || isStatusDropdownOpen) && (
-                  <div className="fixed inset-0 z-[55]" onClick={(e) => { e.stopPropagation(); setIsStationDropdownOpen(false); setIsStatusDropdownOpen(false); }}></div>
+                {(isStationDropdownOpen || isStatusDropdownOpen || isSalesDropdownOpen) && (
+                  <div className="fixed inset-0 z-[55]" onClick={(e) => { e.stopPropagation(); setIsStationDropdownOpen(false); setIsStatusDropdownOpen(false); setIsSalesDropdownOpen(false); }}></div>
                 )}
 
                 <div className="flex justify-between items-center mb-3 sm:mb-5 border-b border-slate-100 pb-2 sm:pb-3 relative z-[56]">
@@ -12966,8 +13006,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   <button
                     onClick={() => {
                       setTempFilterStation('');
+                      setTempFilterSales('');
                       setTempFilterStatus([]);
                       setFilterStation('');
+                      setFilterSales('');
                       setFilterStatus([]);
                     }}
                     className="text-[10px] sm:text-xs text-rose-500 hover:text-rose-700 font-bold bg-rose-50 hover:bg-rose-100 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-colors"
@@ -12976,11 +13018,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   </button>
                 </div>
 
-                <div className="space-y-3 sm:space-y-5">
+                <div className="space-y-3 sm:space-y-4">
+                  {/* 1. FILTER STASIUN */}
                   <div className="relative">
                     <label className="text-[9px] sm:text-[11px] font-bold text-slate-500 mb-1 sm:mb-1.5 block uppercase tracking-wider">Stasiun</label>
                     <div
-                      onClick={() => { setIsStationDropdownOpen(!isStationDropdownOpen); setIsStatusDropdownOpen(false); }}
+                      onClick={() => { setIsStationDropdownOpen(!isStationDropdownOpen); setIsStatusDropdownOpen(false); setIsSalesDropdownOpen(false); }}
                       className={`w-full p-2 sm:p-2.5 bg-slate-50 border ${isStationDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium text-slate-700 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
                     >
                       <span className="truncate">{tempFilterStation || 'Semua Stasiun'}</span>
@@ -12990,7 +13033,11 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     {isStationDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 shadow-xl rounded-lg sm:rounded-xl py-1 sm:py-1.5 z-[60] animate-dropdown max-h-40 sm:max-h-48 overflow-y-auto">
                         <div
-                          onClick={() => { setTempFilterStation(''); setIsStationDropdownOpen(false); }}
+                          onClick={() => { 
+                            setTempFilterStation(''); 
+                            setTempFilterSales(''); 
+                            setIsStationDropdownOpen(false); 
+                          }}
                           className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterStation === '' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                           Semua Stasiun
@@ -12999,7 +13046,11 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         {uniqueStations.map(st => (
                           <div
                             key={st}
-                            onClick={() => { setTempFilterStation(st); setIsStationDropdownOpen(false); }}
+                            onClick={() => { 
+                              setTempFilterStation(st); 
+                              setTempFilterSales(''); 
+                              setIsStationDropdownOpen(false); 
+                            }}
                             className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterStation === st ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                           >
                             {st}
@@ -13010,10 +13061,64 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     )}
                   </div>
 
+                  {/* 2. FILTER NAMA SALES (MENGERUCUT SESUAI STASIUN) */}
+                  <div className="relative">
+                    <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+                      <label className="text-[9px] sm:text-[11px] font-bold text-slate-500 block uppercase tracking-wider">
+                        Nama Sales
+                      </label>
+                      {tempFilterStation && (
+                        <span className="text-[9px] sm:text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                          {toProperCase(tempFilterStation)}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      onClick={() => { 
+                        setIsSalesDropdownOpen(!isSalesDropdownOpen); 
+                        setIsStationDropdownOpen(false); 
+                        setIsStatusDropdownOpen(false); 
+                      }}
+                      className={`w-full p-2 sm:p-2.5 bg-slate-50 border ${isSalesDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium text-slate-700 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
+                    >
+                      <span className="truncate">{tempFilterSales || 'Semua Sales'}</span>
+                      <Icon name={isSalesDropdownOpen ? "chevron-up" : "chevron-down"} size={14} className="text-slate-400 shrink-0 sm:w-4 sm:h-4" />
+                    </div>
+
+                    {isSalesDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 shadow-xl rounded-lg sm:rounded-xl py-1 sm:py-1.5 z-[60] animate-dropdown max-h-40 sm:max-h-48 overflow-y-auto">
+                        <div
+                          onClick={() => { setTempFilterSales(''); setIsSalesDropdownOpen(false); }}
+                          className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterSales === '' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          Semua Sales
+                          {tempFilterSales === '' && <Icon name="check" size={12} className="ml-auto sm:w-3.5 sm:h-3.5" />}
+                        </div>
+                        {availableSalesOptions.length === 0 ? (
+                          <div className="px-3 sm:px-4 py-2 text-xs text-slate-400 italic">
+                            Tidak ada data sales {tempFilterStation ? `di ${tempFilterStation}` : ''}
+                          </div>
+                        ) : (
+                          availableSalesOptions.map(sales => (
+                            <div
+                              key={sales}
+                              onClick={() => { setTempFilterSales(sales); setIsSalesDropdownOpen(false); }}
+                              className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterSales === sales ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                            >
+                              <span className="truncate">{sales}</span>
+                              {tempFilterSales === sales && <Icon name="check" size={12} className="ml-auto sm:w-3.5 sm:h-3.5 shrink-0" />}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. FILTER STATUS */}
                   <div className="relative">
                     <label className="text-[9px] sm:text-[11px] font-bold text-slate-500 mb-1 sm:mb-1.5 block uppercase tracking-wider">Status</label>
                     <div
-                      onClick={() => { setIsStatusDropdownOpen(!isStatusDropdownOpen); setIsStationDropdownOpen(false); }}
+                      onClick={() => { setIsStatusDropdownOpen(!isStatusDropdownOpen); setIsStationDropdownOpen(false); setIsSalesDropdownOpen(false); }}
                       className={`w-full p-2 sm:p-2.5 bg-slate-50 border ${isStatusDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium text-slate-700 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
                     >
                       <span className="truncate">
@@ -13052,6 +13157,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   <button
                     onClick={() => {
                       setFilterStation(tempFilterStation);
+                      setFilterSales(tempFilterSales);
                       setFilterStatus(tempFilterStatus);
                       setIsFilterModalOpen(false);
                     }}
@@ -13092,7 +13198,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-600 text-white px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg hover:bg-emerald-700 text-xs sm:text-sm font-semibold shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 title={`Ekspor ${filteredData.length} data saat ini ke Excel`}
               >
-                <Icon name={isExporting ? "clock" : "download"} size={14} className={`sm:w-4 sm:h-4 ${isExporting ? 'animate-spin' : ''}`} /> 
+                <Icon name={isExporting ? "clock" : "download"} size={14} className={`sm:w-4 sm:h-4 ${isExporting ? 'animate-spin' : ''}`} />
                 <span>{isExporting ? 'Mengekspor...' : 'Ekspor Excel'}</span>
                 <span className="bg-emerald-700/90 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none">
                   {filteredData.length}
@@ -13337,10 +13443,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     />
                   </div>
                 </th>
-                <th className="px-4 py-4">ID PELANGGAN</th>
+                <th className="px-4 py-4">ID PEL</th>
                 <th className="px-6 py-4">NAMA & ALAMAT</th>
                 <th className="px-6 py-4">KONTAK & LOKASI</th>
-                <th className="px-6 py-4">STASIUN</th>
+                <th className="px-6 py-4">STASIUN & SALES</th>
                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
                   <div className="flex items-center">
                     STATUS
@@ -13380,9 +13486,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         <div className="h-3.5 w-20 bg-slate-100 rounded"></div>
                       </div>
                     </td>
-                    {/* Stasiun Skeleton */}
+                    {/* Stasiun & Sales Skeleton */}
                     <td className="px-6 py-4">
-                      <div className="h-4 w-20 bg-slate-200 rounded"></div>
+                      <div className="space-y-1.5">
+                        <div className="h-4 w-20 bg-slate-200 rounded"></div>
+                        <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
+                      </div>
                     </td>
                     {/* Status Skeleton */}
                     <td className="px-6 py-4">
@@ -13509,8 +13618,23 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600 font-medium">
-                      {toProperCase(item.stasiun) || '-'}
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="font-semibold text-slate-800 text-[13px]">
+                          {toProperCase(item.stasiun) || '-'}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Icon name="user" size={11} className="text-slate-400 shrink-0" />
+                          <span className={`text-[10.5px] font-medium leading-none px-1.5 py-0.5 rounded ${item.namaSales === 'Daftar Mandiri'
+                              ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
+                              : (item.namaSales
+                                ? 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
+                                : 'text-slate-400')
+                            }`}>
+                            {item.namaSales || '-'}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col items-start">
@@ -13834,7 +13958,7 @@ function CoverageGISView({ data, targetCoords }) {
   useEffect(() => {
     if (window.L && mapRef.current && !mapInstance.current) {
       mapInstance.current = window.L.map(mapRef.current, { preferCanvas: true }).setView([-6.957, 110.252], 13);
-      
+
       const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         attribution: '&copy; Google Maps',
         maxZoom: 20,
@@ -14277,17 +14401,15 @@ function CoverageGISView({ data, targetCoords }) {
           <button
             type="button"
             onClick={() => setIsLegendOpen(prev => !prev)}
-            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${
-              isLegendOpen
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${isLegendOpen
                 ? 'bg-[#1e3a8a] text-white border-blue-900 shadow-blue-900/30'
                 : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
-            }`}
+              }`}
           >
             <Icon name="sliders" size={13} className={isLegendOpen ? "text-amber-400" : "text-blue-600"} />
             <span>Filter Stasiun & Legenda</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
-              isLegendOpen ? 'bg-blue-800 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200/60'
-            }`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${isLegendOpen ? 'bg-blue-800 text-white' : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+              }`}>
               {selectedStations.size}/{availableStations.length}
             </span>
           </button>
@@ -14297,18 +14419,16 @@ function CoverageGISView({ data, targetCoords }) {
             <button
               type="button"
               onClick={() => setSmartRadiusOnly(prev => !prev)}
-              className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-1.5 border transition-all ${
-                smartRadiusOnly
+              className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-1.5 border transition-all ${smartRadiusOnly
                   ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/25'
                   : 'bg-white/95 text-slate-600 border-slate-200 hover:border-slate-300'
-              }`}
+                }`}
               title="Jika aktif, hanya menampilkan ODP terdekat dalam radius pencarian agar peta sangat ringan"
             >
               <Icon name="crosshair" size={13} className={smartRadiusOnly ? "text-white" : "text-emerald-600"} />
               <span>Radius Cerdas ({searchRadius}m)</span>
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
-                smartRadiusOnly ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-500'
-              }`}>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${smartRadiusOnly ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-500'
+                }`}>
                 {smartRadiusOnly ? 'AKTIF' : 'SEMUA'}
               </span>
             </button>
@@ -14381,7 +14501,7 @@ function CoverageGISView({ data, targetCoords }) {
                   <input
                     type="checkbox"
                     checked={smartRadiusOnly}
-                    onChange={() => {}}
+                    onChange={() => { }}
                     className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                   <div>
@@ -14448,9 +14568,8 @@ function CoverageGISView({ data, targetCoords }) {
                       return (
                         <label
                           key={st.name}
-                          className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors ${
-                            isChecked ? 'bg-blue-50/20' : 'opacity-50'
-                          }`}
+                          className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors ${isChecked ? 'bg-blue-50/20' : 'opacity-50'
+                            }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <input
