@@ -11618,45 +11618,66 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       {/* ============================================================ */}
       {/* 2. SECTION LIST TIKET VISIT */}
       {/* ============================================================ */}
-      <div id="section-tickets" className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <Icon name="list" size={18} className="text-blue-500" />
-            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
-              Daftar Tiket Visit Gangguan
-            </h2>
+      {/* 2. UNIFIED CONTAINER: DAFTAR TIKET VISIT GANGGUAN */}
+      {/* ============================================================ */}
+      <div id="section-tickets" className="bg-white rounded-2xl shadow-sm border border-slate-200/80 relative z-20 flex flex-col mb-5">
+        {/* HEADER KARTU: Judul + Counter + Tombol Input Baru */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 shadow-xs border border-blue-100/80">
+              <Icon name="list" size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
+                  Daftar Tiket Visit Gangguan
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/70">
+                  {filteredData.length} Tiket
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Monitoring dan kelola penanganan tiket perbaikan gangguan teknisi
+              </p>
+            </div>
           </div>
+
+          <button
+            id="btn-input-tiket-baru"
+            onClick={() => setShowNewTicketModal(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-amber-500/25 transition-all active:scale-95 whitespace-nowrap shrink-0 w-full sm:w-auto"
+          >
+            <Icon name="plus-circle" size={17} />
+            <span>Input Tiket Baru</span>
+          </button>
         </div>
 
-        {/* HEADER & FILTER BAR */}
-      <div className="bg-white p-3.5 sm:p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 sm:gap-4 mb-3.5 sm:mb-6 shrink-0 relative z-20">
-        <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 items-start lg:items-center justify-between">
-
+        {/* TOOLBAR FILTER & PENCARIAN */}
+        <div className="p-3.5 sm:p-4 bg-slate-50/70 border-b border-slate-100 flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between relative z-30">
           {/* Pencarian Teks */}
           <div className="relative w-full lg:w-96 shrink-0">
-            <Icon name="search" className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <Icon name="search" className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
               placeholder="Cari ID, Nama Pelanggan, atau Keluhan..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm"
+              className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm shadow-xs transition-all placeholder:text-slate-400"
             />
           </div>
 
-          {/* Custom Filters + Tombol Input Baru */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
-
+          {/* Custom Filters */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto">
             {/* 1. FILTER STASIUN */}
             <div className={`relative w-full sm:w-36 lg:w-44 ${isStationDropdownOpen ? 'z-[62]' : 'z-[60]'}`}>
               {isStationDropdownOpen && <div className="fixed inset-0 z-[55]" onClick={() => setIsStationDropdownOpen(false)}></div>}
               <div
                 onClick={() => toggleDropdown('station')}
-                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isStationDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-semibold flex justify-between items-center cursor-pointer shadow-sm relative z-[56]`}
+                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isStationDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-semibold flex justify-between items-center cursor-pointer shadow-xs relative z-[56]`}
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 truncate">
                   <Icon name="map-pin" size={14} className="text-slate-400 shrink-0" />
-                  <span className="truncate">{stationFilter || 'Semua Stasiun'}</span>
+                  <span className="truncate text-slate-700">{stationFilter || 'Semua Stasiun'}</span>
                 </div>
                 <Icon name={isStationDropdownOpen ? "chevron-up" : "chevron-down"} size={14} className="text-slate-400 shrink-0 ml-1" />
               </div>
@@ -11680,11 +11701,11 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
               {isTimeDropdownOpen && <div className="fixed inset-0 z-[55]" onClick={() => setIsTimeDropdownOpen(false)}></div>}
               <div
                 onClick={() => toggleDropdown('time')}
-                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isTimeDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-semibold flex justify-between items-center cursor-pointer shadow-sm relative z-[56]`}
+                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isTimeDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-semibold flex justify-between items-center cursor-pointer shadow-xs relative z-[56]`}
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 truncate">
                   <Icon name="calendar" size={14} className="text-slate-400 shrink-0" />
-                  <span className="truncate">{timeOptionsList.find(o => o.val === timeFilter)?.label || 'Semua Waktu'}</span>
+                  <span className="truncate text-slate-700">{timeOptionsList.find(o => o.val === timeFilter)?.label || 'Semua Waktu'}</span>
                 </div>
                 <Icon name={isTimeDropdownOpen ? "chevron-up" : "chevron-down"} size={14} className="text-slate-400 shrink-0 ml-1" />
               </div>
@@ -11705,7 +11726,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
               {isStatusDropdownOpen && <div className="fixed inset-0 z-[55]" onClick={() => setIsStatusDropdownOpen(false)}></div>}
               <div
                 onClick={() => toggleDropdown('status')}
-                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isStatusDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-bold flex justify-between items-center cursor-pointer shadow-sm relative z-[56]`}
+                className={`w-full px-3 py-2.5 sm:px-3.5 bg-white border ${isStatusDropdownOpen ? 'border-blue-500 ring-2' : 'border-slate-200'} rounded-lg text-xs font-bold flex justify-between items-center cursor-pointer shadow-xs relative z-[56]`}
               >
                 <span className="truncate text-slate-700">
                   {statusOptionsList.find(o => o.val === statusFilter)?.label || 'Semua Tiket'}
@@ -11723,23 +11744,8 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                 </div>
               )}
             </div>
-
-            {/* TOMBOL INPUT TIKET BARU */}
-            <button
-              id="btn-input-tiket-baru"
-              onClick={() => setShowNewTicketModal(true)}
-              className="col-span-2 sm:col-span-1 flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-lg sm:rounded-xl shadow-md shadow-amber-500/25 transition-all active:scale-95 whitespace-nowrap shrink-0 ml-0 sm:ml-auto lg:ml-0 w-full sm:w-auto mt-0.5 sm:mt-0"
-            >
-              <Icon name="plus-circle" size={17} />
-              <span>Input Tiket Baru</span>
-            </button>
-
           </div>
         </div>
-      </div>
-
-      {/* TABEL DATA GANGGUAN */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col relative z-10 min-h-0">
 
         {/* TAMPILAN MOBILE: KARTU TIKET KHUSUS MOBILE */}
         <div className="sm:hidden p-2.5 sm:p-3 space-y-2.5 sm:space-y-3 overflow-y-auto flex-1 custom-scrollbar min-h-0">
@@ -12149,7 +12155,6 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
             </div>
           </div>
         )}
-      </div>
       </div>
 
       {/* ============================================================ */}
