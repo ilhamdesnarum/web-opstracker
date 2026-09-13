@@ -9261,12 +9261,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
     setIsSaving(true);
 
-    const isNonKendala = fieldKey === 'aktivasi' && editValue !== 'Kendala' && editValue !== 'kendala';
-    const payload = { 
-      ...internalData, 
-      [fieldKey]: editValue,
-      ...(isNonKendala ? { issueKendala: '', tanggalKendala: '', reporterKendala: '' } : {})
-    };
+    const payload = { ...internalData, [fieldKey]: editValue };
     if (fieldKey === 'aktivasi') payload.ikr = editValue;
 
     try {
@@ -9301,9 +9296,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         petugas_aktivasi: payload.petugasAktivasi,
         petugas_ikr: payload.petugasIkr,
         catatan: payload.catatan,
-        issue_kendala: isNonKendala ? null : (payload.issueKendala || null),
-        tanggal_kendala: isNonKendala ? null : (payload.tanggalKendala || null),
-        reporter_kendala: isNonKendala ? null : (payload.reporterKendala || null)
+        issue_kendala: payload.issueKendala,
+        tanggal_kendala: payload.tanggalKendala,
+        reporter_kendala: payload.reporterKendala
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
 
@@ -9502,22 +9497,16 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
       // --- LOGIKA EDIT DATA BIASA ---
       setIsSaving(true); setMessage(null);
 
-      const isNonKendala = formData.aktivasi !== 'Kendala' && formData.aktivasi !== 'kendala';
-
-      // Pastikan saat diubah jadi Waiting (Belum) atau Aktif (Sudah) / Non-Kendala, 
-      // kolom IKR ikut berubah mengikuti kolom Aktivasi, dan kendala di-clear agar status tidak tersangkut di Kendala
+      // Pastikan saat diubah jadi Waiting (Belum) atau Aktif (Sudah), 
+      // kolom IKR ikut berubah mengikuti kolom Aktivasi.
       const updatePayload = {
         ...formData,
-        ikr: formData.aktivasi, // sinkronkan IKR dengan Aktivasi
-        issueKendala: isNonKendala ? '' : (formData.issueKendala || '')
+        ikr: formData.aktivasi // sinkronkan IKR dengan Aktivasi
       };
 
       const finalizeSuccessEdit = () => {
         try {
-          const localPayload = { 
-            ...updatePayload,
-            ...(isNonKendala ? { issueKendala: '', tanggalKendala: '', reporterKendala: '' } : {})
-          };
+          const localPayload = { ...updatePayload };
           if (onLocalPelangganUpdate) onLocalPelangganUpdate([{ ...data, ...localPayload }]);
         } catch (e) { console.error(e); }
         setIsSaving(false); setIsSuccess(true);
@@ -9557,9 +9546,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             petugas_aktivasi: updatePayload.petugasAktivasi,
             petugas_ikr: updatePayload.petugasIkr,
             catatan: updatePayload.catatan,
-            issue_kendala: isNonKendala ? null : (updatePayload.issueKendala || null),
-            tanggal_kendala: isNonKendala ? null : (updatePayload.tanggalKendala || null),
-            reporter_kendala: isNonKendala ? null : (updatePayload.reporterKendala || null)
+            issue_kendala: updatePayload.issueKendala || null,
+            tanggal_kendala: updatePayload.tanggalKendala || null,
+            reporter_kendala: updatePayload.reporterKendala || null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
 
@@ -9874,11 +9863,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                           key={i}
                           onClick={(e) => { 
                             e.stopPropagation(); 
-                            setFormData(prev => ({ 
-                              ...prev, 
-                              aktivasi: opt.value,
-                              ...(opt.value !== 'Kendala' ? { issueKendala: '' } : {})
-                            })); 
+                            setFormData(prev => ({ ...prev, aktivasi: opt.value })); 
                             setIsStatusOpen(false); 
                           }}
                           className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
@@ -13620,7 +13605,6 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                 {/* Kendala Mobile Row */}
                 {(() => {
-                  if (displayStatusStr !== 'KENDALA') return null;
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
                   if (!hasKendala && !issueText) return null;
@@ -13962,7 +13946,6 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                         {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
                         {(() => {
-                          if (displayStatusStr !== 'KENDALA') return null;
                           const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                           const issueText = issue && issue !== item.alamat ? issue : '';
 

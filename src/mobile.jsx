@@ -3872,7 +3872,7 @@ const MobileApp = () => {
                             )}
                           </div>
 
-                          {(st === 'KENDALA' && p.issueKendala && p.issueKendala !== p.alamat) && (
+                          {(p.issueKendala && p.issueKendala !== p.alamat) && (
                             <div className="flex flex-col gap-1.5">
                               <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1.5 rounded-md" title={p.issueKendala}>
                                 <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
