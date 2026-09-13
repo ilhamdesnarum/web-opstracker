@@ -41,6 +41,7 @@ const ISSUE_COLORS = [
 export default function GangguanAnalytics({ visitData = [] }) {
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(() => now.getFullYear());
+  const [hoveredBarIndex, setHoveredBarIndex] = useState(null);
 
   // Kategori normalisasi keluhan
   const categorizeKeluhan = (raw) => {
@@ -160,21 +161,44 @@ export default function GangguanAnalytics({ visitData = [] }) {
   }, [visitData, selectedYear]);
 
   // Tooltip custom untuk bar chart
-  const CustomBarTooltip = ({ active, payload, label }) => {
+  const CustomBarTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
+      const pctSelesai = d.tiket > 0 ? Math.round((d.selesai / d.tiket) * 100) : 0;
       return (
-        <div className="bg-slate-900/90 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-xs">
-          <p className="font-bold text-slate-200 border-b border-slate-700/80 pb-1 mb-1.5">
-            {d.fullName} {selectedYear}
-          </p>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-slate-300">Total Tiket:</span>
-            <span className="font-black text-white">{d.tiket}</span>
+        <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+          <div className="flex items-center gap-2 border-b border-slate-700/70 pb-1.5 mb-2">
+            <span className={`w-2 h-2 rounded-full ${d.isCurrentMonth ? 'bg-blue-400' : 'bg-blue-300'}`}></span>
+            <p className="font-bold text-slate-100">
+              {d.fullName} {selectedYear}
+            </p>
+            {d.isCurrentMonth && (
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/25 text-blue-300 border border-blue-400/30 ml-auto">
+                Bulan Ini
+              </span>
+            )}
           </div>
-          <div className="flex items-center justify-between gap-4 mt-0.5">
-            <span className="text-emerald-400">Selesai:</span>
-            <span className="font-bold text-emerald-300">{d.selesai}</span>
+          <div className="space-y-1.5 min-w-[140px]">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                Total Tiket:
+              </span>
+              <span className="font-black text-white text-sm">{d.tiket}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                Selesai:
+              </span>
+              <span className="font-bold text-emerald-400">{d.selesai}</span>
+            </div>
+            {d.tiket > 0 && (
+              <div className="flex items-center justify-between gap-4 pt-1.5 border-t border-slate-800 text-[10px]">
+                <span className="text-slate-400">Tingkat Selesai:</span>
+                <span className="font-bold text-emerald-300">{pctSelesai}%</span>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -279,7 +303,16 @@ export default function GangguanAnalytics({ visitData = [] }) {
 
           <div className="h-64 sm:h-72 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart
+                data={monthlyData}
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                onMouseMove={(state) => {
+                  if (state && state.activeTooltipIndex !== undefined) {
+                    setHoveredBarIndex(state.activeTooltipIndex);
+                  }
+                }}
+                onMouseLeave={() => setHoveredBarIndex(null)}
+              >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis
                   dataKey="name"
@@ -293,14 +326,20 @@ export default function GangguanAnalytics({ visitData = [] }) {
                   tickLine={false}
                   axisLine={false}
                 />
-                <Tooltip content={<CustomBarTooltip />} />
-                <Bar dataKey="tiket" radius={[6, 6, 0, 0]}>
-                  {monthlyData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={entry.isCurrentMonth ? '#3b82f6' : '#93c5fd'}
-                    />
-                  ))}
+                <Tooltip content={<CustomBarTooltip />} cursor={false} />
+                <Bar dataKey="tiket" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                  {monthlyData.map((entry, index) => {
+                    const isHovered = hoveredBarIndex === index;
+                    const isAnyHovered = hoveredBarIndex !== null;
+                    return (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.isCurrentMonth ? (isHovered ? '#1d4ed8' : '#3b82f6') : (isHovered ? '#3b82f6' : '#93c5fd')}
+                        opacity={isAnyHovered && !isHovered ? 0.45 : 1}
+                        className="transition-all duration-200 cursor-pointer"
+                      />
+                    );
+                  })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
