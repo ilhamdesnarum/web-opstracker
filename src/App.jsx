@@ -11613,34 +11613,6 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
             </div>
           </div>
         </div>
-
-        {/* QUICK JUMP ANCHOR BAR */}
-        <div className="flex items-center justify-between flex-wrap gap-2 pt-0.5">
-          <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200/80 rounded-xl shadow-2xs text-xs font-bold text-slate-600">
-            <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-black px-2">Lompat Ke:</span>
-            <button
-              onClick={() => document.getElementById('section-tickets')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
-            >
-              <Icon name="list" size={13} className="text-blue-500" />
-              <span>Daftar Tiket</span>
-            </button>
-            <button
-              onClick={() => document.getElementById('section-calendar')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
-            >
-              <Icon name="calendar" size={13} className="text-amber-500" />
-              <span>Kalender Stasiun</span>
-            </button>
-            <button
-              onClick={() => document.getElementById('section-analytics')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
-            >
-              <Icon name="bar-chart-3" size={13} className="text-indigo-500" />
-              <span>Analisa & Grafik</span>
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* ============================================================ */}
@@ -12002,38 +11974,35 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       </p>
                     </td>
 
-                    <td className="px-4 py-3 align-top min-w-[220px] max-w-[280px]">
+                    <td className="px-4 py-3 align-top min-w-[200px] max-w-[260px]">
                       {isItemDone && (item.tindakan || item.perbaikan) ? (
-                        <div className="bg-emerald-50/80 rounded-xl border border-emerald-200 overflow-hidden w-full shadow-sm">
-                          <div className="p-3">
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Icon name="check-circle" size={14} className="text-emerald-500" />
-                              <span className="text-[8px] font-bold text-emerald-600 uppercase tracking-wider">
-                                Tindakan
-                              </span>
-                            </div>
-                            <div className="text-[11px] font-bold text-emerald-900 leading-snug whitespace-normal break-words pl-5">
+                        <div className="bg-emerald-50/70 rounded-lg border border-emerald-200/80 p-2 space-y-1.5 shadow-2xs">
+                          {/* Tindakan */}
+                          <div className="flex items-start gap-1.5 leading-tight">
+                            <span className="text-[8.5px] font-bold text-emerald-700 uppercase tracking-wider shrink-0 mt-0.5 bg-emerald-100/80 border border-emerald-200 px-1 py-0.5 rounded">
+                              Tindakan
+                            </span>
+                            <span className="text-[11px] font-semibold text-emerald-950 break-words whitespace-normal leading-snug">
                               {item.tindakan || item.perbaikan}
-                            </div>
+                            </span>
                           </div>
+
+                          {/* Material Digunakan jika ada */}
                           {(item.material || item.usedMaterials) && (
-                            <div className="p-3 border-t border-emerald-200/60 bg-emerald-100/30">
-                              <div className="flex items-center gap-1.5 mb-1.5">
-                                <Icon name="box" size={14} className="text-emerald-500" />
-                                <span className="text-[8px] font-bold text-emerald-600 uppercase tracking-wider">
-                                  Material Digunakan
-                                </span>
-                              </div>
-                              <div className="text-[11px] font-bold text-emerald-900 leading-snug break-words whitespace-normal pl-5">
+                            <div className="flex items-start gap-1.5 pt-1.5 border-t border-emerald-200/60 leading-tight">
+                              <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mt-0.5 bg-white border border-slate-200 px-1 py-0.5 rounded">
+                                Material
+                              </span>
+                              <span className="text-[11px] font-medium text-slate-700 break-words whitespace-normal leading-snug">
                                 {item.material || item.usedMaterials}
-                              </div>
+                              </span>
                             </div>
                           )}
                         </div>
                       ) : (
-                        <div className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-slate-400 h-full min-h-[60px] opacity-70">
-                          <Icon name="more-horizontal" size={16} className="mb-1" />
-                          <span className="text-[9px] font-bold uppercase tracking-wider">Belum Diselesaikan</span>
+                        <div className="flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-slate-400 text-[10px]">
+                          <Icon name="clock" size={11} className="text-slate-400 shrink-0" />
+                          <span className="font-medium">Belum Diselesaikan</span>
                         </div>
                       )}
                     </td>
