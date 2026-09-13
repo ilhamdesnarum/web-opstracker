@@ -1156,7 +1156,7 @@ function App({ onLogout }) {
   const [initialDatabaseStationFilter, setInitialDatabaseStationFilter] = useState('');
 
   // SISTEM INFORMASI FITUR BARU (WHAT'S NEW)
-  const CURRENT_APP_VERSION = 'v2.4.0';
+  const CURRENT_APP_VERSION = 'v2.5.0';
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [hasUnseenFeatures, setHasUnseenFeatures] = useState(false);
 
@@ -1186,9 +1186,11 @@ function App({ onLogout }) {
     }
   };
 
-  const handleTryFeatureFromWhatsNew = (targetTab = 'quickscan', dontShowAgain = true) => {
+  const handleTryFeatureFromWhatsNew = (targetTab = 'gangguan', dontShowAgain = true) => {
     handleCloseWhatsNew(dontShowAgain);
-    if (targetTab === 'okupansi') {
+    if (targetTab === 'gangguan') {
+      setActiveTab('gangguan');
+    } else if (targetTab === 'okupansi') {
       setActiveTab('okupansi');
     } else if (targetTab === 'database') {
       setActiveTab('database');
@@ -1828,7 +1830,7 @@ function App({ onLogout }) {
                 type="button"
                 onClick={() => setIsWhatsNewOpen(true)}
                 className="flex items-center h-8 sm:h-9 gap-1.5 text-xs px-2.5 sm:px-3 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs transition-all relative cursor-pointer"
-                title="Lihat Pembaruan Fitur Baru (v2.4)"
+                title="Lihat Pembaruan Fitur Baru (v2.5)"
               >
                 <Icon name="sparkles" size={14} className="text-indigo-600 shrink-0" />
                 <span className="hidden md:inline whitespace-nowrap">Apa yang Baru?</span>
@@ -9015,7 +9017,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             <div className="flex items-center justify-between mb-1">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/15 backdrop-blur-md border border-white/20 text-white tracking-wide shadow-xs">
                 <Icon name="sparkles" size={11} className="text-amber-300" />
-                <span>Pembaruan v2.4</span>
+                <span>Pembaruan v2.5</span>
               </span>
               <button
                 type="button"
@@ -9031,86 +9033,86 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               Apa yang Baru di OpsTracker?
             </h2>
             <p className="text-[11px] sm:text-xs text-blue-100/90 font-medium mt-0.5 leading-relaxed">
-              Ringkasan pembaruan v2.4 alur kerja operasional:
+              Ringkasan pembaruan v2.5 Analisa Gangguan & Alur Operasional:
             </p>
           </div>
         </div>
 
         {/* BODY MODAL: 3 FITUR UNGGULAN ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Quick Scan Coverage */}
+          {/* FITUR 1: Analisa Tren & Komparasi Stasiun Dual Mode */}
           <div
-            onClick={() => onTryFeature('quickscan', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-indigo-50/50 via-white to-white border border-indigo-100/80 hover:border-indigo-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk coba Quick Scan"
+            onClick={() => onTryFeature('gangguan', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Analisa Gangguan"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="radar" size={16} className="animate-pulse" />
+                <Icon name="trending-up" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-indigo-600 transition-colors">
-                    Quick Scan Coverage Alpro & ODP
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
+                    Analisa Gangguan Dual Mode (Batang & Garis)
                   </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-100/80 text-indigo-700">
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
                     Fitur Baru
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Pindai cepat jarak pelanggan <strong className="text-slate-800">Waiting</strong> ke ODP terdekat dan cek ketersediaan port secara otomatis.
+                  Filter dropdown stasiun, komparasi multi-line antar stasiun dengan chip interaktif, dan grafik yang otomatis presisi berhenti di bulan berjalan.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* FITUR 2: Kelola & Sinkronisasi ODP */}
+          {/* FITUR 2: Normalisasi Otomatis Distribusi Kerusakan */}
           <div
-            onClick={() => onTryFeature('okupansi', dontShowAgain)}
+            onClick={() => onTryFeature('gangguan', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-purple-50/50 via-white to-white border border-purple-100/80 hover:border-purple-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Distribusi Kerusakan"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="pie-chart" size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-purple-600 transition-colors">
+                    Kategorisasi Cerdas Jenis Gangguan
+                  </h3>
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-purple-100/80 text-purple-700">
+                    Smart Normalization
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  Pengelompokan teks keluhan otomatis ke kategori baku (Modem LOS, Kabel Putus, Perangkat Rusak, dll.) dan sinkron per stasiun.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 3: Unified Enterprise Card & Filter Tiket Aktif */}
+          <div
+            onClick={() => onTryFeature('gangguan', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Okupansi ODP"
+            title="Klik untuk buka Daftar Tiket Visit"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="layers" size={16} />
+                <Icon name="check-circle" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Kelola ODP & Sinkronisasi Port
+                    Wadah Terpadu & Filter Tiket Aktif Instan
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
-                    Fitur Baru
+                    Penyempurnaan UI
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Edit data ODP, filter stasiun/tahap, dan sinkronkan port terpakai otomatis dari database pelanggan.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* FITUR 3: Smart One-Click Filter Waiting */}
-          <div
-            onClick={() => onTryFeature('database', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Data Pelanggan Waiting"
-          >
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="filter" size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-amber-600 transition-colors">
-                    Smart One-Click Filter Waiting
-                  </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100/80 text-amber-800">
-                    Peningkatan UI
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-snug">
-                  Satu klik pada kartu <strong className="text-slate-800">WAITING</strong> langsung memfilter data presisi dan memunculkan tombol Quick Scan.
+                  Pencarian, filter, dan tabel tiket disatukan dalam 1 kontainer Enterprise. Klik kartu Tiket Aktif langsung memfilter tiket yang masih open.
                 </p>
               </div>
             </div>
@@ -9139,10 +9141,10 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             </button>
             <button
               type="button"
-              onClick={() => onTryFeature('quickscan', dontShowAgain)}
+              onClick={() => onTryFeature('gangguan', dontShowAgain)}
               className="px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
             >
-              <span>Mulai Eksplorasi</span>
+              <span>Lihat Analisa Gangguan</span>
               <Icon name="arrow-right" size={13} />
             </button>
           </div>
