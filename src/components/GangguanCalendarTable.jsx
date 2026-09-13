@@ -214,16 +214,17 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
     }
   };
 
-  // Helper pewarnaan cell badge identik dengan kalender aktivasi
+  // Helper pewarnaan cell badge untuk gangguan (Kriteria khusus gangguan)
   const getBadgeStyle = (count) => {
     if (count === 0) return '';
-    if (count <= 2) {
-      return 'bg-blue-50 text-blue-700 border border-blue-200/90 hover:bg-blue-100 hover:border-blue-300 font-bold';
+    if (count === 1) {
+      return 'bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100 hover:border-amber-300 font-bold';
     }
-    if (count <= 5) {
-      return 'bg-emerald-50 text-emerald-700 border border-emerald-200/90 hover:bg-emerald-100 hover:border-emerald-300 font-bold';
+    if (count === 2) {
+      return 'bg-orange-100 text-orange-800 border border-orange-300 hover:bg-orange-200 hover:border-orange-400 font-black';
     }
-    return 'bg-emerald-600 text-white font-black shadow-xs hover:bg-emerald-700';
+    // count >= 3 (Lonjakan Gangguan)
+    return 'bg-rose-100 text-rose-700 border border-rose-300 font-black shadow-xs hover:bg-rose-200 hover:border-rose-400';
   };
 
   // Kunci scroll saat modal rincian terbuka
@@ -382,7 +383,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         </div>
       </div>
 
-      {/* PETUNJUK & LEGEND INTENSITAS */}
+      {/* PETUNJUK & LEGEND INTENSITAS GANGGUAN */}
       <div className="px-4 py-2 bg-slate-50/60 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2 text-[11px] text-slate-500">
         <div className="flex items-center gap-1.5">
           <Icon name="info" size={13} className="text-slate-400" />
@@ -390,16 +391,16 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-blue-50 border border-blue-200 inline-block"></span>
-            <span className="text-[10px]">1-2</span>
+            <span className="w-3.5 h-3.5 rounded bg-amber-50 border border-amber-200 text-amber-700 inline-flex items-center justify-center text-[9px] font-bold">1</span>
+            <span className="text-[10px]">1 Tiket</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-emerald-50 border border-emerald-200 inline-block"></span>
-            <span className="text-[10px]">3-5</span>
+            <span className="w-3.5 h-3.5 rounded bg-orange-100 border border-orange-300 text-orange-800 inline-flex items-center justify-center text-[9px] font-bold">2</span>
+            <span className="text-[10px]">2 Tiket</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-emerald-600 inline-block"></span>
-            <span className="text-[10px]">&gt;5</span>
+            <span className="w-3.5 h-3.5 rounded bg-rose-100 border border-rose-300 text-rose-700 inline-flex items-center justify-center text-[9px] font-bold">≥3</span>
+            <span className="text-[10px]">≥3 Tiket (Lonjakan)</span>
           </div>
           <span className="text-[10px] text-slate-400 italic">| Klik angka untuk rincian</span>
         </div>
