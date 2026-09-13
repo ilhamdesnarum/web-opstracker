@@ -9266,7 +9266,12 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
     setIsSaving(true);
 
-    const payload = { ...internalData, [fieldKey]: editValue };
+    const isNonKendala = fieldKey === 'aktivasi' && editValue !== 'Kendala' && editValue !== 'kendala';
+    const payload = { 
+      ...internalData, 
+      [fieldKey]: editValue,
+      ...(isNonKendala ? { issueKendala: '', tanggalKendala: '', reporterKendala: '' } : {})
+    };
     if (fieldKey === 'aktivasi') payload.ikr = editValue;
 
     try {
@@ -9301,7 +9306,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         petugas_aktivasi: payload.petugasAktivasi,
         petugas_ikr: payload.petugasIkr,
         catatan: payload.catatan,
-        issue_kendala: payload.issueKendala
+        issue_kendala: isNonKendala ? null : (payload.issueKendala || null),
+        tanggal_kendala: isNonKendala ? null : (payload.tanggalKendala || null),
+        reporter_kendala: isNonKendala ? null : (payload.reporterKendala || null)
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
 
@@ -9500,18 +9507,22 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
       // --- LOGIKA EDIT DATA BIASA ---
       setIsSaving(true); setMessage(null);
 
-      // Pastikan saat diubah jadi Waiting (Belum) atau Aktif (Sudah), 
-      // kolom IKR ikut berubah mengikuti kolom Aktivasi
+      const isNonKendala = formData.aktivasi !== 'Kendala' && formData.aktivasi !== 'kendala';
+
+      // Pastikan saat diubah jadi Waiting (Belum) atau Aktif (Sudah) / Non-Kendala, 
+      // kolom IKR ikut berubah mengikuti kolom Aktivasi, dan kendala di-clear agar status tidak tersangkut di Kendala
       const updatePayload = {
         ...formData,
-        ikr: formData.aktivasi // sinkronkan IKR dengan Aktivasi
+        ikr: formData.aktivasi, // sinkronkan IKR dengan Aktivasi
+        issueKendala: isNonKendala ? '' : (formData.issueKendala || '')
       };
 
       const finalizeSuccessEdit = () => {
         try {
-          const localPayload = { ...updatePayload };
-          // Jangan hapus issueKendala atau catatan secara otomatis
-          // Biarkan masing-masing independen sesuai input user
+          const localPayload = { 
+            ...updatePayload,
+            ...(isNonKendala ? { issueKendala: '', tanggalKendala: '', reporterKendala: '' } : {})
+          };
           if (onLocalPelangganUpdate) onLocalPelangganUpdate([{ ...data, ...localPayload }]);
         } catch (e) { console.error(e); }
         setIsSaving(false); setIsSuccess(true);
@@ -9551,7 +9562,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             petugas_aktivasi: updatePayload.petugasAktivasi,
             petugas_ikr: updatePayload.petugasIkr,
             catatan: updatePayload.catatan,
-            issue_kendala: updatePayload.issueKendala
+            issue_kendala: isNonKendala ? null : (updatePayload.issueKendala || null),
+            tanggal_kendala: isNonKendala ? null : (updatePayload.tanggalKendala || null),
+            reporter_kendala: isNonKendala ? null : (updatePayload.reporterKendala || null)
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
 
@@ -9864,7 +9877,15 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                       {statusOptions.map((opt, i) => (
                         <div
                           key={i}
-                          onClick={(e) => { e.stopPropagation(); setFormData(prev => ({ ...prev, aktivasi: opt.value })); setIsStatusOpen(false); }}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setFormData(prev => ({ 
+                              ...prev, 
+                              aktivasi: opt.value,
+                              ...(opt.value !== 'Kendala' ? { issueKendala: '' } : {})
+                            })); 
+                            setIsStatusOpen(false); 
+                          }}
                           className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
                         >
                           <div className="flex items-center gap-3">
@@ -12283,14 +12304,35 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     setMessage(null);
 
     const finalBulkData = bulkData.map(item => {
+      const isNonKendala = item.aktivasi !== 'Kendala' && item.aktivasi !== 'kendala';
       return {
         ...item,
         ikr: item.aktivasi,
-        issueKendala: item.issueKendala || null,
-        reporterKendala: item.reporterKendala || null,
-        tanggalKendala: item.tanggalKendala || null,
+        issueKendala: isNonKendala ? null : (item.issueKendala || null),
+        reporterKendala: isNonKendala ? null : (item.reporterKendala || null),
+        tanggalKendala: isNonKendala ? null : (item.tanggalKendala || null),
         catatan: item.catatan || null
       };
+    });
+
+    // Update langsung ke Supabase
+    finalBulkData.forEach(async (it) => {
+      try {
+        let finalAktivasi = it.aktivasi;
+        let finalIkr = it.ikr;
+        if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
+        else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
+        const isNonKendala = finalAktivasi !== 'Kendala';
+        await supabase.from('data_pelanggan').update({
+          status_aktivasi: finalAktivasi,
+          status_ikr: finalIkr,
+          issue_kendala: isNonKendala ? null : (it.issueKendala || null),
+          reporter_kendala: isNonKendala ? null : (it.reporterKendala || null),
+          tanggal_kendala: isNonKendala ? null : (it.tanggalKendala || null)
+        }).eq('id_pelanggan', it.idPelanggan);
+      } catch (err) {
+        console.error('Supabase mass update error:', err);
+      }
     });
 
     api.run('updateMassalPelanggan', finalBulkData)
