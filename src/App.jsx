@@ -15,6 +15,8 @@ import * as LucideIcons from 'lucide-react';
 
 import AiDeceView from './components/AiDeceView';
 import ActivationCalendarTable from './components/ActivationCalendarTable';
+import GangguanCalendarTable from './components/GangguanCalendarTable';
+import GangguanAnalytics from './components/GangguanAnalytics';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
@@ -11143,6 +11145,64 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     }
   };
 
+  // STATE UNTUK COLLAPSE SECTION KALENDER & ANALISA
+  const [isCalendarOpen, setIsCalendarOpen] = useState(true);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(true);
+
+  // HANDLER CROSS-FILTER DARI KALENDER KE TABEL TIKET
+  const handleFilterFromCalendar = (stationName, dateStr) => {
+    if (stationName) setStationFilter(stationName);
+    if (dateStr) {
+      setSearchTerm(dateStr);
+      setTimeFilter('');
+    }
+    const el = document.getElementById('section-tickets');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // KPI METRICS PERHITUNGAN
+  const kpiStats = useMemo(() => {
+    const list = enrichedVisitData || [];
+    const total = list.length;
+    const done = list.filter(v => ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase())).length;
+    const open = list.filter(v => !['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase())).length;
+    const pct = total > 0 ? ((done / total) * 100).toFixed(1) : '0';
+
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonth = list.filter(v => {
+      const d = standardizeDate(v.timestamp);
+      return d && d.startsWith(ym);
+    }).length;
+
+    // Hitung rata-rata durasi TTR
+    let totalMin = 0;
+    let countMin = 0;
+    list.forEach(v => {
+      const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase());
+      if (isDone && v.timestamp && v.waktuClose) {
+        const tOpen = parseTimestampMs(v.timestamp);
+        const tClose = parseTimestampMs(v.waktuClose);
+        if (tOpen && tClose && tClose >= tOpen) {
+          const diff = Math.floor((tClose - tOpen) / 60000);
+          if (diff >= 0 && diff < 10080) {
+            totalMin += diff;
+            countMin++;
+          }
+        }
+      }
+    });
+
+    let avgTTR = '-';
+    if (countMin > 0) {
+      const avg = Math.round(totalMin / countMin);
+      if (avg < 60) avgTTR = `${avg} Menit`;
+      else avgTTR = `${Math.floor(avg / 60)}j ${avg % 60}m`;
+    }
+
+    return { total, done, open, pct, thisMonth, avgTTR };
+  }, [enrichedVisitData]);
+
   const toggleDropdown = (dropdownName) => {
     setIsStatusDropdownOpen(dropdownName === 'status' ? !isStatusDropdownOpen : false);
     setIsStationDropdownOpen(dropdownName === 'station' ? !isStationDropdownOpen : false);
@@ -11150,7 +11210,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
   };
 
   return (
-    <div className="max-w-[1440px] w-full mx-auto h-full flex flex-col page-enter relative pb-0">
+    <div className="max-w-[1440px] w-full mx-auto flex flex-col page-enter relative pb-12 space-y-5">
 
       {/* POPUP KONFIRMASI HAPUS (MODAL MERAH) */}
       {deleteTarget && ReactDOM.createPortal(
@@ -11489,7 +11549,114 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
         document.body
       )}
 
-      {/* HEADER & FILTER BAR */}
+      {/* ============================================================ */}
+      {/* 1. SECTION KPI STATS & QUICK JUMP ANCHORS */}
+      {/* ============================================================ */}
+      <div id="section-kpi" className="space-y-3 shrink-0">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+          {/* Card 1: Total Tiket */}
+          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Total Tiket</p>
+              <p className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight mt-0.5">{kpiStats.total}</p>
+              <p className="text-[10px] text-blue-600 font-bold mt-1 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                {kpiStats.thisMonth} Tiket Bulan Ini
+              </p>
+            </div>
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100/60 shadow-2xs">
+              <Icon name="headset" size={20} />
+            </div>
+          </div>
+
+          {/* Card 2: Tingkat Selesai */}
+          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Tingkat Selesai</p>
+              <p className="text-xl sm:text-2xl font-black text-emerald-600 tracking-tight mt-0.5">{kpiStats.pct}%</p>
+              <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                {kpiStats.done} dari {kpiStats.total} Selesai
+              </p>
+            </div>
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100/60 shadow-2xs">
+              <Icon name="check-circle" size={20} />
+            </div>
+          </div>
+
+          {/* Card 3: Rata-rata TTR */}
+          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Rata-rata TTR</p>
+              <p className="text-xl sm:text-2xl font-black text-purple-600 tracking-tight mt-0.5">{kpiStats.avgTTR}</p>
+              <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                Waktu Penyelesaian
+              </p>
+            </div>
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-100/60 shadow-2xs">
+              <Icon name="clock" size={20} />
+            </div>
+          </div>
+
+          {/* Card 4: Tiket Aktif / Open */}
+          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Tiket Aktif (OPEN)</p>
+              <p className={`text-xl sm:text-2xl font-black tracking-tight mt-0.5 ${kpiStats.open > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+                {kpiStats.open}
+              </p>
+              <p className={`text-[10px] font-bold mt-1 ${kpiStats.open > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                {kpiStats.open > 0 ? 'Perlu Ditindaklanjuti' : 'Semua Selesai'}
+              </p>
+            </div>
+            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-2xs ${kpiStats.open > 0 ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+              <Icon name="alert-triangle" size={20} />
+            </div>
+          </div>
+        </div>
+
+        {/* QUICK JUMP ANCHOR BAR */}
+        <div className="flex items-center justify-between flex-wrap gap-2 pt-0.5">
+          <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200/80 rounded-xl shadow-2xs text-xs font-bold text-slate-600">
+            <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-black px-2">Lompat Ke:</span>
+            <button
+              onClick={() => document.getElementById('section-tickets')?.scrollIntoView({ behavior: 'smooth' })}
+              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
+            >
+              <Icon name="list" size={13} className="text-blue-500" />
+              <span>Daftar Tiket</span>
+            </button>
+            <button
+              onClick={() => document.getElementById('section-calendar')?.scrollIntoView({ behavior: 'smooth' })}
+              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
+            >
+              <Icon name="calendar" size={13} className="text-amber-500" />
+              <span>Kalender Stasiun</span>
+            </button>
+            <button
+              onClick={() => document.getElementById('section-analytics')?.scrollIntoView({ behavior: 'smooth' })}
+              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 active:scale-95 text-slate-700"
+            >
+              <Icon name="bar-chart-3" size={13} className="text-indigo-500" />
+              <span>Analisa & Grafik</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* 2. SECTION LIST TIKET VISIT */}
+      {/* ============================================================ */}
+      <div id="section-tickets" className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Icon name="list" size={18} className="text-blue-500" />
+            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+              Daftar Tiket Visit Gangguan
+            </h2>
+          </div>
+        </div>
+
+        {/* HEADER & FILTER BAR */}
       <div className="bg-white p-3.5 sm:p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 sm:gap-4 mb-3.5 sm:mb-6 shrink-0 relative z-20">
         <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 items-start lg:items-center justify-between">
 
@@ -12012,6 +12179,60 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
               </button>
             </div>
           </div>
+        )}
+      </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* 3. SECTION KALENDER GANGGUAN PER STASIUN */}
+      {/* ============================================================ */}
+      <div id="section-calendar" className="pt-2">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <div className="flex items-center gap-2">
+            <Icon name="calendar" size={18} className="text-amber-500" />
+            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+              Kalender Gangguan per Stasiun
+            </h2>
+          </div>
+          <button
+            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+            className="text-xs font-bold text-slate-600 hover:text-slate-800 flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-2xs transition-all active:scale-95"
+          >
+            <span>{isCalendarOpen ? 'Ciutkan Kalender' : 'Buka Kalender'}</span>
+            <Icon name={isCalendarOpen ? 'chevron-up' : 'chevron-down'} size={14} />
+          </button>
+        </div>
+        {isCalendarOpen && (
+          <GangguanCalendarTable
+            visitData={enrichedVisitData}
+            onFilterTicketList={handleFilterFromCalendar}
+          />
+        )}
+      </div>
+
+      {/* ============================================================ */}
+      {/* 4. SECTION ANALISA & GRAFIK TREN BULANAN */}
+      {/* ============================================================ */}
+      <div id="section-analytics" className="pt-2">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <div className="flex items-center gap-2">
+            <Icon name="bar-chart-3" size={18} className="text-indigo-500" />
+            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
+              Analisa & Tren Gangguan Bulanan
+            </h2>
+          </div>
+          <button
+            onClick={() => setIsAnalyticsOpen(!isAnalyticsOpen)}
+            className="text-xs font-bold text-slate-600 hover:text-slate-800 flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-2xs transition-all active:scale-95"
+          >
+            <span>{isAnalyticsOpen ? 'Ciutkan Analisa' : 'Buka Analisa'}</span>
+            <Icon name={isAnalyticsOpen ? 'chevron-up' : 'chevron-down'} size={14} />
+          </button>
+        </div>
+        {isAnalyticsOpen && (
+          <GangguanAnalytics
+            visitData={enrichedVisitData}
+          />
         )}
       </div>
 
