@@ -247,6 +247,25 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
     return trimmed;
   };
 
+  // Helper membersihkan tindakan kosong / tanda strip berulang
+  const getCleanTindakan = (tindakan) => {
+    if (!tindakan) return null;
+    const trimmed = String(tindakan).trim();
+    if (
+      trimmed === '' ||
+      trimmed === '-' ||
+      trimmed === '- -' ||
+      trimmed === '--' ||
+      trimmed === '"-"' ||
+      trimmed === '"- -"' ||
+      trimmed.toLowerCase() === 'null' ||
+      trimmed.toLowerCase() === 'undefined'
+    ) {
+      return null;
+    }
+    return trimmed;
+  };
+
   // Statistik ringkasan modal rincian gangguan
   const statsModal = useMemo(() => {
     if (!selectedCell || !selectedCell.items) return { total: 0, selesai: 0, open: 0 };
@@ -304,6 +323,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         String(ticket.idPelanggan || '').toLowerCase().includes(q) ||
         String(ticket.namaPelanggan || '').toLowerCase().includes(q) ||
         String(ticket.keluhan || '').toLowerCase().includes(q) ||
+        String(ticket.tindakan || ticket.perbaikan || '').toLowerCase().includes(q) ||
         String(ticket.petugas || '').toLowerCase().includes(q) ||
         String(ticket.kodeOdp || ticket.odpAktual || ticket.odp || '').toLowerCase().includes(q) ||
         String(ticket.port || ticket.portOdp || '').toLowerCase().includes(q) ||
@@ -317,11 +337,12 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
   const handleExportModalExcel = () => {
     if (!selectedCell || !selectedCell.items || !selectedCell.items.length) return;
     try {
-      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'CATATAN', 'ODP', 'PORT', 'PETUGAS', 'STATUS', 'WAKTU', 'TTR'];
+      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'TINDAKAN', 'ODP', 'PORT', 'PETUGAS', 'STATUS', 'WAKTU', 'TTR'];
       const targetItems = filteredModalItems && filteredModalItems.length > 0 ? filteredModalItems : selectedCell.items;
       const rows = targetItems.map((ticket, idx) => {
         const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase());
         const ttrVal = ticket.ttr || (isDone ? calculateTTR(ticket.timestampOpen || ticket.timestamp, ticket.waktuClose || ticket.waktuSelesai || ticket.closedAt || ticket.timestampClose) : null);
+        const cleanTindakan = getCleanTindakan(ticket.tindakan || ticket.perbaikan || ticket.tindakan_perbaikan);
         return [
           idx + 1,
           ticket.idPelanggan || '-',
@@ -329,7 +350,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
           selectedCell.station,
           selectedCell.date,
           ticket.keluhan || '-',
-          getCleanCatatan(ticket.catatan) || '-',
+          cleanTindakan || '-',
           ticket.kodeOdp || ticket.odpAktual || ticket.odp || '-',
           ticket.port || ticket.portOdp || '-',
           ticket.petugas || '-',
@@ -791,7 +812,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                     <th className="px-2.5 py-2.5 text-center w-10">NO</th>
                     <th className="px-3 py-2.5 w-24">ID</th>
                     <th className="px-3 py-2.5 min-w-[130px]">NAMA PELANGGAN</th>
-                    <th className="px-3 py-2.5 min-w-[160px]">KELUHAN & CATATAN</th>
+                    <th className="px-3 py-2.5 min-w-[170px]">KELUHAN & TINDAKAN</th>
                     <th className="px-3 py-2.5 whitespace-nowrap">ODP / PORT</th>
                     <th className="px-3 py-2.5 whitespace-nowrap">PETUGAS</th>
                     <th className="px-2.5 py-2.5 text-center w-24 whitespace-nowrap">STATUS</th>
@@ -808,7 +829,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                   ) : (
                     filteredModalItems.map((ticket, idx) => {
                       const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase());
-                      const cleanNote = getCleanCatatan(ticket.catatan);
+                      const cleanTindakan = getCleanTindakan(ticket.tindakan || ticket.perbaikan || ticket.tindakan_perbaikan);
                       const ttrString = ticket.ttr || (isDone ? calculateTTR(ticket.timestampOpen || ticket.timestamp, ticket.waktuClose || ticket.waktuSelesai || ticket.closedAt || ticket.timestampClose) : null);
 
                       let displayTime = '';
@@ -844,13 +865,25 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                             )}
                           </td>
                           <td className="px-3 py-2.5">
+                            {/* Baris Atas: Keluhan */}
                             <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 font-bold text-[9.5px] uppercase tracking-wider rounded border border-rose-200 mb-1">
                               <Icon name="alert-triangle" size={10} />
                               <span>{ticket.keluhan || 'Gangguan'}</span>
                             </div>
-                            {cleanNote && (
-                              <div className="text-[11px] text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 leading-tight break-words">
-                                {cleanNote}
+
+                            {/* Baris Bawah: Tindakan */}
+                            {cleanTindakan ? (
+                              <div className="text-[11px] text-emerald-900 bg-emerald-50/90 px-2.5 py-1 rounded border border-emerald-200/80 leading-snug break-words">
+                                <span className="text-[8.5px] font-black text-emerald-700 uppercase tracking-wider block mb-0.5">
+                                  Tindakan:
+                                </span>
+                                <span className="font-semibold text-emerald-950">
+                                  {cleanTindakan}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-400 italic mt-0.5">
+                                Belum ada tindakan
                               </div>
                             )}
                           </td>
