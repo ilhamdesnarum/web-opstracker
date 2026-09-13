@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
-import { toProperCase } from '../utils';
+import { toProperCase, calculateTTR } from '../utils';
 
 // Icon Helper
 const Icon = ({ name, size = 18, className = "" }) => {
@@ -317,21 +317,27 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
   const handleExportModalExcel = () => {
     if (!selectedCell || !selectedCell.items || !selectedCell.items.length) return;
     try {
-      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'CATATAN', 'ODP', 'PORT', 'PETUGAS', 'STATUS'];
+      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'CATATAN', 'ODP', 'PORT', 'PETUGAS', 'STATUS', 'WAKTU', 'TTR'];
       const targetItems = filteredModalItems && filteredModalItems.length > 0 ? filteredModalItems : selectedCell.items;
-      const rows = targetItems.map((ticket, idx) => [
-        idx + 1,
-        ticket.idPelanggan || '-',
-        ticket.namaPelanggan || 'Tanpa Nama',
-        selectedCell.station,
-        selectedCell.date,
-        ticket.keluhan || '-',
-        getCleanCatatan(ticket.catatan) || '-',
-        ticket.kodeOdp || ticket.odpAktual || ticket.odp || '-',
-        ticket.port || ticket.portOdp || '-',
-        ticket.petugas || '-',
-        ticket.status || 'OPEN'
-      ]);
+      const rows = targetItems.map((ticket, idx) => {
+        const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase());
+        const ttrVal = ticket.ttr || (isDone ? calculateTTR(ticket.timestampOpen || ticket.timestamp, ticket.waktuClose || ticket.waktuSelesai || ticket.closedAt || ticket.timestampClose) : null);
+        return [
+          idx + 1,
+          ticket.idPelanggan || '-',
+          ticket.namaPelanggan || 'Tanpa Nama',
+          selectedCell.station,
+          selectedCell.date,
+          ticket.keluhan || '-',
+          getCleanCatatan(ticket.catatan) || '-',
+          ticket.kodeOdp || ticket.odpAktual || ticket.odp || '-',
+          ticket.port || ticket.portOdp || '-',
+          ticket.petugas || '-',
+          ticket.status || 'OPEN',
+          ticket.timestamp || '-',
+          ttrVal || '-'
+        ];
+      });
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       ws['!cols'] = [
         { wch: 6 },
@@ -344,7 +350,9 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         { wch: 22 },
         { wch: 8 },
         { wch: 18 },
-        { wch: 12 }
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 14 }
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Rincian Gangguan');
@@ -787,7 +795,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                     <th className="px-3 py-2.5 whitespace-nowrap">ODP / PORT</th>
                     <th className="px-3 py-2.5 whitespace-nowrap">PETUGAS</th>
                     <th className="px-2.5 py-2.5 text-center w-24 whitespace-nowrap">STATUS</th>
-                    <th className="px-3 py-2.5 text-right w-24 whitespace-nowrap">WAKTU</th>
+                    <th className="px-3 py-2.5 text-right w-28 whitespace-nowrap">WAKTU & TTR</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -801,6 +809,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                     filteredModalItems.map((ticket, idx) => {
                       const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase());
                       const cleanNote = getCleanCatatan(ticket.catatan);
+                      const ttrString = ticket.ttr || (isDone ? calculateTTR(ticket.timestampOpen || ticket.timestamp, ticket.waktuClose || ticket.waktuSelesai || ticket.closedAt || ticket.timestampClose) : null);
 
                       let displayTime = '';
                       if (ticket.timestamp) {
@@ -881,8 +890,25 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2.5 text-right text-[11px] text-slate-500 font-mono whitespace-nowrap">
-                            {displayTime || '-'}
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                            <div className="text-[11px] text-slate-700 font-mono font-bold">
+                              {displayTime || '-'}
+                            </div>
+                            {ttrString ? (
+                              <div
+                                className="inline-flex items-center gap-1 mt-0.5 text-[9.5px] font-bold text-blue-700 bg-blue-50 border border-blue-200/80 px-1.5 py-0.5 rounded font-sans tracking-tight"
+                                title={`Durasi Penanganan (TTR): ${ttrString}`}
+                              >
+                                <Icon name="clock" size={9} />
+                                <span>TTR: {ttrString}</span>
+                              </div>
+                            ) : (
+                              !isDone ? (
+                                <span className="inline-block mt-0.5 text-[9.5px] text-amber-600 font-bold font-sans">
+                                  Dalam Proses
+                                </span>
+                              ) : null
+                            )}
                           </td>
                         </tr>
                       );
