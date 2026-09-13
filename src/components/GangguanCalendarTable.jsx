@@ -873,11 +873,11 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
                             {/* Baris Bawah: Tindakan */}
                             {cleanTindakan ? (
-                              <div className="text-[11px] text-emerald-900 bg-emerald-50/90 px-2.5 py-1 rounded border border-emerald-200/80 leading-snug break-words">
-                                <span className="text-[8.5px] font-black text-emerald-700 uppercase tracking-wider block mb-0.5">
-                                  Tindakan:
+                              <div className="flex items-center gap-2 text-[11px] text-emerald-900 bg-emerald-50/90 px-2 py-1 rounded border border-emerald-200/80 leading-tight break-words">
+                                <span className="w-[58px] py-0.5 text-center text-[8.5px] font-bold text-emerald-700 uppercase tracking-wider shrink-0 bg-emerald-100/80 border border-emerald-200 rounded">
+                                  Tindakan
                                 </span>
-                                <span className="font-semibold text-emerald-950">
+                                <span className="font-semibold text-emerald-950 flex-1">
                                   {cleanTindakan}
                                 </span>
                               </div>

@@ -11978,22 +11978,22 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       {isItemDone && (item.tindakan || item.perbaikan) ? (
                         <div className="bg-emerald-50/70 rounded-lg border border-emerald-200/80 p-2 space-y-1.5 shadow-2xs">
                           {/* Tindakan */}
-                          <div className="flex items-start gap-1.5 leading-tight">
-                            <span className="text-[8.5px] font-bold text-emerald-700 uppercase tracking-wider shrink-0 mt-0.5 bg-emerald-100/80 border border-emerald-200 px-1 py-0.5 rounded">
+                          <div className="flex items-center gap-2">
+                            <span className="w-[62px] py-0.5 text-center text-[8.5px] font-bold text-emerald-700 uppercase tracking-wider shrink-0 bg-emerald-100/80 border border-emerald-200 rounded">
                               Tindakan
                             </span>
-                            <span className="text-[11px] font-semibold text-emerald-950 break-words whitespace-normal leading-snug">
+                            <span className="text-[11px] font-semibold text-emerald-950 break-words whitespace-normal leading-tight flex-1">
                               {item.tindakan || item.perbaikan}
                             </span>
                           </div>
 
                           {/* Material Digunakan jika ada */}
                           {(item.material || item.usedMaterials) && (
-                            <div className="flex items-start gap-1.5 pt-1.5 border-t border-emerald-200/60 leading-tight">
-                              <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mt-0.5 bg-white border border-slate-200 px-1 py-0.5 rounded">
+                            <div className="flex items-center gap-2 pt-1.5 border-t border-emerald-200/60">
+                              <span className="w-[62px] py-0.5 text-center text-[8.5px] font-bold text-slate-500 uppercase tracking-wider shrink-0 bg-white border border-slate-200 rounded">
                                 Material
                               </span>
-                              <span className="text-[11px] font-medium text-slate-700 break-words whitespace-normal leading-snug">
+                              <span className="text-[11px] font-medium text-slate-700 break-words whitespace-normal leading-tight flex-1">
                                 {item.material || item.usedMaterials}
                               </span>
                             </div>
