@@ -655,7 +655,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
             }}
           />
 
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl lg:max-w-5xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] relative z-10 animate-modal">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl xl:max-w-6xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] relative z-10 animate-modal">
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/90">
               <div className="flex items-center gap-3">
@@ -775,19 +775,19 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
               </div>
             </div>
 
-            {/* Modal Body: Tabel Data Tiket Gangguan Resmi */}
-            <div className="overflow-x-auto overflow-y-auto max-h-[54vh] flex-1">
-              <table className="w-full text-left border-collapse text-xs whitespace-nowrap min-w-[760px]">
+            {/* Modal Body: Tabel Data Tiket Gangguan Resmi (Fit 100% tanpa scroll horizontal) */}
+            <div className="overflow-y-auto max-h-[56vh] flex-1">
+              <table className="w-full text-left border-collapse text-xs">
                 <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0 z-10 text-[11px]">
                   <tr>
-                    <th className="px-4 py-3 text-center w-12">NO</th>
-                    <th className="px-4 py-3">ID PELANGGAN</th>
-                    <th className="px-4 py-3">NAMA PELANGGAN</th>
-                    <th className="px-4 py-3 min-w-[220px]">KELUHAN & CATATAN</th>
-                    <th className="px-4 py-3">ODP / PORT</th>
-                    <th className="px-4 py-3">PETUGAS</th>
-                    <th className="px-4 py-3 text-center">STATUS</th>
-                    <th className="px-4 py-3 text-right">WAKTU</th>
+                    <th className="px-2.5 py-2.5 text-center w-10">NO</th>
+                    <th className="px-3 py-2.5 w-24">ID</th>
+                    <th className="px-3 py-2.5 min-w-[130px]">NAMA PELANGGAN</th>
+                    <th className="px-3 py-2.5 min-w-[160px]">KELUHAN & CATATAN</th>
+                    <th className="px-3 py-2.5 whitespace-nowrap">ODP / PORT</th>
+                    <th className="px-3 py-2.5 whitespace-nowrap">PETUGAS</th>
+                    <th className="px-2.5 py-2.5 text-center w-24 whitespace-nowrap">STATUS</th>
+                    <th className="px-3 py-2.5 text-right w-24 whitespace-nowrap">WAKTU</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -816,43 +816,43 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
                       return (
                         <tr key={ticket.idPelanggan || idx} className="hover:bg-blue-50/40 transition-colors">
-                          <td className="px-4 py-3 text-center text-slate-400 font-bold">
+                          <td className="px-2.5 py-2.5 text-center text-slate-400 font-bold">
                             {idx + 1}
                           </td>
-                          <td className="px-4 py-3">
-                            <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[11px]">
                               {ticket.idPelanggan || '-'}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="font-bold text-slate-800">
+                          <td className="px-3 py-2.5">
+                            <div className="font-bold text-slate-800 leading-tight">
                               {ticket.namaPelanggan || 'Tanpa Nama'}
                             </div>
                             {ticket.nomorHp && (
-                              <div className="text-[11px] text-slate-400 font-normal mt-0.5">
+                              <div className="text-[10.5px] text-slate-400 font-normal mt-0.5">
                                 {ticket.nomorHp}
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 whitespace-normal max-w-[280px]">
-                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 text-rose-700 font-bold text-[10px] uppercase tracking-wider rounded border border-rose-200 mb-1">
-                              <Icon name="alert-triangle" size={11} />
+                          <td className="px-3 py-2.5">
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 font-bold text-[9.5px] uppercase tracking-wider rounded border border-rose-200 mb-1">
+                              <Icon name="alert-triangle" size={10} />
                               <span>{ticket.keluhan || 'Gangguan'}</span>
                             </div>
                             {cleanNote && (
-                              <div className="text-[11px] text-slate-600 bg-slate-50 px-2.5 py-1 rounded border border-slate-100 leading-snug break-words">
+                              <div className="text-[11px] text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 leading-tight break-words">
                                 {cleanNote}
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
+                          <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
                             {(ticket.kodeOdp || ticket.odpAktual || ticket.odp) ? (
                               <div className="font-mono text-xs">
                                 <span className="font-bold text-blue-700">
                                   {ticket.kodeOdp || ticket.odpAktual || ticket.odp}
                                 </span>
                                 {(ticket.port || ticket.portOdp) && (
-                                  <span className="text-slate-400 font-sans ml-1 text-[11px]">
+                                  <span className="text-slate-400 font-sans ml-1 text-[10.5px]">
                                     (P.{ticket.port || ticket.portOdp})
                                   </span>
                                 )}
@@ -861,27 +861,27 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                               <span className="text-slate-300">-</span>
                             )}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2.5 whitespace-nowrap">
                             {ticket.petugas ? (
-                              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 inline-flex items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-100 inline-flex items-center gap-1">
                                 @{String(ticket.petugas).replace(/^@/, '')}
                               </span>
                             ) : (
                               <span className="text-slate-400 italic text-[11px]">-</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-2.5 py-2.5 text-center whitespace-nowrap">
                             {isDone ? (
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
-                                <Icon name="check" size={11} /> SELESAI
+                              <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                <Icon name="check" size={10} /> SELESAI
                               </span>
                             ) : (
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
-                                <Icon name="clock" size={11} /> AKTIF
+                              <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
+                                <Icon name="clock" size={10} /> AKTIF
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right text-[11px] text-slate-500 font-mono">
+                          <td className="px-3 py-2.5 text-right text-[11px] text-slate-500 font-mono whitespace-nowrap">
                             {displayTime || '-'}
                           </td>
                         </tr>
