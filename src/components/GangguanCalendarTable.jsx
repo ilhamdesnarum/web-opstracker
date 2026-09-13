@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
 import { toProperCase } from '../utils';
 
@@ -227,11 +228,53 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
     return 'bg-rose-100 text-rose-700 border border-rose-300 font-black shadow-xs hover:bg-rose-200 hover:border-rose-400';
   };
 
-  // Kunci scroll saat modal rincian terbuka
+  // Helper membersihkan catatan kosong / tanda strip berulang
+  const getCleanCatatan = (catatan) => {
+    if (!catatan) return null;
+    const trimmed = String(catatan).trim();
+    if (
+      trimmed === '' ||
+      trimmed === '-' ||
+      trimmed === '- -' ||
+      trimmed === '--' ||
+      trimmed === '"-"' ||
+      trimmed === '"- -"' ||
+      trimmed.toLowerCase() === 'null' ||
+      trimmed.toLowerCase() === 'undefined'
+    ) {
+      return null;
+    }
+    return trimmed;
+  };
+
+  // Statistik ringkasan modal rincian gangguan
+  const statsModal = useMemo(() => {
+    if (!selectedCell || !selectedCell.items) return { total: 0, selesai: 0, open: 0 };
+    let selesai = 0;
+    let open = 0;
+    selectedCell.items.forEach(t => {
+      const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(t.status || '').toUpperCase());
+      if (isDone) selesai++;
+      else open++;
+    });
+    return { total: selectedCell.items.length, selesai, open };
+  }, [selectedCell]);
+
+  // Kunci scroll halaman saat modal rincian terbuka dan tangani tombol Escape
   useEffect(() => {
     if (selectedCell) {
       const prevBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
+
+      // Pastikan container scrollable latar belakang utama terkunci
+      const scrollContainers = document.querySelectorAll('.overflow-auto, .overflow-y-auto');
+      const savedStyles = [];
+      scrollContainers.forEach(el => {
+        if (!el.closest('.animate-modal')) {
+          savedStyles.push({ el, overflow: el.style.overflow });
+          el.style.overflow = 'hidden';
+        }
+      });
 
       const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
@@ -243,6 +286,9 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
       return () => {
         document.body.style.overflow = prevBodyOverflow || 'auto';
+        savedStyles.forEach(({ el, overflow }) => {
+          el.style.overflow = overflow;
+        });
         window.removeEventListener('keydown', handleKeyDown);
       };
     }
@@ -259,7 +305,9 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         String(ticket.namaPelanggan || '').toLowerCase().includes(q) ||
         String(ticket.keluhan || '').toLowerCase().includes(q) ||
         String(ticket.petugas || '').toLowerCase().includes(q) ||
-        String(ticket.odpAktual || ticket.odp || '').toLowerCase().includes(q) ||
+        String(ticket.kodeOdp || ticket.odpAktual || ticket.odp || '').toLowerCase().includes(q) ||
+        String(ticket.port || ticket.portOdp || '').toLowerCase().includes(q) ||
+        String(ticket.nomorHp || '').toLowerCase().includes(q) ||
         String(ticket.catatan || '').toLowerCase().includes(q)
       );
     });
@@ -269,20 +317,35 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
   const handleExportModalExcel = () => {
     if (!selectedCell || !selectedCell.items || !selectedCell.items.length) return;
     try {
-      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'ODP', 'PETUGAS', 'STATUS'];
-      const rows = selectedCell.items.map((ticket, idx) => [
+      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'CATATAN', 'ODP', 'PORT', 'PETUGAS', 'STATUS'];
+      const targetItems = filteredModalItems && filteredModalItems.length > 0 ? filteredModalItems : selectedCell.items;
+      const rows = targetItems.map((ticket, idx) => [
         idx + 1,
         ticket.idPelanggan || '-',
         ticket.namaPelanggan || 'Tanpa Nama',
         selectedCell.station,
         selectedCell.date,
         ticket.keluhan || '-',
-        ticket.odpAktual || ticket.odp || '-',
+        getCleanCatatan(ticket.catatan) || '-',
+        ticket.kodeOdp || ticket.odpAktual || ticket.odp || '-',
+        ticket.port || ticket.portOdp || '-',
         ticket.petugas || '-',
         ticket.status || 'OPEN'
       ]);
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-      ws['!cols'] = [{ wch: 6 }, { wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 25 }, { wch: 16 }, { wch: 20 }, { wch: 12 }];
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 15 },
+        { wch: 25 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 22 },
+        { wch: 25 },
+        { wch: 22 },
+        { wch: 8 },
+        { wch: 18 },
+        { wch: 12 }
+      ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Rincian Gangguan');
       const cleanStation = String(selectedCell.station).replace(/[^a-zA-Z0-9]/g, '_');
@@ -580,151 +643,285 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         </div>
       </div>
 
-      {/* MODAL POPUP RINCIAN TIKET GANGGUAN (IDENTIK DENGAN MODAL AKTIVASI) */}
-      {selectedCell && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 animate-fade">
+      {/* MODAL POPUP RINCIAN TIKET GANGGUAN (PORTAL KE BODY DENGAN TABEL ENTERPRISE & BACKDROP BLUR PENUH) */}
+      {selectedCell && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
+          {/* Backdrop Blur Menyeluruh ke Seluruh Halaman (Sidebar, Header & Konten) */}
           <div
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-md animate-fade"
             onClick={() => {
               setSelectedCell(null);
               setSearchQuery('');
             }}
-          ></div>
+          />
 
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 flex flex-col max-h-[90vh] animate-modal overflow-hidden border border-slate-100">
-            {/* Header Modal */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl lg:max-w-5xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] relative z-10 animate-modal">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/90">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center font-bold shadow-xs shrink-0">
                   <Icon name="alert-triangle" size={20} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-base sm:text-lg font-bold text-slate-800">
-                      Rincian Gangguan — Stasiun {selectedCell.station}
+                    <h3 className="font-bold text-base text-slate-800">
+                      Rincian Gangguan: {selectedCell.station}
                     </h3>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                      {selectedCell.items.length} Tiket
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                      {selectedCell.dayName}, {selectedCell.dayNumber} {MONTH_NAMES[currentMonth]} {currentYear}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {selectedCell.dayName}, {selectedCell.dayNumber} {MONTH_NAMES[currentMonth]} {currentYear}
-                  </p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 flex-wrap">
+                    <span>
+                      Total Tiket: <strong className="text-slate-800 font-bold">{selectedCell.items.length} Gangguan</strong>
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <span>
+                      Selesai: <strong className="text-emerald-700 font-bold">{statsModal.selesai}</strong>
+                    </span>
+                    {statsModal.open > 0 && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span>
+                          Belum Selesai: <strong className="text-rose-600 font-bold">{statsModal.open}</strong>
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
+                {onFilterTicketList && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFilterTicketList(selectedCell.station, selectedCell.date);
+                      setSelectedCell(null);
+                      setSearchQuery('');
+                    }}
+                    title="Terapkan filter stasiun dan tanggal ke daftar tabel tiket utama"
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl transition-all shadow-xs cursor-pointer"
+                  >
+                    <Icon name="filter" size={14} />
+                    <span>Filter di Tabel</span>
+                  </button>
+                )}
                 <button
+                  type="button"
                   onClick={handleExportModalExcel}
-                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl transition-colors"
-                  title="Ekspor daftar ini ke Excel"
+                  title="Unduh rincian tiket gangguan ini ke format Excel"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   <Icon name="file-spreadsheet" size={14} />
-                  <span>Excel</span>
+                  <span>Export Excel</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedCell(null);
                     setSearchQuery('');
                   }}
-                  className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                  title="Tutup (Esc)"
                 >
-                  <Icon name="x" size={18} />
+                  <Icon name="x" size={20} />
                 </button>
               </div>
             </div>
 
-            {/* Toolbar Pencarian & Filter di Modal */}
-            <div className="p-3 sm:px-5 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-2.5">
-              <div className="relative w-full sm:w-72">
-                <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            {/* Modal Search Bar & Toolbar */}
+            <div className="px-5 py-3 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-80">
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari ID, Pelanggan, Keluhan, Petugas..."
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all"
+                  placeholder="Cari ID, nama, keluhan, ODP, atau petugas..."
+                  className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-medium"
                 />
+                <div className="absolute left-3 top-2.5 text-slate-400 pointer-events-none">
+                  <Icon name="search" size={14} />
+                </div>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <Icon name="x" size={14} />
+                  </button>
+                )}
               </div>
 
-              <button
-                onClick={() => {
-                  if (onFilterTicketList) {
-                    onFilterTicketList(selectedCell.station, selectedCell.date);
-                  }
-                  setSelectedCell(null);
-                  setSearchQuery('');
-                }}
-                className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Icon name="filter" size={13} />
-                <span>Filter di Tabel Utama</span>
-              </button>
+              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
+                {onFilterTicketList && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFilterTicketList(selectedCell.station, selectedCell.date);
+                      setSelectedCell(null);
+                      setSearchQuery('');
+                    }}
+                    className="sm:hidden inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 rounded-xl cursor-pointer"
+                  >
+                    <Icon name="filter" size={13} />
+                    <span>Filter di Tabel</span>
+                  </button>
+                )}
+                <div className="text-xs text-slate-500 font-medium">
+                  Menampilkan <strong className="text-slate-800 font-bold">{filteredModalItems.length}</strong> dari {selectedCell.items.length} tiket
+                </div>
+              </div>
             </div>
 
-            {/* List Tiket di Modal */}
-            <div className="overflow-y-auto p-3 sm:p-5 divide-y divide-slate-100 space-y-3">
-              {filteredModalItems.map((ticket, idx) => (
-                <div key={idx} className="pt-3 first:pt-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        {ticket.idPelanggan || '-'}
-                      </span>
-                      <h4 className="text-sm font-bold text-slate-800 truncate">
-                        {ticket.namaPelanggan || 'Pelanggan'}
-                      </h4>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase())
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {ticket.status || 'OPEN'}
-                      </span>
-                    </div>
+            {/* Modal Body: Tabel Data Tiket Gangguan Resmi */}
+            <div className="overflow-x-auto overflow-y-auto max-h-[54vh] flex-1">
+              <table className="w-full text-left border-collapse text-xs whitespace-nowrap min-w-[760px]">
+                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0 z-10 text-[11px]">
+                  <tr>
+                    <th className="px-4 py-3 text-center w-12">NO</th>
+                    <th className="px-4 py-3">ID PELANGGAN</th>
+                    <th className="px-4 py-3">NAMA PELANGGAN</th>
+                    <th className="px-4 py-3 min-w-[220px]">KELUHAN & CATATAN</th>
+                    <th className="px-4 py-3">ODP / PORT</th>
+                    <th className="px-4 py-3">PETUGAS</th>
+                    <th className="px-4 py-3 text-center">STATUS</th>
+                    <th className="px-4 py-3 text-right">WAKTU</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredModalItems.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="px-6 py-12 text-center text-slate-400">
+                        <p className="font-medium">Tidak ada tiket gangguan yang cocok dengan kata kunci pencarian.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredModalItems.map((ticket, idx) => {
+                      const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase());
+                      const cleanNote = getCleanCatatan(ticket.catatan);
 
-                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5">
-                      <Icon name="alert-triangle" size={13} />
-                      <span>{ticket.keluhan || 'Kendala Gangguan'}</span>
-                    </p>
+                      let displayTime = '';
+                      if (ticket.timestamp) {
+                        const str = String(ticket.timestamp);
+                        if (str.includes(' ')) {
+                          displayTime = str.split(' ')[1].substring(0, 5) + ' WIB';
+                        } else if (str.includes('T')) {
+                          displayTime = str.split('T')[1].substring(0, 5) + ' WIB';
+                        } else {
+                          displayTime = str;
+                        }
+                      }
 
-                    {ticket.catatan && (
-                      <p className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
-                        "{ticket.catatan}"
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-4 text-[11px] text-slate-400 flex-wrap">
-                      {ticket.odpAktual && <span>ODP: <strong className="text-slate-600">{ticket.odpAktual}</strong></span>}
-                      {ticket.petugas && <span>Petugas: <strong className="text-slate-600">{ticket.petugas}</strong></span>}
-                      {ticket.timestamp && <span>Waktu: <strong className="text-slate-600">{ticket.timestamp}</strong></span>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {filteredModalItems.length === 0 && (
-                <div className="text-center py-10 text-slate-400 text-xs font-bold">
-                  Tidak ada tiket yang cocok dengan pencarian.
-                </div>
-              )}
+                      return (
+                        <tr key={ticket.idPelanggan || idx} className="hover:bg-blue-50/40 transition-colors">
+                          <td className="px-4 py-3 text-center text-slate-400 font-bold">
+                            {idx + 1}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                              {ticket.idPelanggan || '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-slate-800">
+                              {ticket.namaPelanggan || 'Tanpa Nama'}
+                            </div>
+                            {ticket.nomorHp && (
+                              <div className="text-[11px] text-slate-400 font-normal mt-0.5">
+                                {ticket.nomorHp}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-normal max-w-[280px]">
+                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 text-rose-700 font-bold text-[10px] uppercase tracking-wider rounded border border-rose-200 mb-1">
+                              <Icon name="alert-triangle" size={11} />
+                              <span>{ticket.keluhan || 'Gangguan'}</span>
+                            </div>
+                            {cleanNote && (
+                              <div className="text-[11px] text-slate-600 bg-slate-50 px-2.5 py-1 rounded border border-slate-100 leading-snug break-words">
+                                {cleanNote}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {(ticket.kodeOdp || ticket.odpAktual || ticket.odp) ? (
+                              <div className="font-mono text-xs">
+                                <span className="font-bold text-blue-700">
+                                  {ticket.kodeOdp || ticket.odpAktual || ticket.odp}
+                                </span>
+                                {(ticket.port || ticket.portOdp) && (
+                                  <span className="text-slate-400 font-sans ml-1 text-[11px]">
+                                    (P.{ticket.port || ticket.portOdp})
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.petugas ? (
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 inline-flex items-center gap-1">
+                                @{String(ticket.petugas).replace(/^@/, '')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {isDone ? (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                <Icon name="check" size={11} /> SELESAI
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
+                                <Icon name="clock" size={11} /> AKTIF
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right text-[11px] text-slate-500 font-mono">
+                            {displayTime || '-'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            {/* Footer Modal */}
-            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Menampilkan {filteredModalItems.length} dari {selectedCell.items.length} tiket</span>
-              <button
-                onClick={() => {
-                  setSelectedCell(null);
-                  setSearchQuery('');
-                }}
-                className="px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                Tutup
-              </button>
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/80 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-slate-500 text-xs">
+                <span>Stasiun: <strong className="text-slate-700 font-bold">{selectedCell.station}</strong></span>
+                <span className="text-slate-300">•</span>
+                <span>Total: <strong className="text-blue-600 font-bold">{selectedCell.items.length} Tiket</strong></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportModalExcel}
+                  className="sm:hidden px-3 py-1.5 rounded-xl font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs cursor-pointer"
+                >
+                  Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCell(null);
+                    setSearchQuery('');
+                  }}
+                  className="px-4 py-2 rounded-xl font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors shadow-xs cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
