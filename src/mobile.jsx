@@ -4119,8 +4119,8 @@ const MobileApp = () => {
                                     const ttr = calculateTTR(ticket.timestampOpen, ticket.waktuClose);
                                     if (ttr) {
                                       return (
-                                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 flex items-center gap-1">
-                                          <Icon name="clock" size={9} /> TTR: {ttr}
+                                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-emerald-300/80 bg-emerald-100/90 text-emerald-800 flex items-center gap-1">
+                                          <Icon name="clock" size={9} className="text-emerald-600" /> TTR: {ttr}
                                         </span>
                                       );
                                     }

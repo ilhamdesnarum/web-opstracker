@@ -929,10 +929,10 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                             </div>
                             {ttrString ? (
                               <div
-                                className="inline-flex items-center gap-1 mt-0.5 text-[9.5px] font-bold text-blue-700 bg-blue-50 border border-blue-200/80 px-1.5 py-0.5 rounded font-sans tracking-tight"
+                                className="inline-flex items-center gap-1 mt-0.5 text-[9.5px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300/80 px-1.5 py-0.5 rounded font-sans tracking-tight"
                                 title={`Durasi Penanganan (TTR): ${ttrString}`}
                               >
-                                <Icon name="clock" size={9} />
+                                <Icon name="clock" size={9} className="text-emerald-600" />
                                 <span>TTR: {ttrString}</span>
                               </div>
                             ) : (

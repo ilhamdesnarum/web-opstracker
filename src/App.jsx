@@ -6827,8 +6827,8 @@ function DashboardView({ data, isSyncing }) {
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {isDone && ttrString && (
-                                  <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
-                                    <Icon name="clock" size={9} /> TTR: {ttrString}
+                                  <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-300/80 flex items-center gap-1">
+                                    <Icon name="clock" size={9} className="text-emerald-600" /> TTR: {ttrString}
                                   </span>
                                 )}
                                 <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shrink-0 ${isDone ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
@@ -6939,8 +6939,8 @@ function DashboardView({ data, isSyncing }) {
                                 <div className="flex flex-col items-center gap-1">
                                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded shadow-sm">DONE</span>
                                   {ttrDesk && (
-                                    <span className="text-[8px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1 py-0.5 rounded flex items-center gap-0.5 whitespace-nowrap">
-                                      <Icon name="clock" size={8} /> TTR: {ttrDesk}
+                                    <span className="text-[8px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300/80 px-1 py-0.5 rounded flex items-center gap-0.5 whitespace-nowrap">
+                                      <Icon name="clock" size={8} className="text-emerald-600" /> TTR: {ttrDesk}
                                     </span>
                                   )}
                                 </div>
@@ -11789,8 +11789,8 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {isDone && ttrString && (
-                      <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
-                        <Icon name="clock" size={9} /> TTR: {ttrString}
+                      <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-300/80 flex items-center gap-1">
+                        <Icon name="clock" size={9} className="text-emerald-600" /> TTR: {ttrString}
                       </span>
                     )}
                     <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${isDone ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
@@ -12048,13 +12048,13 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                             <span className="text-[9px] font-bold uppercase tracking-wider hidden group-hover:block">Selesaikan</span>
                           </button>
                         ) : (
-                          <div className="flex flex-col items-center justify-center gap-1 w-full py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase">
+                          <div className="flex flex-col items-center justify-center gap-1 w-full py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase shadow-2xs">
                             <div className="flex items-center gap-1 font-black">
                               <Icon name="check" size={12} /> Selesai
                             </div>
                             {ttrItemString && (
-                              <span className="text-[8.5px] font-bold text-blue-700 bg-blue-100/70 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 normal-case tracking-normal">
-                                <Icon name="clock" size={8} /> <strong className="font-bold">TTR:</strong> {ttrItemString}
+                              <span className="text-[8.5px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300/80 px-1.5 py-0.5 rounded flex items-center gap-1 normal-case tracking-normal">
+                                <Icon name="clock" size={8} className="text-emerald-600" /> <strong className="font-bold">TTR:</strong> {ttrItemString}
                               </span>
                             )}
                           </div>
