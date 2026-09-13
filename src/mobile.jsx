@@ -94,6 +94,8 @@ const parseSupabaseDocument = (fields) => {
 
 // Helper untuk parse dokumen ODP dari Supabase ke camelCase React
 const parseSupabaseOdpDocument = (fields) => {
+  const kOdp = fields.kode_odp || fields['Kode ODP'] || fields.kodeOdp || "";
+  const kOdc = fields.kode_odc || fields['Kode ODC'] || fields.kodeOdc || "";
   return {
     id: fields.id || null,
     label: fields.label || fields.Label || "",
@@ -102,8 +104,10 @@ const parseSupabaseOdpDocument = (fields) => {
     portTerpakai: fields.port_terpakai || fields['Port Terpakai'] || 0,
     tahapPembangunan: fields.tahap_pembangunan || fields['Tahap Pembangunan'] || "",
     kapasitas: fields.kapasitas || fields.Kapasitas || 8,
-    kodeOdp: fields.kode_odp || fields['Kode ODP'] || "",
-    kodeOdc: fields.kode_odc || fields['Kode ODC'] || "",
+    kodeOdp: kOdp,
+    kode_odp: kOdp,
+    kodeOdc: kOdc,
+    kode_odc: kOdc,
     stasiun: fields.stasiun || fields.Stasiun || ""
   };
 };

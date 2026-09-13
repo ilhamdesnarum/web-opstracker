@@ -71,6 +71,8 @@ const parseSupabaseDocument = (fields) => {
 
 // Helper untuk parse dokumen ODP dari Supabase ke camelCase React
 const parseSupabaseOdpDocument = (fields) => {
+  const kOdp = fields.kode_odp || fields['Kode ODP'] || fields.kodeOdp || "";
+  const kOdc = fields.kode_odc || fields['Kode ODC'] || fields.kodeOdc || "";
   return {
     id: fields.id || null,
     label: fields.label || fields.Label || "",
@@ -79,8 +81,10 @@ const parseSupabaseOdpDocument = (fields) => {
     portTerpakai: fields.port_terpakai || fields['Port Terpakai'] || 0,
     tahapPembangunan: fields.tahap_pembangunan || fields['Tahap Pembangunan'] || "",
     kapasitas: fields.kapasitas || fields.Kapasitas || 8,
-    kodeOdp: fields.kode_odp || fields['Kode ODP'] || "",
-    kodeOdc: fields.kode_odc || fields['Kode ODC'] || "",
+    kodeOdp: kOdp,
+    kode_odp: kOdp,
+    kodeOdc: kOdc,
+    kode_odc: kOdc,
     stasiun: fields.stasiun || fields.Stasiun || ""
   };
 };
@@ -8233,8 +8237,11 @@ function QuickScanCoverageModal({
           if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
           const cap = Number(o.kapasitas) || 8;
           const used = Number(o.portTerpakai ?? o.port_terpakai) || 0;
+          const officialKode = o.kodeOdp || o.kode_odp || o['Kode ODP'] || o.label || "";
           parsedOdps.push({
             ...o,
+            kodeOdp: officialKode,
+            kode_odp: officialKode,
             lat,
             lng,
             cap,
@@ -8397,7 +8404,7 @@ function QuickScanCoverageModal({
         const matchName = String(c?.namaPelanggan || '').toLowerCase().includes(q);
         const matchId = String(c?.idPelanggan || '').toLowerCase().includes(q);
         const matchAddr = String(c?.alamat || '').toLowerCase().includes(q);
-        const matchOdp = String(item.primaryOdp?.kode_odp || item.primaryOdp?.label || '').toLowerCase().includes(q);
+        const matchOdp = String(item.primaryOdp?.kodeOdp || item.primaryOdp?.kode_odp || item.primaryOdp?.label || '').toLowerCase().includes(q);
         if (!matchName && !matchId && !matchAddr && !matchOdp) return false;
       }
 
@@ -8410,7 +8417,9 @@ function QuickScanCoverageModal({
     const c = r.customer;
     let text = `[ID: ${c?.idPelanggan || '-'}] ${c?.namaPelanggan || '-'}\nAlamat: ${c?.alamat || '-'}\nStasiun: ${c?.stasiun || '-'}`;
     if (r.primaryOdp) {
-      text += `\nODP Terdekat: ${r.primaryOdp.kode_odp || r.primaryOdp.label} (${r.distance}m)\nPort: ${r.primaryOdp.available}/${r.primaryOdp.cap} sisa\nStatus: ${r.statusLabel}`;
+      const codeStr = r.primaryOdp.kodeOdp || r.primaryOdp.kode_odp || r.primaryOdp.label;
+      const labelStr = r.primaryOdp.label && r.primaryOdp.label !== codeStr ? ` (${r.primaryOdp.label})` : '';
+      text += `\nODP Terdekat: ${codeStr}${labelStr} (${r.distance}m)\nPort: ${r.primaryOdp.available}/${r.primaryOdp.cap} sisa\nStatus: ${r.statusLabel}`;
     } else {
       text += `\nStatus: ${r.statusLabel}`;
     }
@@ -8446,11 +8455,13 @@ function QuickScanCoverageModal({
               r.status === 'NEARING' ? `MENDEKATI (${r.distance}m)` :
                 r.status === 'PORT_FULL' ? `PORT PENUH (${r.distance}m)` :
                   r.status === 'NO_COORDS' ? 'TANPA TITIK GPS' : `DI LUAR JANGKAUAN (${r.distance || '>500'}m)`,
-            "ODP Terdekat": odp ? (odp.kode_odp || odp.label) : '-',
+            "ODP Terdekat": odp ? (odp.kodeOdp || odp.kode_odp || odp.label) : '-',
+            "Label ODP": odp ? (odp.label || '-') : '-',
             "Jarak ODP (m)": r.distance !== null ? r.distance : '-',
             "Port Sisa": odp ? `${odp.available}/${odp.cap}` : '-',
             "Tahap ODP": odp?.tahap_pembangunan || odp?.tahapPembangunan || '-',
-            "Alternatif ODP 2": altOdp ? (altOdp.kode_odp || altOdp.label) : '-',
+            "Alternatif ODP 2": altOdp ? (altOdp.kodeOdp || altOdp.kode_odp || altOdp.label) : '-',
+            "Label Alternatif 2": altOdp ? (altOdp.label || '-') : '-',
             "Jarak ODP 2 (m)": altOdp ? altOdp.distance : '-'
           };
         });
@@ -8864,10 +8875,15 @@ function QuickScanCoverageModal({
                             <td className="py-3 px-3.5">
                               {odp ? (
                                 <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-mono font-bold text-slate-800 text-xs">
-                                      {odp.kode_odp || odp.label}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded text-xs select-all">
+                                      {odp.kodeOdp || odp.kode_odp || odp.label}
                                     </span>
+                                    {odp.label && (odp.kodeOdp || odp.kode_odp) && odp.label !== (odp.kodeOdp || odp.kode_odp) && (
+                                      <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                                        {odp.label}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
@@ -8893,8 +8909,15 @@ function QuickScanCoverageModal({
                             <td className="py-3 px-3.5">
                               {altOdp ? (
                                 <div>
-                                  <div className="font-mono font-bold text-slate-700 text-xs truncate max-w-[150px]">
-                                    {altOdp.kode_odp || altOdp.label}
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="font-mono font-bold text-slate-800 text-xs truncate max-w-[160px] select-all" title={altOdp.kodeOdp || altOdp.kode_odp || altOdp.label}>
+                                      {altOdp.kodeOdp || altOdp.kode_odp || altOdp.label}
+                                    </span>
+                                    {altOdp.label && (altOdp.kodeOdp || altOdp.kode_odp) && altOdp.label !== (altOdp.kodeOdp || altOdp.kode_odp) && (
+                                      <span className="text-[9.5px] font-bold text-slate-400 bg-slate-100 px-1 py-0.2 rounded">
+                                        {altOdp.label}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-[11px] text-slate-500 mt-0.5">
                                     Jarak: <strong>{altOdp.distance}m</strong> ({altOdp.available > 0 ? `${altOdp.available}/${altOdp.cap} Port` : 'Penuh'})
