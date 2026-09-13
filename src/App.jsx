@@ -1190,6 +1190,8 @@ function App({ onLogout }) {
     handleCloseWhatsNew(dontShowAgain);
     if (targetTab === 'gangguan') {
       setActiveTab('gangguan');
+    } else if (targetTab === 'overview') {
+      setActiveTab('overview');
     } else if (targetTab === 'okupansi') {
       setActiveTab('okupansi');
     } else if (targetTab === 'database') {
@@ -9033,12 +9035,12 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               Apa yang Baru di OpsTracker?
             </h2>
             <p className="text-[11px] sm:text-xs text-blue-100/90 font-medium mt-0.5 leading-relaxed">
-              Ringkasan pembaruan v2.5 Analisa Gangguan & Alur Operasional:
+              Ringkasan fitur utama Analisa Gangguan & Halaman Overview:
             </p>
           </div>
         </div>
 
-        {/* BODY MODAL: 3 FITUR UNGGULAN ULTRA-COMPACT */}
+        {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
           {/* FITUR 1: Analisa Tren & Komparasi Stasiun Dual Mode */}
           <div
@@ -9056,7 +9058,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                     Analisa Gangguan Dual Mode (Batang & Garis)
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
-                    Fitur Baru
+                    Data Gangguan
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
@@ -9092,27 +9094,27 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             </div>
           </div>
 
-          {/* FITUR 3: Unified Enterprise Card & Filter Tiket Aktif */}
+          {/* FITUR 3: Tabel Rekap Aktivasi per Stasiun */}
           <div
-            onClick={() => onTryFeature('gangguan', dontShowAgain)}
+            onClick={() => onTryFeature('overview', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Daftar Tiket Visit"
+            title="Klik untuk buka Overview Aktivasi Stasiun"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="check-circle" size={16} />
+                <Icon name="table" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Wadah Terpadu & Filter Tiket Aktif Instan
+                    Tabel Rekap Aktivasi per Stasiun
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
-                    Penyempurnaan UI
+                    Halaman Overview
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Pencarian, filter, dan tabel tiket disatukan dalam 1 kontainer Enterprise. Klik kartu Tiket Aktif langsung memfilter tiket yang masih open.
+                  Monitoring komprehensif performa aktivasi Homeconnect (HC vs HP), progres harian, dan rincian data PO per stasiun.
                 </p>
               </div>
             </div>
