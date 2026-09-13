@@ -9035,86 +9035,86 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               Apa yang Baru di OpsTracker?
             </h2>
             <p className="text-[11px] sm:text-xs text-blue-100/90 font-medium mt-0.5 leading-relaxed">
-              Ringkasan fitur utama Analisa Gangguan & Halaman Overview:
+              Ringkasan 3 pembaruan utama operasional OpsTracker:
             </p>
           </div>
         </div>
 
         {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Analisa Tren & Komparasi Stasiun Dual Mode */}
-          <div
-            onClick={() => onTryFeature('gangguan', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Analisa Gangguan"
-          >
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="trending-up" size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-                    Analisa Gangguan Dual Mode (Batang & Garis)
-                  </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
-                    Data Gangguan
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-snug">
-                  Filter dropdown stasiun, komparasi multi-line antar stasiun dengan chip interaktif, dan grafik yang otomatis presisi berhenti di bulan berjalan.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* FITUR 2: Normalisasi Otomatis Distribusi Kerusakan */}
-          <div
-            onClick={() => onTryFeature('gangguan', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-purple-50/50 via-white to-white border border-purple-100/80 hover:border-purple-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Distribusi Kerusakan"
-          >
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="pie-chart" size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-purple-600 transition-colors">
-                    Kategorisasi Cerdas Jenis Gangguan
-                  </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-purple-100/80 text-purple-700">
-                    Smart Normalization
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-snug">
-                  Pengelompokan teks keluhan otomatis ke kategori baku (Modem LOS, Kabel Putus, Perangkat Rusak, dll.) dan sinkron per stasiun.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* FITUR 3: Tabel Rekap Aktivasi per Stasiun */}
+          {/* FITUR 1: Penambahan tabel Kalender Aktivasi per Stasiun di halaman Overview */}
           <div
             onClick={() => onTryFeature('overview', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Overview Aktivasi Stasiun"
+            title="Klik untuk buka Overview Kalender Aktivasi"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="table" size={16} />
+                <Icon name="calendar" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Tabel Rekap Aktivasi per Stasiun
+                    Kalender Aktivasi per Stasiun
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
                     Halaman Overview
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Monitoring komprehensif performa aktivasi Homeconnect (HC vs HP), progres harian, dan rincian data PO per stasiun.
+                  Penambahan tabel Kalender Aktivasi per Stasiun untuk memantau pencapaian dan progres aktivasi harian secara visual dan terstruktur.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 2: Penambahan detail nama sales dan filter sales dihalaman data pelanggan */}
+          <div
+            onClick={() => onTryFeature('database', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Data Pelanggan"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="users" size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
+                    Detail & Filter Nama Sales
+                  </h3>
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
+                    Data Pelanggan
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  Penambahan detail nama sales pada data pelanggan serta filter cerdas sales untuk mempermudah monitoring performa tim lapangan.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 3: Pembaruan tampilan halaman data gangguan */}
+          <div
+            onClick={() => onTryFeature('gangguan', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-purple-50/50 via-white to-white border border-purple-100/80 hover:border-purple-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Halaman Data Gangguan"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="activity" size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-purple-600 transition-colors">
+                    Pembaruan Halaman Data Gangguan
+                  </h3>
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-purple-100/80 text-purple-700">
+                    Data Gangguan
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  Meliputi Card KPI data gangguan, Kalender Gangguan per Stasiun, serta Analisa & Grafik Tren Gangguan (Dual Mode Batang & Garis).
                 </p>
               </div>
             </div>
@@ -9146,7 +9146,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               onClick={() => onTryFeature('gangguan', dontShowAgain)}
               className="px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
             >
-              <span>Lihat Analisa Gangguan</span>
+              <span>Jelajahi Fitur</span>
               <Icon name="arrow-right" size={13} />
             </button>
           </div>
