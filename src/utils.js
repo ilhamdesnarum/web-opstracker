@@ -21,26 +21,21 @@ export const extractKendalaData = (item) => {
 
 // --- Helper Function: Pencari Status Pelanggan Global ---
 export const getGlobalStatusStr = (item) => {
-  const { issue, reporter } = extractKendalaData(item);
-
-  const valAktivasi = String(item.aktivasi || '').trim().toUpperCase();
-  const valIkr = String(item.ikr || '').trim().toUpperCase();
+  const valAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toUpperCase();
+  const valIkr = String(item.ikr || item.statusIkr || '').trim().toUpperCase();
   
   if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
   if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
 
-  if (valAktivasi === 'KENDALA' || valIkr === 'KENDALA') return "KENDALA";
-
-  if ((issue && String(issue).trim() !== "") || (reporter && String(reporter).trim() !== "")) {
-    return "KENDALA";
-  }
+  // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
+  if (valAktivasi === 'KENDALA' || valIkr === 'KENDALA' || valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) return "KENDALA";
 
   if (valAktivasi === 'AKTIF' || valAktivasi === 'SUDAH') return "AKTIF";
   
-  if (valIkr === 'BELUM' && valAktivasi === 'BELUM') return "WAITING";
+  if (valIkr === 'BELUM' || valAktivasi === 'BELUM' || valAktivasi === 'WAITING' || valAktivasi === '') return "WAITING";
   if (item.tahapPembangunan) return String(item.tahapPembangunan).toUpperCase();
-  return "UNKNOWN";
+  return "WAITING";
 };
 
 // --- Helper Function: Hitung TTR (Time To Resolve) ---

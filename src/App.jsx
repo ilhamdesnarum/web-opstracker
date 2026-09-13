@@ -436,26 +436,21 @@ const extractKendalaData = (item) => {
 
 // --- Helper Function: Pencari Status Pelanggan Global ---
 const getGlobalStatusStr = (item) => {
-  const { issue, reporter } = extractKendalaData(item);
   const valAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toUpperCase();
   const valIkr = String(item.ikr || item.statusIkr || '').trim().toUpperCase();
 
   if (valAktivasi === 'AKTIF' || valAktivasi === 'SUDAH') return "AKTIF";
-
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
   if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
   if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
 
-  if (valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) {
-    return "KENDALA";
-  }
-
-  if (issue && String(issue).trim() !== "" && String(issue).trim().toLowerCase() !== String(item.alamat || '').trim().toLowerCase()) {
+  // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
+  if (valAktivasi === 'KENDALA' || valIkr === 'KENDALA' || valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) {
     return "KENDALA";
   }
 
   if (valIkr === 'SUDAH') return "SUDAH IKR";
-  if (valIkr === 'BELUM' || valIkr === '') return "WAITING";
+  if (valIkr === 'BELUM' || valAktivasi === 'BELUM' || valAktivasi === 'WAITING' || valAktivasi === '') return "WAITING";
   return "WAITING";
 };
 
@@ -13625,7 +13620,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                 {/* Kendala Mobile Row */}
                 {(() => {
-                  if (displayStatusStr !== 'KENDALA' && displayStatusStr !== 'WAITING') return null;
+                  if (displayStatusStr !== 'KENDALA') return null;
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
                   if (!hasKendala && !issueText) return null;
@@ -13967,7 +13962,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                         {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
                         {(() => {
-                          if (displayStatusStr !== 'KENDALA' && displayStatusStr !== 'WAITING') return null;
+                          if (displayStatusStr !== 'KENDALA') return null;
                           const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                           const issueText = issue && issue !== item.alamat ? issue : '';
 
