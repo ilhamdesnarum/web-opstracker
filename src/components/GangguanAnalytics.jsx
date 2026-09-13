@@ -107,6 +107,14 @@ export default function GangguanAnalytics({ visitData = [] }) {
     return stationStats.reduce((acc, curr) => acc + curr.count, 0);
   }, [stationStats]);
 
+  // Helper untuk mengecek apakah suatu bulan belum berjalan (bulan masa depan)
+  const isFutureMonth = (monthIdx) => {
+    const currentYear = now.getFullYear();
+    if (selectedYear > currentYear) return true;
+    if (selectedYear < currentYear) return false;
+    return monthIdx > now.getMonth();
+  };
+
   // Kalkulasi data tren bulanan (difilter jika stasiun spesifik dipilih)
   const monthlyData = useMemo(() => {
     const counts = new Array(12).fill(0);
@@ -123,10 +131,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
 
       const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
       if (dmyMatch) {
-        const d = parseInt(dmyMatch[1], 10);
-        const m = parseInt(dmyMatch[2], 10) - 1;
-        const y = parseInt(dmyMatch[3], 10);
-        dObj = new Date(y, m, d);
+        dObj = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
       } else {
         const parsed = Date.parse(str);
         if (!isNaN(parsed)) dObj = new Date(parsed);
@@ -142,25 +147,31 @@ export default function GangguanAnalytics({ visitData = [] }) {
       }
     });
 
-    return MONTH_LABELS.map((name, idx) => ({
-      name,
-      fullName: MONTH_FULL[idx],
-      tiket: counts[idx],
-      selesai: resolvedCounts[idx],
-      isCurrentMonth: idx === now.getMonth() && selectedYear === now.getFullYear()
-    }));
+    return MONTH_LABELS.map((name, idx) => {
+      const isFuture = isFutureMonth(idx);
+      return {
+        name,
+        fullName: MONTH_FULL[idx],
+        tiket: isFuture ? null : counts[idx],
+        selesai: isFuture ? null : resolvedCounts[idx],
+        isCurrentMonth: idx === now.getMonth() && selectedYear === now.getFullYear(),
+        isFuture
+      };
+    });
   }, [visitData, selectedYear, selectedStation, now]);
 
-  // Kalkulasi data multi-line untuk perbandingan stasiun per bulan
+  // Kalkulasi data multi-line untuk perbandingan stasiun per bulan (maksimal bulan berjalan)
   const multiLineData = useMemo(() => {
     const data = MONTH_LABELS.map((name, idx) => {
+      const isFuture = isFutureMonth(idx);
       const obj = {
         name,
         fullName: MONTH_FULL[idx],
-        total: 0
+        total: isFuture ? null : 0,
+        isFuture
       };
       stationStats.forEach(st => {
-        obj[st.name] = 0;
+        obj[st.name] = isFuture ? null : 0;
       });
       return obj;
     });
@@ -179,18 +190,18 @@ export default function GangguanAnalytics({ visitData = [] }) {
 
       if (dObj && dObj.getFullYear() === selectedYear) {
         const m = dObj.getMonth();
-        if (m >= 0 && m < 12) {
+        if (m >= 0 && m < 12 && !isFutureMonth(m)) {
           const st = toProperCase(v.stasiun);
-          if (data[m][st] !== undefined) {
+          if (data[m] && data[m][st] !== undefined && data[m][st] !== null) {
             data[m][st]++;
-            data[m].total++;
+            data[m].total = (data[m].total || 0) + 1;
           }
         }
       }
     });
 
     return data;
-  }, [visitData, selectedYear, stationStats]);
+  }, [visitData, selectedYear, stationStats, now]);
 
   // Kalkulasi distribusi kategori keluhan (semua / stasiun terpilih pada tahun terpilih)
   const { keluhanData, totalKeluhanTahunIni } = useMemo(() => {
@@ -264,6 +275,17 @@ export default function GangguanAnalytics({ visitData = [] }) {
   const CustomBarTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
+      if (d.isFuture || d.tiket === null) {
+        return (
+          <div className="bg-slate-900/95 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+            <div className="border-b border-slate-700/70 pb-1 mb-1.5">
+              <p className="font-bold text-slate-100">{d.fullName} {selectedYear}</p>
+            </div>
+            <p className="text-[11px] text-slate-400 italic">Periode belum berjalan</p>
+          </div>
+        );
+      }
+
       const pctSelesai = d.tiket > 0 ? Math.round((d.selesai / d.tiket) * 100) : 0;
       return (
         <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
@@ -309,6 +331,18 @@ export default function GangguanAnalytics({ visitData = [] }) {
   // Tooltip custom untuk multi-line chart komparasi
   const CustomLineTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      const d = payload[0].payload;
+      if (d && d.isFuture) {
+        return (
+          <div className="bg-slate-900/95 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+            <div className="border-b border-slate-700/70 pb-1 mb-1.5">
+              <span className="font-bold text-slate-100">{d.fullName || label} {selectedYear}</span>
+            </div>
+            <p className="text-[11px] text-slate-400 italic">Periode belum berjalan</p>
+          </div>
+        );
+      }
+
       const validEntries = payload
         .filter(p => p.value !== undefined && p.value !== null && p.value > 0)
         .sort((a, b) => (b.value || 0) - (a.value || 0));
@@ -318,7 +352,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
       return (
         <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none min-w-[170px] max-w-[260px] animate-fade">
           <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5 mb-2 gap-3">
-            <span className="font-bold text-slate-100">{label} {selectedYear}</span>
+            <span className="font-bold text-slate-100">{d?.fullName || label} {selectedYear}</span>
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/25 text-blue-300 border border-blue-400/30 shrink-0">
               Total: {totalBulanIni}
             </span>
@@ -620,6 +654,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                         dot={{ r: 3, fill: st.color, strokeWidth: 0 }}
                         activeDot={{ r: 6, stroke: '#ffffff', strokeWidth: 2 }}
                         hide={hiddenStations.has(st.name)}
+                        connectNulls={false}
                       />
                     ))
                   ) : (
@@ -631,6 +666,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                       strokeWidth={2.5}
                       dot={{ r: 4, fill: '#2563eb', strokeWidth: 2, stroke: '#ffffff' }}
                       activeDot={{ r: 7, stroke: '#ffffff', strokeWidth: 2.5 }}
+                      connectNulls={false}
                     />
                   )}
                 </LineChart>
