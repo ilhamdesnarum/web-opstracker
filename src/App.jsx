@@ -12186,54 +12186,20 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       {/* ============================================================ */}
       {/* 3. SECTION KALENDER GANGGUAN PER STASIUN */}
       {/* ============================================================ */}
-      <div id="section-calendar" className="pt-2">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="flex items-center gap-2">
-            <Icon name="calendar" size={18} className="text-amber-500" />
-            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
-              Kalender Gangguan per Stasiun
-            </h2>
-          </div>
-          <button
-            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-            className="text-xs font-bold text-slate-600 hover:text-slate-800 flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-2xs transition-all active:scale-95"
-          >
-            <span>{isCalendarOpen ? 'Ciutkan Kalender' : 'Buka Kalender'}</span>
-            <Icon name={isCalendarOpen ? 'chevron-up' : 'chevron-down'} size={14} />
-          </button>
-        </div>
-        {isCalendarOpen && (
-          <GangguanCalendarTable
-            visitData={enrichedVisitData}
-            onFilterTicketList={handleFilterFromCalendar}
-          />
-        )}
+      <div id="section-calendar" className="pt-1">
+        <GangguanCalendarTable
+          visitData={enrichedVisitData}
+          onFilterTicketList={handleFilterFromCalendar}
+        />
       </div>
 
       {/* ============================================================ */}
       {/* 4. SECTION ANALISA & GRAFIK TREN BULANAN */}
       {/* ============================================================ */}
-      <div id="section-analytics" className="pt-2">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="flex items-center gap-2">
-            <Icon name="bar-chart-3" size={18} className="text-indigo-500" />
-            <h2 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
-              Analisa & Tren Gangguan Bulanan
-            </h2>
-          </div>
-          <button
-            onClick={() => setIsAnalyticsOpen(!isAnalyticsOpen)}
-            className="text-xs font-bold text-slate-600 hover:text-slate-800 flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-2xs transition-all active:scale-95"
-          >
-            <span>{isAnalyticsOpen ? 'Ciutkan Analisa' : 'Buka Analisa'}</span>
-            <Icon name={isAnalyticsOpen ? 'chevron-up' : 'chevron-down'} size={14} />
-          </button>
-        </div>
-        {isAnalyticsOpen && (
-          <GangguanAnalytics
-            visitData={enrichedVisitData}
-          />
-        )}
+      <div id="section-analytics" className="pt-1">
+        <GangguanAnalytics
+          visitData={enrichedVisitData}
+        />
       </div>
 
     </div>

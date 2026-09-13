@@ -76,7 +76,8 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
   const now = new Date();
   const [currentYear, setCurrentYear] = useState(() => now.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(() => now.getMonth()); // 0-11
-  const [selectedCell, setSelectedCell] = useState(null); // Modal detail cell
+  const [selectedCell, setSelectedCell] = useState(null); // Modal detail sel
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Navigasi bulan
   const handlePrevMonth = () => {
@@ -131,21 +132,10 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
   }, [currentYear, currentMonth, daysInMonth, now]);
 
   // Kalkulasi matriks tiket gangguan per stasiun per tanggal
-  const { matrixData, stationTotals, dailyTotals, grandTotal, allStationsList } = useMemo(() => {
-    // Kumpulkan stasiun yang ada di data
-    const dynamicStations = new Set(STATIONS_ORDER);
-    (visitData || []).forEach(v => {
-      if (v.stasiun) {
-        const norm = normalizeStation(v.stasiun);
-        if (norm) dynamicStations.add(norm);
-      }
-    });
-
-    const orderedStations = Array.from(dynamicStations);
-
+  const { matrixData, stationTotals, dailyTotals, grandTotal } = useMemo(() => {
     const matrix = {};
     const stTotals = {};
-    orderedStations.forEach(st => {
+    STATIONS_ORDER.forEach(st => {
       matrix[st] = {};
       stTotals[st] = 0;
       daysList.forEach(d => {
@@ -165,7 +155,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       if (!tStr) return;
 
       const st = normalizeStation(item.stasiun);
-      if (!st || !matrix[st]) return;
+      if (!STATIONS_ORDER.includes(st)) return;
 
       if (matrix[st] && matrix[st][tStr]) {
         matrix[st][tStr].push(item);
@@ -179,18 +169,17 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       matrixData: matrix,
       stationTotals: stTotals,
       dailyTotals: dayTotals,
-      grandTotal: totalAll,
-      allStationsList: orderedStations
+      grandTotal: totalAll
     };
   }, [visitData, daysList]);
 
   // Ekspor Matriks ke Excel
   const handleExportExcel = () => {
     try {
-      const headerRow = ['STASIUN', ...daysList.map(d => `${d.day} (${d.dayName})`), 'TOTAL GANGGUAN'];
+      const headerRow = ['STASIUN', ...daysList.map(d => `${d.day} (${d.dayName})`), 'TOTAL'];
       const rows = [];
 
-      allStationsList.forEach(st => {
+      STATIONS_ORDER.forEach(st => {
         const rowData = [st];
         daysList.forEach(d => {
           const count = (matrixData[st]?.[d.dateStr] || []).length;
@@ -212,7 +201,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       const wsData = [headerRow, ...rows];
       const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-      ws['!cols'] = [{ wch: 18 }, ...daysList.map(() => ({ wch: 6 })), { wch: 14 }];
+      ws['!cols'] = [{ wch: 18 }, ...daysList.map(() => ({ wch: 6 })), { wch: 10 }];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Gangguan ${MONTH_NAMES[currentMonth]}`);
@@ -225,166 +214,311 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
     }
   };
 
-  // Helper badge pewarnaan intensitas gangguan
+  // Helper pewarnaan cell badge identik dengan kalender aktivasi
   const getBadgeStyle = (count) => {
-    if (count === 0) return 'text-slate-300 font-normal';
-    if (count === 1) {
-      return 'bg-amber-50 text-amber-700 border border-amber-200/80 font-bold hover:bg-amber-100 hover:scale-105';
+    if (count === 0) return '';
+    if (count <= 2) {
+      return 'bg-blue-50 text-blue-700 border border-blue-200/90 hover:bg-blue-100 hover:border-blue-300 font-bold';
     }
-    if (count === 2) {
-      return 'bg-orange-100 text-orange-800 border border-orange-300 font-black hover:bg-orange-200 hover:scale-105';
+    if (count <= 5) {
+      return 'bg-emerald-50 text-emerald-700 border border-emerald-200/90 hover:bg-emerald-100 hover:border-emerald-300 font-bold';
     }
-    // count >= 3
-    return 'bg-rose-100 text-rose-700 border border-rose-300 font-black shadow-2xs hover:bg-rose-200 hover:scale-110 animate-pulse';
+    return 'bg-emerald-600 text-white font-black shadow-xs hover:bg-emerald-700';
+  };
+
+  // Kunci scroll saat modal rincian terbuka
+  useEffect(() => {
+    if (selectedCell) {
+      const prevBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          setSelectedCell(null);
+          setSearchQuery('');
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        document.body.style.overflow = prevBodyOverflow || 'auto';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [selectedCell]);
+
+  // Filter pencarian di dalam modal
+  const filteredModalItems = useMemo(() => {
+    if (!selectedCell || !selectedCell.items) return [];
+    if (!searchQuery) return selectedCell.items;
+    const q = searchQuery.toLowerCase().trim();
+    return selectedCell.items.filter(ticket => {
+      return (
+        String(ticket.idPelanggan || '').toLowerCase().includes(q) ||
+        String(ticket.namaPelanggan || '').toLowerCase().includes(q) ||
+        String(ticket.keluhan || '').toLowerCase().includes(q) ||
+        String(ticket.petugas || '').toLowerCase().includes(q) ||
+        String(ticket.odpAktual || ticket.odp || '').toLowerCase().includes(q) ||
+        String(ticket.catatan || '').toLowerCase().includes(q)
+      );
+    });
+  }, [selectedCell, searchQuery]);
+
+  // Ekspor rincian tiket modal ke Excel
+  const handleExportModalExcel = () => {
+    if (!selectedCell || !selectedCell.items || !selectedCell.items.length) return;
+    try {
+      const headers = ['NO', 'ID PELANGGAN', 'NAMA PELANGGAN', 'STASIUN', 'TANGGAL GANGGUAN', 'KELUHAN', 'ODP', 'PETUGAS', 'STATUS'];
+      const rows = selectedCell.items.map((ticket, idx) => [
+        idx + 1,
+        ticket.idPelanggan || '-',
+        ticket.namaPelanggan || 'Tanpa Nama',
+        selectedCell.station,
+        selectedCell.date,
+        ticket.keluhan || '-',
+        ticket.odpAktual || ticket.odp || '-',
+        ticket.petugas || '-',
+        ticket.status || 'OPEN'
+      ]);
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      ws['!cols'] = [{ wch: 6 }, { wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 25 }, { wch: 16 }, { wch: 20 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Rincian Gangguan');
+      const cleanStation = String(selectedCell.station).replace(/[^a-zA-Z0-9]/g, '_');
+      XLSX.writeFile(wb, `Rincian_Gangguan_${cleanStation}_${selectedCell.date}.xlsx`);
+    } catch (err) {
+      console.error('Gagal export excel modal:', err);
+    }
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-      {/* HEADER KALENDER */}
-      <div className="p-3.5 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100/60 shadow-2xs">
-            <Icon name="calendar" size={18} />
+    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col mb-6">
+      {/* HEADER CARD KALENDER */}
+      <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0 shadow-xs">
+            <Icon name="calendar" size={20} />
           </div>
           <div>
-            <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight flex items-center gap-2">
-              Kalender Gangguan per Stasiun
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                {grandTotal} Tiket Bulan Ini
-              </span>
-            </h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              Distribusi jumlah tiket visit gangguan harian di setiap stasiun
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight">
+                Kalender Gangguan per Stasiun
+              </h2>
+            </div>
+            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+              Matriks sebaran gangguan harian untuk seluruh stasiun di sepanjang jalur operasional
             </p>
           </div>
         </div>
 
-        {/* CONTROLS: BULAN & EXCEL */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-          <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200 shadow-2xs">
+        {/* KONTROL BULAN, TAHUN & EKSPOR */}
+        <div className="flex items-center flex-wrap gap-2 self-start md:self-auto">
+          {/* Total Bulan Terpilih */}
+          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
+            <span className="text-slate-400">Total:</span>
+            <span className="font-bold text-blue-600">{grandTotal}</span>
+            <span className="text-[10px] text-slate-400 uppercase font-medium">Gangguan</span>
+          </div>
+
+          {/* Navigator Bulan */}
+          <div className="inline-flex items-center bg-slate-50 border border-slate-200/80 rounded-xl p-1 shadow-inner">
             <button
               onClick={handlePrevMonth}
-              className="p-1.5 hover:bg-white text-slate-600 rounded-lg transition-all shadow-2xs active:scale-95"
               title="Bulan Sebelumnya"
+              className="p-1.5 hover:bg-white text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
             >
               <Icon name="chevron-left" size={16} />
             </button>
-            <span className="px-3 text-xs font-black text-slate-800 min-w-[140px] text-center select-none">
-              {MONTH_NAMES[currentMonth]} {currentYear}
-            </span>
+
+            {/* Dropdown Bulan */}
+            <select
+              value={currentMonth}
+              onChange={(e) => setCurrentMonth(Number(e.target.value))}
+              className="bg-transparent text-xs font-bold text-slate-800 px-2 py-1 outline-none cursor-pointer hover:text-blue-600"
+            >
+              {MONTH_NAMES.map((m, idx) => (
+                <option key={idx} value={idx}>{m}</option>
+              ))}
+            </select>
+
+            {/* Dropdown Tahun */}
+            <select
+              value={currentYear}
+              onChange={(e) => setCurrentYear(Number(e.target.value))}
+              className="bg-transparent text-xs font-bold text-slate-800 pr-1 py-1 outline-none cursor-pointer hover:text-blue-600"
+            >
+              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+
             <button
               onClick={handleNextMonth}
-              className="p-1.5 hover:bg-white text-slate-600 rounded-lg transition-all shadow-2xs active:scale-95"
               title="Bulan Berikutnya"
+              className="p-1.5 hover:bg-white text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
             >
               <Icon name="chevron-right" size={16} />
             </button>
-            <button
-              onClick={handleTodayMonth}
-              className="ml-1 px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200"
-              title="Kembali ke Bulan Sekarang"
-            >
-              Hari Ini
-            </button>
           </div>
 
+          {/* Tombol Hari Ini / Bulan Ini */}
+          <button
+            onClick={handleTodayMonth}
+            title="Kembali ke Bulan Berjalan"
+            className="px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-all shadow-xs"
+          >
+            Bulan Ini
+          </button>
+
+          {/* Tombol Export Excel */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-600/20 transition-all active:scale-95 shrink-0"
-            title="Ekspor Matriks Kalender ke Excel"
+            title="Unduh tabel ke format Excel (.xlsx)"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl transition-all shadow-xs"
           >
             <Icon name="file-spreadsheet" size={14} />
-            <span className="hidden md:inline">Ekspor Excel</span>
+            <span className="hidden sm:inline">Export Excel</span>
           </button>
         </div>
       </div>
 
-      {/* MATRIX TABLE CONTAINER */}
-      <div className="overflow-x-auto custom-scrollbar relative max-h-[500px]">
-        <table className="w-full text-left border-collapse border-spacing-0">
+      {/* PETUNJUK & LEGEND INTENSITAS */}
+      <div className="px-4 py-2 bg-slate-50/60 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2 text-[11px] text-slate-500">
+        <div className="flex items-center gap-1.5">
+          <Icon name="info" size={13} className="text-slate-400" />
+          <span>Geser tabel ke kanan untuk melihat tanggal hingga akhir bulan.</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded bg-blue-50 border border-blue-200 inline-block"></span>
+            <span className="text-[10px]">1-2</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded bg-emerald-50 border border-emerald-200 inline-block"></span>
+            <span className="text-[10px]">3-5</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded bg-emerald-600 inline-block"></span>
+            <span className="text-[10px]">&gt;5</span>
+          </div>
+          <span className="text-[10px] text-slate-400 italic">| Klik angka untuk rincian</span>
+        </div>
+      </div>
+
+      {/* WADAH TABEL (SCROLLABLE & STICKY COLUMN) */}
+      <div className="overflow-x-auto max-h-[560px] overflow-y-auto relative">
+        <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+          {/* HEADER ROW */}
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200/80 sticky top-0 z-30">
-              {/* KOLOM STASIUN STICKY */}
-              <th className="p-3 text-[11px] font-black text-slate-600 uppercase tracking-wider sticky left-0 z-40 bg-slate-50 border-r border-slate-200/80 shadow-[2px_0_4px_rgba(0,0,0,0.03)] min-w-[150px]">
-                Stasiun Operasional
+            <tr>
+              {/* Kolom Stasiun (FROZEN / STICKY LEFT) */}
+              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-slate-700 font-bold px-4 py-3 min-w-[160px] max-w-[180px] border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                <div className="flex items-center justify-between">
+                  <span>STASIUN</span>
+                  <span className="text-[9px] font-normal text-slate-400 uppercase tracking-widest">(11 ST)</span>
+                </div>
               </th>
 
-              {/* KOLOM TANGGAL 1..N */}
+              {/* Kolom Tanggal 1 s/d Akhir Bulan */}
               {daysList.map(d => {
-                let colBg = d.isToday ? 'bg-amber-50/80 text-amber-900 font-black' : d.isSunday ? 'bg-rose-50/50 text-rose-600' : 'text-slate-600';
+                const isSun = d.isSunday;
+                const isSat = d.isSaturday;
                 return (
                   <th
-                    key={d.dateStr}
-                    className={`p-1.5 sm:p-2 text-center border-r border-slate-100 min-w-[36px] sm:min-w-[42px] ${colBg}`}
-                    title={`${d.day} ${MONTH_NAMES[currentMonth]} ${currentYear} (${d.dayName})`}
+                    key={d.day}
+                    className={`sticky top-0 z-20 px-1 py-2 min-w-[40px] max-w-[44px] text-center border-b border-r border-slate-200 transition-colors select-none ${
+                      d.isToday
+                        ? 'bg-blue-600 text-white font-black'
+                        : isSun
+                          ? 'bg-rose-50/80 text-rose-600 font-bold'
+                          : isSat
+                            ? 'bg-amber-50/70 text-amber-700 font-semibold'
+                            : 'bg-slate-50 text-slate-600 font-semibold'
+                    }`}
+                    title={`${d.dayName}, ${d.day} ${MONTH_NAMES[currentMonth]} ${currentYear}${d.isToday ? ' (Hari Ini)' : ''}`}
                   >
-                    <div className="text-[9px] uppercase font-bold tracking-tighter opacity-70 leading-none mb-0.5">
+                    <div className="text-[11px] leading-tight font-bold">{d.day}</div>
+                    <div className={`text-[8px] uppercase tracking-wider ${d.isToday ? 'text-blue-100' : 'text-slate-400'}`}>
                       {d.dayName}
-                    </div>
-                    <div className={`text-xs ${d.isToday ? 'w-5 h-5 mx-auto bg-amber-500 text-white rounded-full flex items-center justify-center font-black shadow-2xs' : 'font-extrabold'}`}>
-                      {d.day}
                     </div>
                   </th>
                 );
               })}
 
-              {/* KOLOM TOTAL BULANAN */}
-              <th className="p-3 text-center text-[11px] font-black text-slate-700 uppercase tracking-wider bg-slate-100/90 sticky right-0 z-30 border-l border-slate-200/80 min-w-[80px]">
-                Total
+              {/* Kolom Total Stasiun (STICKY RIGHT - SOLID OPAQUE) */}
+              <th
+                className="sticky right-0 top-0 z-30 bg-[#eff6ff] text-blue-900 font-extrabold px-3 py-3 min-w-[70px] text-center border-l-2 border-blue-200"
+                style={{
+                  boxShadow: 'inset 0 -1px 0 #cbd5e1, -4px 0 6px -2px rgba(0,0,0,0.1)'
+                }}
+              >
+                TOTAL
               </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-100 text-xs">
-            {allStationsList.map((st, sIdx) => {
-              const totalSt = stationTotals[st] || 0;
-              const isEven = sIdx % 2 === 0;
-
+          {/* BODY ROWS (STASIUN WADU S/D KRENGSENG) */}
+          <tbody className="divide-y divide-slate-100">
+            {STATIONS_ORDER.map((st, sIdx) => {
+              const rowTotal = stationTotals[st] || 0;
               return (
-                <tr
-                  key={st}
-                  className={`hover:bg-blue-50/40 transition-colors group ${isEven ? 'bg-white' : 'bg-slate-50/40'}`}
-                >
-                  {/* STASIUN CELL (STICKY LEFT) */}
-                  <td className={`p-2.5 sm:p-3 font-bold text-slate-800 sticky left-0 z-20 border-r border-slate-200/80 shadow-[2px_0_4px_rgba(0,0,0,0.03)] truncate max-w-[170px] ${isEven ? 'bg-white' : 'bg-slate-50/90'} group-hover:bg-blue-50/60`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-blue-500 transition-colors shrink-0"></span>
-                      <span className="truncate">{st}</span>
+                <tr key={st} className="group hover:bg-slate-50/80 transition-colors">
+                  {/* KOLOM STASIUN (FROZEN / STICKY LEFT) */}
+                  <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 text-slate-800 font-semibold px-4 py-2.5 border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 font-bold text-[10px] flex items-center justify-center shrink-0">
+                          {sIdx + 1}
+                        </span>
+                        <span className="truncate text-xs font-bold text-slate-700" title={st}>
+                          {st}
+                        </span>
+                      </div>
                     </div>
                   </td>
 
-                  {/* TANGGAL CELLS */}
+                  {/* KOLOM TANGGAL 1 s/d Akhir Bulan */}
                   {daysList.map(d => {
                     const tickets = matrixData[st]?.[d.dateStr] || [];
                     const count = tickets.length;
-                    const badgeClass = getBadgeStyle(count);
-
                     return (
                       <td
-                        key={d.dateStr}
-                        onClick={() => {
-                          if (count > 0) {
-                            setSelectedCell({ station: st, dateStr: d.dateStr, tickets });
-                          }
-                        }}
-                        className={`p-1 text-center border-r border-slate-100 select-none transition-all ${count > 0 ? 'cursor-pointer' : ''} ${d.isToday ? 'bg-amber-50/20' : d.isSunday ? 'bg-rose-50/20' : ''}`}
-                        title={count > 0 ? `${st}: ${count} tiket pada ${d.day} ${MONTH_NAMES[currentMonth]}` : ''}
+                        key={d.day}
+                        className={`text-center p-0.5 border-b border-r border-slate-100/90 transition-colors ${
+                          d.isToday ? 'bg-blue-50/20' : d.isWeekend ? 'bg-slate-50/40' : ''
+                        }`}
                       >
-                        {count === 0 ? (
-                          <span className="text-[11px] text-slate-300 font-light">-</span>
-                        ) : (
-                          <span className={`inline-flex items-center justify-center min-w-[22px] h-[22px] px-1 rounded-md text-[11px] transition-transform ${badgeClass}`}>
+                        {count > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCell({
+                              station: st,
+                              date: d.dateStr,
+                              dayName: d.dayName,
+                              dayNumber: d.day,
+                              items: tickets
+                            })}
+                            className={`w-7 h-7 inline-flex items-center justify-center rounded-lg text-[11px] transition-all cursor-pointer ${getBadgeStyle(count)}`}
+                            title={`${st} - ${d.day} ${MONTH_NAMES[currentMonth]}: ${count} gangguan (Klik untuk rincian)`}
+                          >
                             {count}
-                          </span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-300 font-mono text-[10px] select-none">-</span>
                         )}
                       </td>
                     );
                   })}
 
-                  {/* TOTAL PER STASIUN (STICKY RIGHT) */}
-                  <td className="p-2.5 text-center font-black text-slate-800 bg-slate-50/90 group-hover:bg-blue-100/50 sticky right-0 z-10 border-l border-slate-200/80">
-                    <span className={`px-2 py-0.5 rounded-lg text-xs font-black ${totalSt > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200/70' : 'text-slate-400'}`}>
-                      {totalSt}
+                  {/* TOTAL BARIS STASIUN (STICKY RIGHT) */}
+                  <td
+                    className="sticky right-0 z-20 bg-[#eff6ff] group-hover:bg-[#dbeafe] font-bold text-blue-800 text-center px-3 py-2 border-l-2 border-blue-200 transition-colors"
+                    style={{
+                      boxShadow: 'inset 0 -1px 0 #cbd5e1, -4px 0 6px -2px rgba(0,0,0,0.08)'
+                    }}
+                  >
+                    <span className={rowTotal > 0 ? 'text-blue-700 font-black' : 'text-slate-400'}>
+                      {rowTotal}
                     </span>
                   </td>
                 </tr>
@@ -392,24 +526,36 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
             })}
           </tbody>
 
-          {/* TOTAL ROW (FOOTER) */}
+          {/* FOOTER ROW: TOTAL HARIAN (STICKY BOTTOM) */}
           <tfoot>
-            <tr className="bg-slate-100 border-t-2 border-slate-200 sticky bottom-0 z-30 font-black">
-              <td className="p-2.5 sm:p-3 text-slate-800 uppercase tracking-wider text-[11px] sticky left-0 z-40 bg-slate-100 border-r border-slate-200/80 shadow-[2px_0_4px_rgba(0,0,0,0.03)]">
-                Total Harian
+            <tr className="sticky bottom-0 z-20 bg-slate-100 border-t-2 border-slate-300 font-bold">
+              {/* CELL TOTAL HARIAN (STICKY LEFT & BOTTOM) */}
+              <td className="sticky left-0 bottom-0 z-40 bg-slate-200 text-slate-800 px-4 py-2.5 border-r border-slate-300 font-black text-xs shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]">
+                TOTAL HARIAN
               </td>
+
+              {/* KOLOM TANGGAL TOTAL */}
               {daysList.map(d => {
-                const totalDay = dailyTotals[d.dateStr] || 0;
+                const dayCount = dailyTotals[d.dateStr] || 0;
                 return (
                   <td
-                    key={d.dateStr}
-                    className={`p-1.5 text-center text-xs border-r border-slate-200/70 ${d.isToday ? 'text-amber-800 bg-amber-100/60' : totalDay > 0 ? 'text-slate-800' : 'text-slate-400 font-normal'}`}
+                    key={d.day}
+                    className={`text-center py-2 px-0.5 border-r border-slate-200 text-[11px] font-black ${
+                      d.isToday ? 'bg-blue-100/90 text-blue-900' : 'bg-slate-100 text-slate-700'
+                    }`}
+                    title={`Total Seluruh Stasiun (${d.day} ${MONTH_NAMES[currentMonth]}): ${dayCount}`}
                   >
-                    {totalDay === 0 ? '-' : totalDay}
+                    {dayCount > 0 ? (
+                      <span className="text-slate-900 font-bold">{dayCount}</span>
+                    ) : (
+                      <span className="text-slate-400 font-normal">-</span>
+                    )}
                   </td>
                 );
               })}
-              <td className="p-2.5 text-center text-sm font-black text-white bg-blue-600 sticky right-0 z-30 border-l border-blue-700">
+
+              {/* GRAND TOTAL CELL (STICKY RIGHT & BOTTOM) */}
+              <td className="sticky right-0 bottom-0 z-40 bg-blue-600 text-white text-center py-2.5 px-3 font-black text-xs sm:text-sm border-l border-blue-700 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.18)]">
                 {grandTotal}
               </td>
             </tr>
@@ -417,94 +563,163 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         </table>
       </div>
 
-      {/* FOOTER LEGEND & PETUNJUK */}
-      <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="font-bold text-slate-700">Keterangan Intensitas:</span>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex w-4 h-4 rounded bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] items-center justify-center font-bold">1</span>
-            <span>1 Tiket</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex w-4 h-4 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] items-center justify-center font-bold">2</span>
-            <span>2 Tiket</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex w-4 h-4 rounded bg-rose-100 text-rose-700 border border-rose-300 text-[10px] items-center justify-center font-black">3+</span>
-            <span>≥3 Tiket (Lonjakan)</span>
-          </div>
+      {/* FOOTER STATS INFO */}
+      <div className="p-3 sm:px-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span>
+            Total Bulan Ini: <strong className="text-slate-800">{grandTotal} Gangguan</strong>
+          </span>
+          <span className="text-slate-300">•</span>
+          <span>
+            Rata-rata: <strong className="text-slate-800">{(grandTotal / daysInMonth).toFixed(1)} / hari</strong>
+          </span>
         </div>
-        <div className="text-[10px] text-slate-400 italic">
-          *Klik angka pada sel untuk melihat detail tiket gangguan di stasiun & tanggal tersebut
+        <div className="text-[11px] text-slate-400 italic">
+          *Data bersumber dari tiket visit gangguan pada stasiun terkait.
         </div>
       </div>
 
-      {/* MODAL POPUP DETAIL SEL TANGGAL */}
+      {/* MODAL POPUP RINCIAN TIKET GANGGUAN (IDENTIK DENGAN MODAL AKTIVASI) */}
       {selectedCell && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-scale-up">
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                  <Icon name="calendar-check" size={16} />
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 animate-fade">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => {
+              setSelectedCell(null);
+              setSearchQuery('');
+            }}
+          ></div>
+
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 flex flex-col max-h-[90vh] animate-modal overflow-hidden border border-slate-100">
+            {/* Header Modal */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                  <Icon name="alert-triangle" size={20} />
                 </div>
                 <div>
-                  <h4 className="font-black text-sm sm:text-base leading-tight">
-                    Tiket Gangguan: {selectedCell.station}
-                  </h4>
-                  <p className="text-[11px] text-blue-100 mt-0.5">
-                    Tanggal: {selectedCell.dateStr} ({selectedCell.tickets.length} Tiket)
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-bold text-slate-800">
+                      Rincian Gangguan — Stasiun {selectedCell.station}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                      {selectedCell.items.length} Tiket
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {selectedCell.dayName}, {selectedCell.dayNumber} {MONTH_NAMES[currentMonth]} {currentYear}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedCell(null)}
-                className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-              >
-                <Icon name="x" size={16} />
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportModalExcel}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl transition-colors"
+                  title="Ekspor daftar ini ke Excel"
+                >
+                  <Icon name="file-spreadsheet" size={14} />
+                  <span>Excel</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedCell(null);
+                    setSearchQuery('');
+                  }}
+                  className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors"
+                >
+                  <Icon name="x" size={18} />
+                </button>
+              </div>
             </div>
 
-            <div className="p-4 max-h-80 overflow-y-auto divide-y divide-slate-100 space-y-2">
-              {selectedCell.tickets.map((t, idx) => (
-                <div key={idx} className="pt-2 first:pt-0 flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs text-slate-800">
-                      {t.namaPelanggan || t.idPelanggan || 'Pelanggan'}
-                    </span>
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${String(t.status || '').toUpperCase().includes('DONE') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                      {t.status || 'OPEN'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-rose-600 font-semibold flex items-center gap-1">
-                    <Icon name="alert-triangle" size={12} />
-                    {t.keluhan || 'Kendala Teknis'}
-                  </p>
-                  {t.catatan && (
-                    <p className="text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded border border-slate-100 italic">
-                      "{t.catatan}"
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-                    <span>Petugas: {t.petugas || '-'}</span>
-                    <span>{t.timestamp}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* Toolbar Pencarian & Filter di Modal */}
+            <div className="p-3 sm:px-5 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-2.5">
+              <div className="relative w-full sm:w-72">
+                <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Cari ID, Pelanggan, Keluhan, Petugas..."
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+              </div>
 
-            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
               <button
                 onClick={() => {
                   if (onFilterTicketList) {
-                    onFilterTicketList(selectedCell.station, selectedCell.dateStr);
+                    onFilterTicketList(selectedCell.station, selectedCell.date);
                   }
                   setSelectedCell(null);
+                  setSearchQuery('');
                 }}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95"
               >
-                <Icon name="filter" size={14} />
-                <span>Filter di Tabel Tiket Utama</span>
+                <Icon name="filter" size={13} />
+                <span>Filter di Tabel Utama</span>
+              </button>
+            </div>
+
+            {/* List Tiket di Modal */}
+            <div className="overflow-y-auto p-3 sm:p-5 divide-y divide-slate-100 space-y-3">
+              {filteredModalItems.map((ticket, idx) => (
+                <div key={idx} className="pt-3 first:pt-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                        {ticket.idPelanggan || '-'}
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-800 truncate">
+                        {ticket.namaPelanggan || 'Pelanggan'}
+                      </h4>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(ticket.status || '').toUpperCase())
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {ticket.status || 'OPEN'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5">
+                      <Icon name="alert-triangle" size={13} />
+                      <span>{ticket.keluhan || 'Kendala Gangguan'}</span>
+                    </p>
+
+                    {ticket.catatan && (
+                      <p className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
+                        "{ticket.catatan}"
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-4 text-[11px] text-slate-400 flex-wrap">
+                      {ticket.odpAktual && <span>ODP: <strong className="text-slate-600">{ticket.odpAktual}</strong></span>}
+                      {ticket.petugas && <span>Petugas: <strong className="text-slate-600">{ticket.petugas}</strong></span>}
+                      {ticket.timestamp && <span>Waktu: <strong className="text-slate-600">{ticket.timestamp}</strong></span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {filteredModalItems.length === 0 && (
+                <div className="text-center py-10 text-slate-400 text-xs font-bold">
+                  Tidak ada tiket yang cocok dengan pencarian.
+                </div>
+              )}
+            </div>
+
+            {/* Footer Modal */}
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>Menampilkan {filteredModalItems.length} dari {selectedCell.items.length} tiket</span>
+              <button
+                onClick={() => {
+                  setSelectedCell(null);
+                  setSearchQuery('');
+                }}
+                className="px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Tutup
               </button>
             </div>
           </div>
