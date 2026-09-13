@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer,
+  BarChart, Bar, Rectangle, PieChart, Pie, Cell, ResponsiveContainer,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts';
 import { toProperCase } from '../utils';
@@ -41,7 +41,6 @@ const ISSUE_COLORS = [
 export default function GangguanAnalytics({ visitData = [] }) {
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(() => now.getFullYear());
-  const [hoveredBarIndex, setHoveredBarIndex] = useState(null);
 
   // Kategori normalisasi keluhan
   const categorizeKeluhan = (raw) => {
@@ -306,12 +305,6 @@ export default function GangguanAnalytics({ visitData = [] }) {
               <BarChart
                 data={monthlyData}
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                onMouseMove={(state) => {
-                  if (state && state.activeTooltipIndex !== undefined) {
-                    setHoveredBarIndex(state.activeTooltipIndex);
-                  }
-                }}
-                onMouseLeave={() => setHoveredBarIndex(null)}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis
@@ -327,19 +320,32 @@ export default function GangguanAnalytics({ visitData = [] }) {
                   axisLine={false}
                 />
                 <Tooltip content={<CustomBarTooltip />} cursor={false} />
-                <Bar dataKey="tiket" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                  {monthlyData.map((entry, index) => {
-                    const isHovered = hoveredBarIndex === index;
-                    const isAnyHovered = hoveredBarIndex !== null;
+                <Bar
+                  dataKey="tiket"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={48}
+                  activeBar={(props) => {
+                    const isCurrent = props.payload?.isCurrentMonth;
                     return (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.isCurrentMonth ? (isHovered ? '#1d4ed8' : '#3b82f6') : (isHovered ? '#3b82f6' : '#93c5fd')}
-                        opacity={isAnyHovered && !isHovered ? 0.45 : 1}
-                        className="transition-all duration-200 cursor-pointer"
+                      <Rectangle
+                        {...props}
+                        fill={isCurrent ? '#1d4ed8' : '#2563eb'}
+                        radius={[6, 6, 0, 0]}
+                        style={{
+                          filter: 'drop-shadow(0 2px 6px rgba(37, 99, 235, 0.35))',
+                          cursor: 'pointer'
+                        }}
                       />
                     );
-                  })}
+                  }}
+                >
+                  {monthlyData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.isCurrentMonth ? '#3b82f6' : '#93c5fd'}
+                      className="cursor-pointer"
+                    />
+                  ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
