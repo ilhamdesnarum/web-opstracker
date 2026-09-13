@@ -676,8 +676,8 @@ function syncPartnerData(statusesToFetch, targetStationName, customSheetInfo, sk
                                 newRow[2] = telepon;
                                 newRow[3] = alamat;
                                 newRow[4] = patokan;
-                                newRow[5] = cleanLat ? "'" + cleanLat : ""; // Format string teks biasa
-                                newRow[6] = cleanLng ? "'" + cleanLng : ""; // Format string teks biasa
+                                newRow[5] = cleanLat || ""; // Format string teks biasa bersih
+                                newRow[6] = cleanLng || ""; // Format string teks biasa bersih
                                 newRow[7] = tIkr;
                                 newRow[8] = tStatus;
                                 if (idxSalesCol !== -1) newRow[idxSalesCol] = namaSales;

@@ -820,12 +820,12 @@ function updatePelangganData(payload) {
     if (idxPort !== -1) dbSheet.getRange(targetRow, idxPort + 1).setValue(payload.portOdp);
     if (idxLat !== -1) {
       dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
-      dbSheet.getRange(targetRow, idxLat + 1).setValue(cleanLat ? "'" + cleanLat : "");
+      dbSheet.getRange(targetRow, idxLat + 1).setValue(cleanLat || "");
       dbSheet.getRange(targetRow, idxLat + 1).setNumberFormat("@");
     }
     if (idxLng !== -1) {
       dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
-      dbSheet.getRange(targetRow, idxLng + 1).setValue(cleanLng ? "'" + cleanLng : "");
+      dbSheet.getRange(targetRow, idxLng + 1).setValue(cleanLng || "");
       dbSheet.getRange(targetRow, idxLng + 1).setNumberFormat("@");
     }
     if (idxSales !== -1 && payload.namaSales !== undefined) dbSheet.getRange(targetRow, idxSales + 1).setValue(payload.namaSales);
@@ -1072,8 +1072,8 @@ function insertPelangganBaru(payload) {
     if (idxHp !== -1) newRow[idxHp] = payload.nomorHp ? "'" + payload.nomorHp : "";
     if (idxOdp !== -1) newRow[idxOdp] = payload.odpAktual || "";
     if (idxPort !== -1) newRow[idxPort] = payload.portOdp || "";
-    if (idxLat !== -1) newRow[idxLat] = cleanLat ? "'" + cleanLat : "";
-    if (idxLng !== -1) newRow[idxLng] = cleanLng ? "'" + cleanLng : "";
+    if (idxLat !== -1) newRow[idxLat] = cleanLat || "";
+    if (idxLng !== -1) newRow[idxLng] = cleanLng || "";
     if (idxSales !== -1) newRow[idxSales] = payload.namaSales || payload.sales || "Daftar Mandiri";
 
     // SET DEFAULT "BELUM" UNTUK AKTIVASI DAN IKR
