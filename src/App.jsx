@@ -11209,6 +11209,24 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     setIsTimeDropdownOpen(dropdownName === 'time' ? !isTimeDropdownOpen : false);
   };
 
+  const handleFilterActiveTickets = () => {
+    if (statusFilter === 'OPEN') {
+      // Toggle off jika sudah aktif
+      setStatusFilter('');
+      setTimeFilter('hari_ini');
+    } else {
+      // Filter ke semua tiket aktif (semua waktu agar semua tiket aktif terlihat)
+      setStatusFilter('OPEN');
+      setTimeFilter('');
+      setStationFilter('');
+      setSearchTerm('');
+      setCurrentPageVisit(1);
+    }
+    setTimeout(() => {
+      document.getElementById('section-tickets')?.scrollIntoView({ behavior: 'smooth' });
+    }, 60);
+  };
+
   return (
     <div className="max-w-[1440px] w-full mx-auto flex flex-col page-enter relative pb-12 space-y-5">
 
@@ -11555,30 +11573,68 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       <div id="section-kpi" className="space-y-3 shrink-0">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
           {/* Card 1: Total Tiket */}
-          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+          <div
+            onClick={() => {
+              setStatusFilter('');
+              setTimeFilter('');
+              setStationFilter('');
+              setSearchTerm('');
+              setCurrentPageVisit(1);
+              setTimeout(() => document.getElementById('section-tickets')?.scrollIntoView({ behavior: 'smooth' }), 60);
+            }}
+            className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group active:scale-[0.99]"
+            title="Klik untuk melihat semua tiket di tabel"
+          >
             <div className="min-w-0">
-              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Total Tiket</p>
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Total Tiket</p>
               <p className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight mt-0.5">{kpiStats.total}</p>
               <p className="text-[10px] text-blue-600 font-bold mt-1 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                 {kpiStats.thisMonth} Tiket Bulan Ini
               </p>
             </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100/60 shadow-2xs">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100/60 shadow-2xs group-hover:scale-105 transition-all">
               <Icon name="headset" size={20} />
             </div>
           </div>
 
           {/* Card 2: Tingkat Selesai */}
-          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+          <div
+            onClick={() => {
+              if (statusFilter === 'DONE') {
+                setStatusFilter('');
+                setTimeFilter('hari_ini');
+              } else {
+                setStatusFilter('DONE');
+                setTimeFilter('');
+                setStationFilter('');
+                setSearchTerm('');
+                setCurrentPageVisit(1);
+              }
+              setTimeout(() => document.getElementById('section-tickets')?.scrollIntoView({ behavior: 'smooth' }), 60);
+            }}
+            className={`rounded-xl p-3 sm:p-5 shadow-sm border transition-all cursor-pointer group hover:shadow-md active:scale-[0.99] ${
+              statusFilter === 'DONE'
+                ? 'ring-2 ring-emerald-500 border-emerald-400 bg-emerald-50/40'
+                : 'bg-white border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/10'
+            }`}
+            title="Klik untuk memfilter tiket selesai di tabel"
+          >
             <div className="min-w-0">
-              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Tingkat Selesai</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-emerald-600 transition-colors">Tingkat Selesai</p>
+                {statusFilter === 'DONE' && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white animate-pulse">
+                    Aktif
+                  </span>
+                )}
+              </div>
               <p className="text-xl sm:text-2xl font-black text-emerald-600 tracking-tight mt-0.5">{kpiStats.pct}%</p>
               <p className="text-[10px] text-slate-500 font-semibold mt-1">
                 {kpiStats.done} dari {kpiStats.total} Selesai
               </p>
             </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100/60 shadow-2xs">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100/60 shadow-2xs group-hover:scale-105 transition-all">
               <Icon name="check-circle" size={20} />
             </div>
           </div>
@@ -11598,17 +11654,46 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
           </div>
 
           {/* Card 4: Tiket Aktif / Open */}
-          <div className="bg-white rounded-xl p-3 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
+          <div
+            onClick={handleFilterActiveTickets}
+            className={`rounded-xl p-3 sm:p-5 shadow-sm border transition-all cursor-pointer group hover:shadow-md active:scale-[0.99] ${
+              statusFilter === 'OPEN'
+                ? 'ring-2 ring-rose-500 border-rose-400 bg-rose-50/40 shadow-sm'
+                : 'bg-white border-slate-100 hover:border-rose-300 hover:bg-rose-50/20'
+            }`}
+            title={statusFilter === 'OPEN' ? "Klik untuk reset filter tiket aktif" : "Klik untuk menampilkan tiket aktif di tabel"}
+          >
             <div className="min-w-0">
-              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Tiket Aktif (OPEN)</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-rose-600 transition-colors">Tiket Aktif (OPEN)</p>
+                {statusFilter === 'OPEN' && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500 text-white animate-pulse">
+                    Aktif
+                  </span>
+                )}
+              </div>
               <p className={`text-xl sm:text-2xl font-black tracking-tight mt-0.5 ${kpiStats.open > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
                 {kpiStats.open}
               </p>
-              <p className={`text-[10px] font-bold mt-1 ${kpiStats.open > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-                {kpiStats.open > 0 ? 'Perlu Ditindaklanjuti' : 'Semua Selesai'}
+              <p className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${kpiStats.open > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                {statusFilter === 'OPEN' ? (
+                  <>
+                    <Icon name="x-circle" size={11} className="text-rose-500" />
+                    <span>Klik untuk reset filter</span>
+                  </>
+                ) : kpiStats.open > 0 ? (
+                  <>
+                    <span>Perlu Ditindaklanjuti</span>
+                    <span className="text-[9px] text-slate-400 group-hover:text-rose-600 font-normal underline ml-0.5 transition-colors">
+                      (Lihat Tiket &rarr;)
+                    </span>
+                  </>
+                ) : (
+                  'Semua Selesai'
+                )}
               </p>
             </div>
-            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-2xs ${kpiStats.open > 0 ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-2xs transition-all group-hover:scale-105 ${kpiStats.open > 0 ? 'bg-rose-50 text-rose-600 border-rose-200 group-hover:bg-rose-100' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
               <Icon name="alert-triangle" size={20} />
             </div>
           </div>
@@ -11746,6 +11831,31 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
             </div>
           </div>
         </div>
+
+        {/* BANNER NOTIFIKASI FILTER TIKET AKTIF */}
+        {statusFilter === 'OPEN' && (
+          <div className="px-4 py-3 bg-rose-50/90 border-b border-rose-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-rose-800 animate-fade">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+              </span>
+              <span className="font-medium text-slate-700">
+                Menampilkan tiket berstatus <strong className="font-bold text-rose-600">AKTIF (OPEN)</strong> &bull; Ditemukan <strong className="font-bold text-slate-900">{filteredData.length} tiket</strong> yang perlu ditindaklanjuti.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setStatusFilter('');
+                setTimeFilter('hari_ini');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-rose-700 hover:text-white bg-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer whitespace-nowrap ml-auto sm:ml-0"
+            >
+              <Icon name="x" size={12} />
+              <span>Reset Filter / Tampilkan Semua</span>
+            </button>
+          </div>
+        )}
 
         {/* TAMPILAN MOBILE: KARTU TIKET KHUSUS MOBILE */}
         <div className="sm:hidden p-2.5 sm:p-3 space-y-2.5 sm:space-y-3 overflow-y-auto flex-1 custom-scrollbar min-h-0">
