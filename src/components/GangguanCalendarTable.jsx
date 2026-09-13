@@ -207,7 +207,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Gangguan ${MONTH_NAMES[currentMonth]}`);
 
-      const fileName = `Kalender_Gangguan_${MONTH_NAMES[currentMonth]}_${currentYear}.xlsx`;
+      const fileName = `Rekap_Gangguan_${MONTH_NAMES[currentMonth]}_${currentYear}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error('Gagal export excel:', err);
@@ -395,7 +395,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight">
-                Kalender Gangguan per Stasiun
+                Rekap Gangguan Harian per Stasiun
               </h2>
             </div>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">

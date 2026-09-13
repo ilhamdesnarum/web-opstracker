@@ -223,7 +223,7 @@ export default function ActivationCalendarTable({ pelangganData = [], onGoToData
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Aktivasi ${MONTH_NAMES[currentMonth]}`);
 
-      const fileName = `Kalender_Aktivasi_${MONTH_NAMES[currentMonth]}_${currentYear}.xlsx`;
+      const fileName = `Rekap_Aktivasi_${MONTH_NAMES[currentMonth]}_${currentYear}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error('Gagal export excel:', err);
@@ -351,7 +351,7 @@ export default function ActivationCalendarTable({ pelangganData = [], onGoToData
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight">
-                Kalender Aktivasi per Stasiun
+                Rekap Aktivasi Harian per Stasiun
               </h2>
             </div>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">

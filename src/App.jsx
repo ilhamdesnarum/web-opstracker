@@ -3704,8 +3704,8 @@ export function OkupansiView({ data, setData }) {
                 type="button"
                 onClick={() => setAddOdpTab('manual')}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'manual'
-                    ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
-                    : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
+                  ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
+                  : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
                   }`}
               >
                 <Icon name="edit-3" size={15} className={addOdpTab === 'manual' ? 'text-emerald-600' : 'text-slate-400'} />
@@ -3718,8 +3718,8 @@ export function OkupansiView({ data, setData }) {
                 type="button"
                 onClick={() => setAddOdpTab('excel')}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'excel'
-                    ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
-                    : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
+                  ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
+                  : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
                   }`}
               >
                 <Icon name="file-spreadsheet" size={15} className={addOdpTab === 'excel' ? 'text-emerald-600' : 'text-slate-400'} />
@@ -3913,8 +3913,8 @@ export function OkupansiView({ data, setData }) {
                                   onClick={() => handleRemoveManualRow(idx)}
                                   disabled={manualOdpRows.length <= 1}
                                   className={`p-1.5 rounded-lg transition-colors ${manualOdpRows.length <= 1
-                                      ? 'text-slate-300 cursor-not-allowed'
-                                      : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
+                                    ? 'text-slate-300 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer'
                                     }`}
                                   title={manualOdpRows.length <= 1 ? 'Minimal 1 baris ODP' : 'Hapus baris ini'}
                                 >
@@ -4561,8 +4561,8 @@ export function OkupansiView({ data, setData }) {
                             </td>
                             <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${pct >= 100 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
-                                  pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                                    'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                pct >= 75 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                  'bg-emerald-50 text-emerald-700 border border-emerald-100'
                                 }`}>
                                 {terpakai}/{kapasitas} ({pct.toFixed(0)}%)
                               </span>
@@ -9042,11 +9042,11 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 
         {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Penambahan tabel Kalender Aktivasi per Stasiun di halaman Overview */}
+          {/* FITUR 1: Penambahan tabel Rekap Aktivasi Harian per Stasiun di halaman Overview */}
           <div
             onClick={() => onTryFeature('overview', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Overview Kalender Aktivasi"
+            title="Klik untuk buka Overview Rekap Aktivasi"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
@@ -9055,14 +9055,14 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Kalender Aktivasi per Stasiun
+                    Rekap Aktivasi Harian per Stasiun
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
                     Halaman Overview
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Penambahan tabel Kalender Aktivasi per Stasiun untuk memantau pencapaian dan progres aktivasi harian secara visual dan terstruktur.
+                  Penambahan tabel Rekap Aktivasi Harian per Stasiun untuk memantau pencapaian dan progres aktivasi harian secara visual dan terstruktur.
                 </p>
               </div>
             </div>
@@ -9114,7 +9114,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Meliputi Card KPI data gangguan, Kalender Gangguan per Stasiun, serta Analisa & Grafik Tren Gangguan (Dual Mode Batang & Garis).
+                  Meliputi Card KPI data gangguan, Rekap Gangguan Harian per Stasiun, serta Analisa & Grafik Tren Gangguan.
                 </p>
               </div>
             </div>
@@ -13245,10 +13245,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     {isStationDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 shadow-xl rounded-lg sm:rounded-xl py-1 sm:py-1.5 z-[60] animate-dropdown max-h-40 sm:max-h-48 overflow-y-auto">
                         <div
-                          onClick={() => { 
-                            setTempFilterStation(''); 
-                            setTempFilterSales(''); 
-                            setIsStationDropdownOpen(false); 
+                          onClick={() => {
+                            setTempFilterStation('');
+                            setTempFilterSales('');
+                            setIsStationDropdownOpen(false);
                           }}
                           className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterStation === '' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
@@ -13258,10 +13258,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         {uniqueStations.map(st => (
                           <div
                             key={st}
-                            onClick={() => { 
-                              setTempFilterStation(st); 
-                              setTempFilterSales(''); 
-                              setIsStationDropdownOpen(false); 
+                            onClick={() => {
+                              setTempFilterStation(st);
+                              setTempFilterSales('');
+                              setIsStationDropdownOpen(false);
                             }}
                             className={`px-3 sm:px-4 py-1.5 sm:py-2.5 text-[11px] sm:text-sm cursor-pointer transition-colors flex items-center ${tempFilterStation === st ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
                           >
@@ -13286,10 +13286,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       )}
                     </div>
                     <div
-                      onClick={() => { 
-                        setIsSalesDropdownOpen(!isSalesDropdownOpen); 
-                        setIsStationDropdownOpen(false); 
-                        setIsStatusDropdownOpen(false); 
+                      onClick={() => {
+                        setIsSalesDropdownOpen(!isSalesDropdownOpen);
+                        setIsStationDropdownOpen(false);
+                        setIsStatusDropdownOpen(false);
                       }}
                       className={`w-full p-2 sm:p-2.5 bg-slate-50 border ${isSalesDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium text-slate-700 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
                     >
@@ -13838,10 +13838,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         <div className="flex items-center gap-1.5">
                           <Icon name="user" size={11} className="text-slate-400 shrink-0" />
                           <span className={`text-[10.5px] font-medium leading-none px-1.5 py-0.5 rounded ${item.namaSales === 'Daftar Mandiri'
-                              ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
-                              : (item.namaSales
-                                ? 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
-                                : 'text-slate-400')
+                            ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
+                            : (item.namaSales
+                              ? 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-slate-400')
                             }`}>
                             {item.namaSales || '-'}
                           </span>
@@ -14614,8 +14614,8 @@ function CoverageGISView({ data, targetCoords }) {
             type="button"
             onClick={() => setIsLegendOpen(prev => !prev)}
             className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${isLegendOpen
-                ? 'bg-[#1e3a8a] text-white border-blue-900 shadow-blue-900/30'
-                : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
+              ? 'bg-[#1e3a8a] text-white border-blue-900 shadow-blue-900/30'
+              : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
               }`}
           >
             <Icon name="sliders" size={13} className={isLegendOpen ? "text-amber-400" : "text-blue-600"} />
@@ -14632,8 +14632,8 @@ function CoverageGISView({ data, targetCoords }) {
               type="button"
               onClick={() => setSmartRadiusOnly(prev => !prev)}
               className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-1.5 border transition-all ${smartRadiusOnly
-                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/25'
-                  : 'bg-white/95 text-slate-600 border-slate-200 hover:border-slate-300'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/25'
+                : 'bg-white/95 text-slate-600 border-slate-200 hover:border-slate-300'
                 }`}
               title="Jika aktif, hanya menampilkan ODP terdekat dalam radius pencarian agar peta sangat ringan"
             >
