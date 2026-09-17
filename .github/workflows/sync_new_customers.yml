@@ -2,9 +2,9 @@ name: 3. Sync Pelanggan Baru (Otomatis Tiap Jam)
 
 on:
   schedule:
-    # Berjalan OTOMATIS SETIAP JAM (pada menit ke-0)
-    # 24 kali sehari tanpa batas timeout 6 menit Apps Script
-    - cron: '0 * * * *'
+    # Berjalan OTOMATIS SETIAP 3 JAM (pada menit ke-0)
+    # 8 kali sehari — dioptimalkan agar kuota Actions cukup sampai reset
+    - cron: '0 */3 * * *'
 
   # Bisa dipicu manual kapan saja dari tab GitHub Actions
   workflow_dispatch:
