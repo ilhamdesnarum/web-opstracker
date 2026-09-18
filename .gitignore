@@ -21,5 +21,14 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+# Local Environment & Secrets
+.env
+.env.*
+*.env
+
+# Local Scratch & Temporary data
 scratch/
+scratch*
+test_*.js
+*.txt
+response_test.json
