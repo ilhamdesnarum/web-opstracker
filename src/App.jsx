@@ -17,6 +17,10 @@ import AiDeceView from './components/AiDeceView';
 import ActivationCalendarTable from './components/ActivationCalendarTable';
 import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
+import { PoReleaseModal } from './components/PoReleaseModal';
+import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
+import { isPercepatanCustomer, getCustomerDismantleDate } from './utils';
+import coverageBoundaries from './data/coverageBoundaries.json';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
@@ -42,7 +46,8 @@ const parseSupabaseDocument = (fields) => {
     namaPelanggan: fields.nama_pelanggan || "",
     nomorHp: fields.nomor_hp || "",
     alamat: fields.alamat || fields.alamat_pelanggan || fields.alamat_pemasangan || "",
-    stasiun: fields.stasiun || "",
+    stasiun: (fields.stasiun === "Semarang Tawang" || fields.stasiun === "SEMARANG TAWANG") ? "Tawang" : (fields.stasiun || ""),
+    tahapPembangunan: fields.tahap_pembangunan || fields.tahap || "",
     odpAktual: fields.odp || fields.odp_aktual || fields.kode_odp || "",
     portOdp: fields.port_odp || "",
     latitude: fields.latitude || "",
@@ -65,7 +70,11 @@ const parseSupabaseDocument = (fields) => {
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null ? Number(fields.telat_bayar_hari) : null,
-    namaSales: fields.nama_sales || fields.sales || ""
+    namaSales: (fields.nama_sales && fields.nama_sales !== "-") ? fields.nama_sales : (fields.sales && fields.sales !== "-" ? fields.sales : "Daftar Mandiri"),
+    updatedAt: fields.updated_at || fields.updatedAt || "",
+    createdAt: fields.created_at || fields.createdAt || "",
+    tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
+    reasonDismantle: fields.reason_dismantle || ""
   };
 };
 
@@ -114,6 +123,35 @@ const parseSupabaseVisitDocument = (fields) => {
     petugas: fields.petugas || "",
     evidence: fields.evidence || "",
     waktuClose: fields.waktu_close || ""
+  };
+};
+
+// Helper untuk parse dokumen PO Release dari Supabase ke camelCase React
+const parseSupabasePoRelease = (fields) => {
+  const hpReg = Number(fields.hp_reguler || 0);
+  const hpPerc = Number(fields.hp_percepatan || 0);
+  const totHp = Number(fields.hp_terbangun || (hpReg + hpPerc) || 0);
+  const totAkt = Number(fields.total_aktivasi_hc || 0);
+  const perf = totHp > 0 ? parseFloat(((totAkt / totHp) * 100).toFixed(2)) : (Number(fields.performa_hc) || 0);
+
+  return {
+    id: fields.id,
+    stasiun: fields.stasiun || '',
+    noPoRelease: fields.no_po_release || '',
+    jenisPo: fields.jenis_po || 'Direct',
+    tahapPembangunan: fields.tahap_pembangunan || '',
+    segmen: fields.segmen || (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler'),
+    hpReguler: hpReg,
+    hpPercepatan: hpPerc,
+    hpTerbangun: totHp,
+    hpRfs: Number(fields.hp_rfs || 0),
+    totalAktivasiHc: totAkt,
+    hcAktif: Number(fields.hc_aktif || 0),
+    suspend: Number(fields.suspend || 0),
+    readyToDismantle: Number(fields.ready_to_dismantle || 0),
+    dismantled: Number(fields.dismantled || 0),
+    performaHc: perf,
+    catatan: fields.catatan || ''
   };
 };
 
@@ -237,12 +275,16 @@ const getCachedData = (key, maxAgeMs = 24 * 60 * 60 * 1000) => {
   }
 };
 
-const compressCacheItem = (data) => {
+const compressCacheItem = (data, key = '') => {
   if (!Array.isArray(data)) return data;
+  const isPelanggan = typeof key === 'string' && key.includes('pelanggan');
   return data.map(item => {
     if (typeof item !== 'object' || item === null) return item;
     const min = {};
     for (const k in item) {
+      if (isPelanggan && (k.startsWith('foto') || k === 'catatan' || k === 'issueKendala')) {
+        continue;
+      }
       const val = item[k];
       if (val !== "" && val !== null && val !== undefined) {
         min[k] = val;
@@ -260,7 +302,7 @@ const setCachedData = (key, data) => {
       sessionStorage.removeItem(key);
       return;
     }
-    const compressed = compressCacheItem(data);
+    const compressed = compressCacheItem(data, key);
     const payload = {
       timestamp: Date.now(),
       data: compressed
@@ -1106,11 +1148,12 @@ function App({ onLogout }) {
 
   const tabToPath = {
     'dashboard': '/dashboard',
+    'performansi': '/performansi',
     'overview': '/overview',
     'database': '/data-pelanggan',
     'okupansi': '/data-okupansi',
     'gangguan': '/data-gangguan',
-    'gamas': '/monitoring-gamaas',
+    'gamas': '/monitoring-gamas',
     'team': '/data-petugas',
     'coverage': '/odp-coverage',
     'aidece': '/customer-lookup'
@@ -1425,21 +1468,28 @@ function App({ onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v4', null);
+        setCachedData('otas_pelanggan_cache_v5', null);
         setCachedData('otas_odp_cache_v4', null);
         setCachedData('otas_station_cache', null);
+        setCachedData('otas_po_release_cache', null);
         setCachedData('otas_detail_po_cache', null);
         setCachedData('otas_visit_cache', null);
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v4');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v5');
+      // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
+      if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
+        parsedPelanggan = null;
+        setCachedData('otas_pelanggan_cache_v5', null);
+      }
+
       let parsedOdp = getCachedData('otas_odp_cache_v4');
       let cachedStation = getCachedData('otas_station_cache');
-      let cachedDetailPo = getCachedData('otas_detail_po_cache');
+      let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
 
-      const hasCache = parsedPelanggan && parsedOdp && cachedVisit;
+      const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo;
 
       // Jika data sudah ada (dari state atau cache), jangan munculkan layar loading penuh
       if (!hasCache && data.pelangganData.length === 0) {
@@ -1450,7 +1500,7 @@ function App({ onLogout }) {
       }
 
       // Hydrate state langsung jika cache lokal tersedia
-      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit) {
+      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit || cachedDetailPo) {
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
@@ -1461,20 +1511,21 @@ function App({ onLogout }) {
         }));
       }
 
-      if (!parsedPelanggan || !parsedOdp || !cachedVisit) {
+      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales';
+        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,created_at,updated_at';
         const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
-        const [supabasePelanggan, supabaseOdp, supabaseVisit] = await Promise.all([
+        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo] = await Promise.all([
           parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
-          cachedVisit ? Promise.resolve(null) : fetchAllSupabaseData('log_visit', '*', 'id')
+          cachedVisit ? Promise.resolve(null) : fetchAllSupabaseData('log_visit', '*', 'id'),
+          cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id')
         ]);
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v4', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v5', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -1490,11 +1541,17 @@ function App({ onLogout }) {
           cachedVisit = supabaseVisit.map(parseSupabaseVisitDocument);
           setCachedData('otas_visit_cache', cachedVisit);
         }
+        if (supabasePo && supabasePo.length > 0) {
+          cachedDetailPo = supabasePo.map(parseSupabasePoRelease);
+          setCachedData('otas_po_release_cache', cachedDetailPo);
+          setCachedData('otas_detail_po_cache', cachedDetailPo);
+        }
 
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
           odpData: parsedOdp || prev.odpData,
+          detailPoData: cachedDetailPo || prev.detailPoData,
           visitData: cachedVisit || prev.visitData
         }));
       }
@@ -1504,16 +1561,22 @@ function App({ onLogout }) {
         .then(fastResult => {
           if (fastResult && !fastResult.error) {
             if (fastResult.stationData?.length > 0) setCachedData('otas_station_cache', fastResult.stationData);
-            if (fastResult.detailPoData?.length > 0) setCachedData('otas_detail_po_cache', fastResult.detailPoData);
+            if (!cachedDetailPo && fastResult.detailPoData?.length > 0) setCachedData('otas_detail_po_cache', fastResult.detailPoData);
 
-            setData(prev => ({
-              ...prev,
-              ...fastResult,
-              visitData: cachedVisit || prev.visitData,
-              dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
-              pelangganData: parsedPelanggan || prev.pelangganData,
-              odpData: parsedOdp || prev.odpData
-            }));
+            setData(prev => {
+              const currentPelanggan = (parsedPelanggan && parsedPelanggan.length > 0)
+                ? parsedPelanggan
+                : (prev.pelangganData && prev.pelangganData.length > 100 ? prev.pelangganData : (fastResult.pelangganData || prev.pelangganData));
+              return {
+                ...prev,
+                ...fastResult,
+                detailPoData: (cachedDetailPo && cachedDetailPo.length > 0) ? cachedDetailPo : (fastResult.detailPoData || prev.detailPoData),
+                visitData: cachedVisit || prev.visitData,
+                dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
+                pelangganData: currentPelanggan,
+                odpData: parsedOdp || prev.odpData
+              };
+            });
             setLastSyncedTime(new Date());
           }
         })
@@ -1536,7 +1599,17 @@ function App({ onLogout }) {
   // --- SINKRONISASI SENYAP DI LATAR BELAKANG (REAL-TIME TANPA LOADING SCREEN) ---
   const fetchDataSilent = async () => {
     try {
-      const fastResult = await api.run('getFastDashboardData').catch(() => null);
+      const [fastResult, supabasePo] = await Promise.all([
+        api.run('getFastDashboardData').catch(() => null),
+        fetchAllSupabaseData('po_release', '*', 'id').catch(() => null)
+      ]);
+
+      let updatedPo = null;
+      if (supabasePo && supabasePo.length > 0) {
+        updatedPo = supabasePo.map(parseSupabasePoRelease);
+        setCachedData('otas_po_release_cache', updatedPo);
+        setCachedData('otas_detail_po_cache', updatedPo);
+      }
 
       setData(prev => ({
         ...prev,
@@ -1544,7 +1617,7 @@ function App({ onLogout }) {
         dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getGlobalStatusStr(p) === 'KENDALA') : prev.dataKendalaSheet),
         petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
         stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
-        detailPoData: fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData,
+        detailPoData: updatedPo || prev.detailPoData || fastResult?.detailPoData || [],
         fastKpi: fastResult?.fastKpi || prev.fastKpi
       }));
       setLastSyncedTime(new Date());
@@ -1587,7 +1660,7 @@ function App({ onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v4', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v5', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -1696,6 +1769,42 @@ function App({ onLogout }) {
       )
       .subscribe();
 
+    // Setup Supabase Real-Time Listener untuk po_release
+    const poChannel = supabase
+      .channel('schema-po-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'po_release'
+        },
+        (payload) => {
+          setData(prev => {
+            let newDetailPo = [...(prev.detailPoData || [])];
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updatedPo = parseSupabasePoRelease(payload.new);
+              const idx = newDetailPo.findIndex(p => (p.id && updatedPo.id && String(p.id) === String(updatedPo.id)) || (p.noPoRelease === updatedPo.noPoRelease && p.stasiun === updatedPo.stasiun));
+              if (idx !== -1) {
+                newDetailPo[idx] = { ...newDetailPo[idx], ...updatedPo };
+              } else {
+                newDetailPo.push(updatedPo);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = payload.old?.id;
+              newDetailPo = newDetailPo.filter(p => p.id !== deletedId);
+            }
+            setCachedData('otas_po_release_cache', newDetailPo);
+            setCachedData('otas_detail_po_cache', newDetailPo);
+            return {
+              ...prev,
+              detailPoData: newDetailPo
+            };
+          });
+        }
+      )
+      .subscribe();
+
     // Setup interval sinkronisasi otomatis setiap 30 detik untuk sisa data non-pelanggan (seperti KPI/stok stasiun)
     const interval = setInterval(() => {
       fetchDataSilent();
@@ -1705,6 +1814,7 @@ function App({ onLogout }) {
       supabase.removeChannel(pelangganChannel);
       supabase.removeChannel(visitChannel);
       supabase.removeChannel(odpChannel);
+      supabase.removeChannel(poChannel);
       clearInterval(interval);
     };
   }, []);
@@ -1750,6 +1860,7 @@ function App({ onLogout }) {
 
           {[
             { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+            { id: 'performansi', icon: 'bar-chart-2', label: 'Performansi' },
             { id: 'overview', icon: 'line-chart', label: 'Overview' },
             { id: 'database', icon: 'database', label: 'Data Pelanggan' }, // Icon diganti 'database'
             { id: 'okupansi', icon: 'server', label: 'Data Okupansi' },
@@ -1802,6 +1913,7 @@ function App({ onLogout }) {
               </button>
               <h1 className="text-xs sm:text-base lg:text-lg font-bold text-slate-800 truncate">
                 {activeTab === 'dashboard' && 'Overview Aktivasi Harian'}
+                {activeTab === 'performansi' && 'Performansi & Aktivasi Homeconnect'}
                 {activeTab === 'overview' && 'Analisis Tren & Pipeline'}
                 {activeTab === 'database' && 'Database & Manajemen Pelanggan'}
                 {activeTab === 'okupansi' && 'Data Okupansi ODC & ODP'}
@@ -1887,7 +1999,15 @@ function App({ onLogout }) {
           )}
 
           <div className="h-full w-full">
-            {activeTab === 'dashboard' && <DashboardView data={data} isSyncing={isLoading} />}
+            {(activeTab === 'dashboard' || activeTab === 'performansi') && (
+              <DashboardView 
+                data={data} 
+                isSyncing={isLoading} 
+                onRefresh={() => fetchData(true)} 
+                onRefreshSilent={fetchDataSilent} 
+                viewMode={activeTab} 
+              />
+            )}
             {activeTab === 'overview' && <OverviewView data={data} onGoToDatabase={(statusFilter, stationFilter = '') => { setInitialDatabaseStatusFilter(statusFilter); setInitialDatabaseStationFilter(stationFilter); setActiveTab('database'); }} />}
             {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
             {activeTab === 'okupansi' && <OkupansiView data={data} setData={setData} />}
@@ -4990,7 +5110,9 @@ function OverviewView({ data, onGoToDatabase }) {
 
     if (timeFilter === 'semua') {
       start = '';
-      end = '';
+      // Maksimal di bulan berjalan (akhir bulan berjalan) agar real & tidak menampilkan data aktivasi di bulan depan
+      const lastDayOfCurrentMonth = new Date(t.getFullYear(), t.getMonth() + 1, 0);
+      end = getLocalDateStr(lastDayOfCurrentMonth);
       rangeStr = 'Semua Waktu';
     } else if (timeFilter === 'hari_ini') {
       start = end = getLocalDateStr(t);
@@ -5035,6 +5157,8 @@ function OverviewView({ data, onGoToDatabase }) {
         const tAkt = standardizeDate(item.tglAktivasi);
         let inRange = true;
         if (start && end) inRange = tAkt >= start && tAkt <= end;
+        else if (end) inRange = tAkt <= end;
+        else if (start) inRange = tAkt >= start;
         if (inRange) actList.push(item);
       }
       else if (status === 'WAITING') {
@@ -5110,6 +5234,11 @@ function OverviewView({ data, onGoToDatabase }) {
     if (!aktivasiList) return [];
     const map = {};
 
+    const now = new Date();
+    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const todayStr = getLocalDateStr(now);
+    const currentYearStr = String(now.getFullYear());
+
     // Jika mode harian dan kita punya rentang tanggal, pre-populate dengan nilai 0
     // agar grafik berbentuk garis bersambung (terutama untuk "Minggu Ini" atau "Bulan Ini")
     if (trendMode === 'daily' && startDateStr && endDateStr) {
@@ -5140,6 +5269,10 @@ function OverviewView({ data, onGoToDatabase }) {
       let dateStr = standardizeDate(item.tglAktivasi);
       if (!dateStr) return; // Abaikan jika tidak ada valid date
 
+      // Filter: Maksimal di bulan berjalan (tidak menampilkan data di masa depan / setelah bulan berjalan)
+      const itemYearMonth = dateStr.substring(0, 7);
+      if (itemYearMonth > currentYearMonth) return;
+
       let key = '';
       let dateRangeStr = null;
       let label = '';
@@ -5147,13 +5280,15 @@ function OverviewView({ data, onGoToDatabase }) {
       // Pemetaan Sumbu-X
       if (trendMode === 'yearly') {
         key = dateStr.substring(0, 4); // YYYY
+        if (key > currentYearStr) return;
         label = key;
       } else if (trendMode === 'monthly') {
-        key = dateStr.substring(0, 7); // YYYY-MM
+        key = itemYearMonth; // YYYY-MM
         const [y, m] = key.split('-');
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
         label = `${months[parseInt(m) - 1]} ${y}`;
       } else if (trendMode === 'weekly') {
+        if (dateStr.substring(0, 10) > todayStr) return;
         const d = new Date(dateStr);
         const weekNum = getISOWeekNumber(d);
         const year = d.getFullYear();
@@ -5162,6 +5297,7 @@ function OverviewView({ data, onGoToDatabase }) {
         label = key;
       } else if (trendMode === 'daily') {
         key = dateStr.substring(0, 10); // YYYY-MM-DD
+        if (key > todayStr) return;
         const [y, m, d] = key.split('-');
         label = `${d}/${m}/${y}`;
       }
@@ -5648,7 +5784,7 @@ function DashboardSkeleton() {
 // ==========================================
 // HALAMAN 1: DASHBOARD OVERVIEW
 // ==========================================
-function DashboardView({ data, isSyncing }) {
+function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode = 'dashboard' }) {
   const safeStationData = data.stationData || [];
 
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -5748,9 +5884,13 @@ function DashboardView({ data, isSyncing }) {
     const stationNamesSet = new Set();
 
     (data.pelangganData || []).forEach(p => {
-      const rawSt = String(p.stasiun || '').trim();
+      let rawSt = String(p.stasiun || '').trim();
       if (!rawSt) return;
-      const stKey = rawSt.toLowerCase();
+      let stKey = rawSt.toLowerCase();
+      if (stKey === 'tawang') {
+        stKey = 'semarang tawang';
+        rawSt = 'Semarang Tawang';
+      }
       stationNamesSet.add(rawSt);
 
       const ikr = String(p.ikr || p.status_ikr || '').toLowerCase();
@@ -5784,27 +5924,126 @@ function DashboardView({ data, isSyncing }) {
     }
 
     return baseStations.map(station => {
-      const stKey = String(station.stasiun || '').toLowerCase();
+      const rawSt = String(station.stasiun || '').trim();
+      let stKey = rawSt.toLowerCase();
+      if (stKey === 'tawang') stKey = 'semarang tawang';
       const aktifPadaTanggalIni = stationAktifTodayMap[stKey] || 0;
-      const rawHpPercepatan = station.hpPercepatan !== undefined ? station.hpPercepatan : station.aktifHariIni;
 
-      const totalFromSheet = Number(station.totalAktivasiHc || station.aktivasiReguler || 0);
-      const totalFromPelanggan = stationTotalAktivasiMap[stKey] || 0;
-      const totAkt = hasSheetData ? totalFromSheet : totalFromPelanggan;
+      // Ambil kapasitas Homepass dari PO Release Supabase
+      const poForStation = (data.detailPoData || []).filter(po => {
+        let pSt = String(po.stasiun || '').trim().toLowerCase();
+        if (pSt === 'tawang') pSt = 'semarang tawang';
+        return pSt === stKey || pSt.includes(stKey) || stKey.includes(pSt);
+      });
 
-      const hcFromSheet = Number(station.hcAktif || station.hcAktifReguler || 0);
-      const hcFromPelanggan = stationHcAktifMap[stKey] || 0;
-      const hcAkt = hasSheetData ? hcFromSheet : hcFromPelanggan;
+      let poHpReg = 0;
+      let poHpPerc = 0;
+      poForStation.forEach(po => {
+        poHpReg += Number(po.hpReguler || 0);
+        poHpPerc += Number(po.hpPercepatan || 0);
+      });
+      const totalHpStation = poHpReg + poHpPerc;
+
+      // Kalkulasi riil angka HC langsung dari pelanggan aktual (Supabase data_pelanggan)
+      let liveAktReg = 0;
+      let liveAktPerc = 0;
+      let liveHcAktReg = 0;
+      let liveHcAktPerc = 0;
+      let liveTotAkt = 0;
+      let liveTotHcAkt = 0;
+      let liveSuspend = 0;
+      let liveReady = 0;
+      let liveDismantled = 0;
+
+      (data.pelangganData || []).forEach(p => {
+        let pSt = String(p.stasiun || '').trim().toLowerCase();
+        if (pSt === 'tawang') pSt = 'semarang tawang';
+        if (pSt !== stKey && !(stKey.includes(pSt) || pSt.includes(stKey))) return;
+
+        const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+        const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
+
+        const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
+        const isSuspend = akt === 'SUSPEND';
+        const isReady = akt === 'READY TO DISMANTLE';
+        const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
+        const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
+
+        if (isSuspend) liveSuspend++;
+        if (isReady) liveReady++;
+        if (isDis) liveDismantled++;
+
+        if (isAktivasi) {
+          liveTotAkt++;
+          if (isAktif) liveTotHcAkt++;
+
+          const isPerc = isPercepatanCustomer(p, data.odpData);
+          if (isPerc) {
+            liveAktPerc++;
+            if (isAktif) liveHcAktPerc++;
+          } else {
+            liveAktReg++;
+            if (isAktif) liveHcAktReg++;
+          }
+        }
+      });
+
+      // Fallback ke PO release table jika pelangganData belum selesai load di latar belakang
+      if (liveTotAkt === 0 && poForStation.length > 0) {
+        let fbTotAkt = 0, fbHcAkt = 0, fbSusp = 0, fbReady = 0, fbDism = 0, fbAktReg = 0, fbAktPerc = 0, fbHcAktReg = 0, fbHcAktPerc = 0;
+        poForStation.forEach(po => {
+          const tAkt = Number(po.totalAktivasiHc || 0);
+          const hAkt = Number(po.hcAktif || 0);
+          fbTotAkt += tAkt;
+          fbHcAkt += hAkt;
+          fbSusp += Number(po.suspend || 0);
+          fbReady += Number(po.readyToDismantle || 0);
+          fbDism += Number(po.dismantled || 0);
+          const isP = String(po.segmen || po.tahapPembangunan || '').toLowerCase().includes('percepatan') || Number(po.hpPercepatan || 0) > 0;
+          if (isP) {
+            fbAktPerc += tAkt;
+            fbHcAktPerc += hAkt;
+          } else {
+            fbAktReg += tAkt;
+            fbHcAktReg += hAkt;
+          }
+        });
+        if (fbTotAkt > 0) {
+          liveTotAkt = fbTotAkt;
+          liveTotHcAkt = fbHcAkt;
+          liveSuspend = fbSusp;
+          liveReady = fbReady;
+          liveDismantled = fbDism;
+          liveAktReg = fbAktReg;
+          liveAktPerc = fbAktPerc;
+          liveHcAktReg = fbHcAktReg;
+          liveHcAktPerc = fbHcAktPerc;
+        }
+      }
+
+      const perfStation = totalHpStation > 0 ? parseFloat(((liveTotAkt / totalHpStation) * 100).toFixed(2)) : 0;
 
       return {
         ...station,
-        totalAktivasiHc: totAkt,
-        hcAktif: hcAkt,
-        hpPercepatanVal: Number(rawHpPercepatan || 0),
+        stasiun: rawSt,
+        hpReguler: poHpReg,
+        hpPercepatan: poHpPerc,
+        hpTerbangun: totalHpStation,
+        aktivasiReguler: liveAktReg,
+        aktivasiPercepatan: liveAktPerc,
+        hcAktifReguler: liveHcAktReg,
+        hcAktifPercepatan: liveHcAktPerc,
+        totalAktivasiHc: liveTotAkt,
+        hcAktif: liveTotHcAkt,
+        suspend: liveSuspend,
+        readyToDismantle: liveReady,
+        dismantled: liveDismantled,
+        performaHc: perfStation,
+        hpPercepatanVal: poHpPerc,
         aktifHariIniVal: Number(aktifPadaTanggalIni || 0),
       };
     });
-  }, [safeStationData, data.pelangganData, selectedDate]);
+  }, [safeStationData, data.pelangganData, data.detailPoData, selectedDate]);
 
   const totalAktivasiHarian = useMemo(() => {
     const fromChart = dynamicStationData.reduce((acc, curr) => acc + (Number(curr.aktifHariIniVal) || 0), 0);
@@ -5821,6 +6060,7 @@ function DashboardView({ data, isSyncing }) {
     let totalHcAktifPercepatan = 0;
     let totalAktifHariIni = 0;
     let totalAktivasiHc = 0;
+    let totalDismantledPo = 0;
 
     dynamicStationData.forEach(row => {
       const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
@@ -5843,6 +6083,7 @@ function DashboardView({ data, isSyncing }) {
       totalHcAktifPercepatan += hcAktPerc;
       totalAktifHariIni += aktToday;
       totalAktivasiHc += totAkt;
+      totalDismantledPo += Number(row.dismantled || 0);
     });
 
     const totalHpTerbangun = totalHpReguler + totalHpPercepatan;
@@ -5868,11 +6109,52 @@ function DashboardView({ data, isSyncing }) {
       aktifHariIni: totalAktifHariIni,
       totalAktivasiHc: totalAktivasiHc,
       hcAktif: totalHcAktif,
+      dismantled: totalDismantledPo,
       performaHc: totalPerforma,
       performaReguler: performaReguler,
       performaPercepatan: performaPercepatan
     };
   }, [dynamicStationData]);
+
+  // --- LIST & TOTAL DISMANTLED (HARIAN & KUMULATIF) ---
+  const dismantledList = useMemo(() => {
+    return (data.pelangganData || []).filter(item => {
+      const akt = String(item.status_aktivasi || item.aktivasi || item.statusAktivasi || '').trim().toUpperCase();
+      return akt === 'DISMANTLED' || akt === 'DISMANTLE';
+    });
+  }, [data.pelangganData]);
+
+  const dismantledDailyList = useMemo(() => {
+    return dismantledList.filter(item => {
+      const disDate = getCustomerDismantleDate(item);
+      return disDate === selectedDate;
+    });
+  }, [dismantledList, selectedDate]);
+
+  const totalDismantledHarian = useMemo(() => {
+    return dismantledDailyList.length;
+  }, [dismantledDailyList]);
+
+  const totalDismantledKumulatif = useMemo(() => {
+    const countPelanggan = dismantledList.length;
+    const countFromPo = (data.detailPoData || []).reduce((acc, po) => acc + Number(po.dismantled || 0), 0);
+    const countFromStations = (dynamicStationData || []).reduce((acc, curr) => acc + Number(curr.dismantled || 0), 0);
+    return Math.max(countPelanggan, countFromPo, countFromStations);
+  }, [dismantledList.length, data.detailPoData, dynamicStationData]);
+
+  const totalDismantled = totalDismantledHarian;
+
+  const dismantledPerStasiun = useMemo(() => {
+    const map = {};
+    dismantledDailyList.forEach(item => {
+      let st = toProperCase(item.stasiun || 'Tanpa Stasiun');
+      if (st === 'Semarang Tawang') st = 'Tawang';
+      if (st) map[st] = (map[st] || 0) + 1;
+    });
+    return Object.entries(map)
+      .filter(([_, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+  }, [dismantledDailyList]);
 
   // =========================================================================
   // --- STATS REGISTRASI HARIAN PER STASIUN ---
@@ -5883,7 +6165,9 @@ function DashboardView({ data, isSyncing }) {
     const stationList = safeStationData.length > 0 ? safeStationData : defaultStations.map(s => ({ stasiun: s }));
 
     stationList.forEach(st => {
-      if (st.stasiun) stats[String(st.stasiun).toLowerCase()] = 0;
+      let s = String(st.stasiun || '').trim().toLowerCase();
+      if (s === 'tawang') s = 'semarang tawang';
+      if (s) stats[s] = 0;
     });
 
     const parts = selectedDate.split('-');
@@ -5893,7 +6177,8 @@ function DashboardView({ data, isSyncing }) {
     (data.dataRegistrasi || []).forEach(reg => {
       const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
       if (valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl)) {
-        const st = String(reg.stasiun || '').toLowerCase();
+        let st = String(reg.stasiun || '').trim().toLowerCase();
+        if (st === 'tawang') st = 'semarang tawang';
         if (stats[st] !== undefined) {
           stats[st] += 1;
         } else {
@@ -5914,16 +6199,32 @@ function DashboardView({ data, isSyncing }) {
   const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
   const [showKendalaModal, setShowKendalaModal] = useState(false);
   const [showVisitModal, setShowVisitModal] = useState(false);
+  const [showDismantledModal, setShowDismantledModal] = useState(false);
+  const [dismantledSearchTerm, setDismantledSearchTerm] = useState('');
   // STATE BARU: Menyimpan nama stasiun yang diklik (bukan true/false lagi)
   const [selectedRegStation, setSelectedRegStation] = useState(null);
   const [selectedPoStation, setSelectedPoStation] = useState(null);
 
   useEffect(() => {
     // Kunci scroll layar ketika salah satu modal terbuka
-    if (showDiscrepancyModal || showKendalaModal || showVisitModal || selectedRegStation || selectedPoStation) document.body.style.overflow = 'hidden';
+    if (showDiscrepancyModal || showKendalaModal || showVisitModal || showDismantledModal || selectedRegStation || selectedPoStation) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = 'auto';
     return () => { document.body.style.overflow = 'auto'; };
-  }, [showDiscrepancyModal, showKendalaModal, showVisitModal, selectedRegStation, selectedPoStation]);
+  }, [showDiscrepancyModal, showKendalaModal, showVisitModal, showDismantledModal, selectedRegStation, selectedPoStation]);
+
+  const activeDismantledList = dismantledDailyList;
+
+  const filteredDismantledList = useMemo(() => {
+    if (!dismantledSearchTerm.trim()) return activeDismantledList;
+    const term = dismantledSearchTerm.toLowerCase();
+    return activeDismantledList.filter(c => {
+      const id = String(c.idPelanggan || '').toLowerCase();
+      const nama = String(c.namaPelanggan || '').toLowerCase();
+      const st = String(c.stasiun || '').toLowerCase();
+      const odp = String(c.odpAktual || c.odp || '').toLowerCase();
+      return id.includes(term) || nama.includes(term) || st.includes(term) || odp.includes(term);
+    });
+  }, [activeDismantledList, dismantledSearchTerm]);
 
   // --- LIST DAFTAR REGISTRASI UNTUK POP-UP (DIFILTER BERDASARKAN STASIUN YANG DIKLIK) ---
   const registrasiList = useMemo(() => {
@@ -5936,7 +6237,11 @@ function DashboardView({ data, isSyncing }) {
     return (data.dataRegistrasi || []).filter(reg => {
       const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
       const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
-      const matchStation = String(reg.stasiun || '').toLowerCase() === String(selectedRegStation).toLowerCase();
+      let regSt = String(reg.stasiun || '').trim().toLowerCase();
+      if (regSt === 'tawang') regSt = 'semarang tawang';
+      let selSt = String(selectedRegStation || '').trim().toLowerCase();
+      if (selSt === 'tawang') selSt = 'semarang tawang';
+      const matchStation = regSt === selSt;
 
       return matchDate && matchStation;
     });
@@ -5945,9 +6250,13 @@ function DashboardView({ data, isSyncing }) {
   // --- LIST DAFTAR DETAIL PO UNTUK POP-UP PER STASIUN ---
   const detailPoList = useMemo(() => {
     if (!selectedPoStation) return [];
-    return (data.detailPoData || []).filter(po =>
-      String(po.stasiun || '').toLowerCase().trim() === String(selectedPoStation).toLowerCase().trim()
-    );
+    let targetSt = String(selectedPoStation).toLowerCase().trim();
+    if (targetSt === 'tawang') targetSt = 'semarang tawang';
+    return (data.detailPoData || []).filter(po => {
+      let poSt = String(po.stasiun || '').toLowerCase().trim();
+      if (poSt === 'tawang') poSt = 'semarang tawang';
+      return poSt === targetSt || poSt.includes(targetSt) || targetSt.includes(poSt);
+    });
   }, [data.detailPoData, selectedPoStation]);
 
 
@@ -6019,6 +6328,13 @@ function DashboardView({ data, isSyncing }) {
         if (!map[pKendala]) map[pKendala] = { nama: pKendala, stasiun: stasiun, kendala: 0 };
         map[pKendala].kendala += 1;
       });
+    } else if (petugasMode === 'dismantled') {
+      dismantledDailyList.forEach(row => {
+        const stasiun = row.stasiun || 'Tanpa Stasiun';
+        const pDis = row.petugasAktivasi || row.petugasIkr || 'Petugas';
+        if (!map[pDis]) map[pDis] = { nama: pDis, stasiun: stasiun, dismantled: 0 };
+        map[pDis].dismantled += 1;
+      });
     } else {
       (data.pelangganData || []).forEach(row => {
         const stasiun = row.stasiun || 'Tanpa Stasiun';
@@ -6045,13 +6361,14 @@ function DashboardView({ data, isSyncing }) {
       .sort((a, b) => {
         if (petugasMode === 'aktivasi') return b.aktivasi - a.aktivasi;
         if (petugasMode === 'ikr') return b.ikr - a.ikr;
+        if (petugasMode === 'dismantled') return b.dismantled - a.dismantled;
         return b.kendala - a.kendala;
       })
       .map(p => ({
         ...p,
         chartKey: `${p.nama}|${p.stasiun}`
       }));
-  }, [data.pelangganData, kendalaList, petugasMode, selectedDate]);
+  }, [data.pelangganData, kendalaList, dismantledDailyList, petugasMode, selectedDate]);
 
   const maxNameLength = chartPetugasData.reduce((max, p) => Math.max(max, (p.nama || '').length), 0);
   const dynamicYAxisWidth = Math.min(Math.max(90, maxNameLength * 8 + 20), 200);
@@ -6077,8 +6394,9 @@ function DashboardView({ data, isSyncing }) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-3 sm:space-y-4 lg:space-y-6 page-enter pb-16 lg:pb-8">
-
+    <div className={`max-w-7xl mx-auto ${viewMode === 'dashboard' ? 'space-y-3 sm:space-y-4 lg:space-y-6' : ''} page-enter pb-16 lg:pb-8`}>
+      {viewMode === 'dashboard' && (
+        <>
       {/* DESKTOP TOP BAR (TANGGAL) - ASLI DESKTOP */}
       <div className="hidden lg:flex justify-end mb-2">
         <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all cursor-pointer">
@@ -6115,8 +6433,8 @@ function DashboardView({ data, isSyncing }) {
         <Icon name="activity" size={110} className="absolute -right-6 -bottom-6 text-white opacity-10 pointer-events-none" />
       </div>
 
-      {/* KPI CARDS (2-COL ON MOBILE, 4-COL ON DESKTOP) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-6">
+      {/* KPI CARDS (2-COL ON MOBILE, 5-COL ON DESKTOP) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
         <StatCard title="Total Aktivasi HC" value={renderStatValue(totalPelangganAktif)} icon="activity" bg="bg-orange-50" iconColor="text-orange-500" infoTooltip="Total seluruh Aktivasi HC dari Dashboard E16." />
 
         <StatCard title="Aktivasi Harian" value={renderStatValue(totalAktivasiHarian)} icon="check-circle" bg="bg-emerald-50" iconColor="text-emerald-500" infoTooltip={`Total aktivasi pada tanggal ${formattedDate}`} />
@@ -6135,6 +6453,21 @@ function DashboardView({ data, isSyncing }) {
           title={visitList.length > 0 && !isSyncing ? "Klik untuk melihat detail tiket visit/gangguan" : ""}
         >
           <StatCard title="Visit / Gangguan" value={renderStatValue(totalVisitHarian)} icon="headset" bg="bg-purple-50" iconColor="text-purple-500" infoTooltip={`Total tiket visit/gangguan pada tanggal ${formattedDate}`} />
+        </div>
+
+        <div
+          onClick={() => { if (totalDismantledHarian > 0 && !isSyncing) setShowDismantledModal(true); }}
+          className={`col-span-2 sm:col-span-1 ${totalDismantledHarian > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-slate-300" : ""}`}
+          title={totalDismantledHarian > 0 && !isSyncing ? "Klik untuk melihat rincian pelanggan dismantled" : ""}
+        >
+          <StatCard
+            title="Dismantled Harian"
+            value={renderStatValue(totalDismantledHarian)}
+            icon="x-circle"
+            bg="bg-slate-100"
+            iconColor="text-slate-600"
+            infoTooltip={`Total pelanggan yang di-dismantle pada tanggal ${formattedDate}`}
+          />
         </div>
       </div>
 
@@ -6245,6 +6578,19 @@ function DashboardView({ data, isSyncing }) {
                   {totalKendalaHarian}
                 </span>
               </button>
+
+              <button
+                onClick={() => setPetugasMode('dismantled')}
+                className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'dismantled' ? 'bg-slate-200 border-slate-300 text-slate-800' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'dismantled' ? 'bg-slate-700' : 'bg-slate-300'}`}></div>
+                  Dismantled
+                </div>
+                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'dismantled' ? 'bg-slate-300 text-slate-800' : 'bg-slate-200 text-slate-500'}`}>
+                  {totalDismantledHarian}
+                </span>
+              </button>
             </div>
 
             {/* Sync Badge */}
@@ -6273,11 +6619,11 @@ function DashboardView({ data, isSyncing }) {
               <div className="text-center text-[11px] text-slate-400 py-6">Belum ada data {petugasMode} di tanggal ini.</div>
             ) : (
               chartPetugasData.map((item, idx) => {
-                const currentVal = petugasMode === 'aktivasi' ? item.aktivasi : petugasMode === 'ikr' ? item.ikr : item.kendala;
-                const maxVal = Math.max(...chartPetugasData.map(p => petugasMode === 'aktivasi' ? p.aktivasi : petugasMode === 'ikr' ? p.ikr : p.kendala), 1);
+                const currentVal = petugasMode === 'aktivasi' ? item.aktivasi : petugasMode === 'ikr' ? item.ikr : petugasMode === 'dismantled' ? item.dismantled : item.kendala;
+                const maxVal = Math.max(...chartPetugasData.map(p => petugasMode === 'aktivasi' ? p.aktivasi : petugasMode === 'ikr' ? p.ikr : petugasMode === 'dismantled' ? p.dismantled : p.kendala), 1);
                 const percentage = (currentVal / maxVal) * 100;
-                const barColor = petugasMode === 'aktivasi' ? 'bg-blue-500' : petugasMode === 'ikr' ? 'bg-emerald-500' : 'bg-rose-500';
-                const textColor = petugasMode === 'aktivasi' ? 'text-blue-600' : petugasMode === 'ikr' ? 'text-emerald-600' : 'text-rose-600';
+                const barColor = petugasMode === 'aktivasi' ? 'bg-blue-500' : petugasMode === 'ikr' ? 'bg-emerald-500' : petugasMode === 'dismantled' ? 'bg-slate-600' : 'bg-rose-500';
+                const textColor = petugasMode === 'aktivasi' ? 'text-blue-600' : petugasMode === 'ikr' ? 'text-emerald-600' : petugasMode === 'dismantled' ? 'text-slate-700' : 'text-rose-600';
                 const cleanUsername = String(item.nama || '').replace('@', '');
 
                 return (
@@ -6317,6 +6663,9 @@ function DashboardView({ data, isSyncing }) {
                       {petugasMode === 'kendala' && (
                         <Bar dataKey="kendala" name="Kendala" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#f43f5e' }} />
                       )}
+                      {petugasMode === 'dismantled' && (
+                        <Bar dataKey="dismantled" name="Dismantled" fill="#475569" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
+                      )}
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -6330,153 +6679,29 @@ function DashboardView({ data, isSyncing }) {
           </div>
         </div>
       </div>
+        </>
+      )}
 
-      {/* Tabel Rekap */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden relative">
-        {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+      {/* Tampilan Rollout & PO */}
+      {viewMode === 'performansi' && (
+        <div className="relative">
+          {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
 
-        <div className="px-6 py-4 bg-[#1e3a8a] text-white flex justify-between items-center flex-wrap gap-2">
-          <div className="flex items-center">
-            <Icon name="activity" className="mr-2 text-cyan-400" size={18} />
-            <h2 className="font-bold text-sm">Tabel Rekap Aktivasi Homeconnect</h2>
-          </div>
-          <span className="text-[10px] font-medium bg-blue-900/50 px-2 py-1 rounded">Tanggal: {formattedDate}</span>
+          <ExecutiveRolloutTracker
+            dynamicStationData={dynamicStationData}
+            totals={totals}
+            detailPoData={data.detailPoData}
+            pelangganData={data.pelangganData}
+            odpData={data.odpData}
+            onRefresh={onRefreshSilent || onRefresh}
+            onOpenStationModal={(stName) => setSelectedPoStation(stName)}
+            formattedDate={formattedDate}
+          />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[9px] sm:text-[12px] text-left border-collapse min-w-[700px] sm:min-w-[1000px]">
-            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-[7.5px] sm:text-[10px]">
-              <tr>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-center font-extrabold border-r border-slate-200/60 align-middle">NO</th>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-left font-extrabold border-r border-slate-200/60 align-middle">STASIUN</th>
-                <th colSpan={2} className="px-1.5 py-1 sm:px-3 sm:py-1.5 text-center font-extrabold border-r border-slate-200/60 bg-slate-100/60 text-slate-700">HOMEPASS (HP)</th>
-                <th colSpan={2} className="px-1.5 py-1 sm:px-3 sm:py-1.5 text-center font-extrabold border-r border-slate-200/60 bg-blue-50/80 text-blue-700">AKTIVASI HC</th>
-                <th colSpan={2} className="px-1.5 py-1 sm:px-3 sm:py-1.5 text-center font-extrabold border-r border-slate-200/60 bg-emerald-50/80 text-emerald-700">HC AKTIF</th>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-center font-extrabold border-r border-slate-200/60 align-middle">AKTIVASI HARI INI</th>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-center font-extrabold border-r border-slate-200/60 align-middle text-blue-700">TOTAL AKTIVASI HC</th>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-center font-extrabold border-r border-slate-200/60 align-middle">PERFORMA HC VS HP</th>
-                <th rowSpan={2} className="px-1.5 py-1.5 sm:px-3 sm:py-2.5 text-center font-extrabold align-middle">DETAIL PO</th>
-              </tr>
-              <tr className="border-t border-slate-200/60 text-[7px] sm:text-[9px]">
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold bg-slate-100/40 text-slate-600">REGULER</th>
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold border-r border-slate-200/60 bg-slate-100/40 text-slate-600">PERCEPATAN</th>
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold bg-blue-50/40 text-blue-700">REGULER</th>
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold border-r border-slate-200/60 bg-blue-50/40 text-blue-700">PERCEPATAN</th>
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold bg-emerald-50/40 text-emerald-700">REGULER</th>
-                <th className="px-1.5 py-1 sm:px-2.5 sm:py-1 text-center font-bold border-r border-slate-200/60 bg-emerald-50/40 text-emerald-700">PERCEPATAN</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dynamicStationData.length > 0 ? (
-                <>
-                  {dynamicStationData.map((row, i) => {
-                    const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
-                    const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
-                    const totalHpRow = hpReg + hpPerc;
-
-                    const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
-                    const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
-
-                    const hcAktReg = row.hcAktifReguler !== undefined ? Number(row.hcAktifReguler) : Number(row.performaHc || 0);
-                    const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
-
-                    const totAktRow = row.totalAktivasiHc !== undefined && row.hpPercepatan !== undefined
-                      ? Number(row.totalAktivasiHc)
-                      : (row.keterangan !== undefined ? Number(row.keterangan || 0) : (aktReg + aktPerc));
-
-                    const aktToday = Number(row.aktifHariIniVal || 0);
-
-                    const progress = totalHpRow > 0 ? ((totAktRow / totalHpRow) * 100).toFixed(2) : 0;
-                    const isZeroActiveToday = !aktToday || aktToday === 0;
-
-                    return (
-                      <tr key={i} className="hover:bg-slate-100/50 transition-colors group">
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center text-slate-400 font-semibold border-r border-slate-100/80">{i + 1}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 font-bold text-slate-700 border-r border-slate-100/80">{toProperCase(row.stasiun)}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-medium text-slate-600 bg-slate-50/30">{hpReg.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-medium text-slate-600 bg-slate-50/30 border-r border-slate-100/80">{hpPerc.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-bold text-blue-700 bg-blue-50/20">{aktReg.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100/80">{aktPerc.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-semibold text-emerald-700 bg-emerald-50/20">{hcAktReg.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-semibold text-emerald-700 bg-emerald-50/20 border-r border-slate-100/80">{hcAktPerc.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center border-r border-slate-100/80">
-                          {isZeroActiveToday ? (
-                            <span className="text-slate-300 font-medium text-[9px] sm:text-[11px]">-</span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 sm:px-2 sm:py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-extrabold border border-emerald-100 shadow-sm animate-pulse-soft inline-block">
-                              +{aktToday}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center font-bold text-blue-600 bg-blue-50/15 border-r border-slate-100/80">{totAktRow.toLocaleString('id-ID')}</td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 border-r border-slate-100/80">
-                          {(() => {
-                            const perfReg = hpReg > 0 ? ((aktReg / hpReg) * 100).toFixed(2) + '%' : '-';
-                            const perfPerc = hpPerc > 0 ? ((aktPerc / hpPerc) * 100).toFixed(2) + '%' : '-';
-                            return (
-                              <div className="flex flex-col items-center gap-0 sm:gap-0.5 min-w-[90px] sm:min-w-[125px] max-w-[150px] mx-auto">
-                                <span className="text-[8px] sm:text-[10px] font-extrabold text-blue-700 leading-tight">{Number(progress).toFixed(2)}%</span>
-                                <div className="w-full bg-slate-100 h-1 sm:h-1.5 rounded-full overflow-hidden my-0.5 sm:my-0">
-                                  <div className={`h-full bg-blue-500 rounded-full`} style={{ width: `${Math.min(progress, 100)}%` }}></div>
-                                </div>
-                                <div className="flex items-center justify-between w-full text-[6px] sm:text-[9px] text-slate-400 font-semibold tracking-tighter sm:mt-0.5 px-0.5">
-                                  <span title="Performa HP Reguler">Reg: <strong className="text-slate-600 font-bold">{perfReg}</strong></span>
-                                  <span title="Performa HP Percepatan">Perc: <strong className="text-slate-600 font-bold">{perfPerc}</strong></span>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-1.5 py-2 sm:px-3 sm:py-3 text-center">
-                          <button
-                            onClick={() => setSelectedPoStation(row.stasiun)}
-                            className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 active:scale-95 transition-all shrink-0 cursor-pointer flex items-center justify-center border border-blue-200/50 shadow-sm mx-auto group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600"
-                            title={`Lihat detail PO untuk stasiun ${toProperCase(row.stasiun)}`}
-                          >
-                            <Icon name="arrow-right" size={12} className="transition-transform group-hover:translate-x-0.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr className="bg-slate-50 font-black text-slate-800 border-t-2 border-slate-200">
-                    <td className="px-3 py-3.5 text-center text-slate-400 border-r border-slate-200/80"></td>
-                    <td className="px-3 py-3.5 text-left text-slate-800 font-black border-r border-slate-200/80">TOTAL</td>
-                    <td className="px-3 py-3.5 text-center text-slate-700 bg-slate-100/50">{totals.hpReguler.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center text-slate-700 bg-slate-100/50 border-r border-slate-200/80">{totals.hpPercepatan.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center text-blue-800 bg-blue-50/40 font-black">{totals.aktivasiReguler.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center text-blue-800 bg-blue-50/40 font-black border-r border-slate-200/80">{totals.aktivasiPercepatan.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center text-emerald-800 bg-emerald-50/40 font-black">{totals.hcAktifReguler.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center text-emerald-800 bg-emerald-50/40 font-black border-r border-slate-200/80">{totals.hcAktifPercepatan.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center border-r border-slate-200/80">
-                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black border border-emerald-200 shadow-sm">
-                        {totals.aktifHariIni}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3.5 text-center text-blue-700 bg-blue-50/40 font-black border-r border-slate-200/80">{totals.totalAktivasiHc.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-3.5 text-center border-r border-slate-200/80">
-                      <div className="flex flex-col items-center gap-0.5 min-w-[125px] max-w-[150px] mx-auto">
-                        <span className="text-[11px] font-black text-blue-700">{Number(totals.performaHc).toFixed(2)}%</span>
-                        <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.min(totals.performaHc, 100)}%` }}></div>
-                        </div>
-                        <div className="flex items-center justify-between w-full text-[9px] text-slate-500 font-bold tracking-tighter mt-0.5 px-0.5">
-                          <span>Reg: <strong className="text-slate-800 font-extrabold">{totals.performaReguler}%</strong></span>
-                          <span>Perc: <strong className="text-slate-800 font-extrabold">{totals.performaPercepatan}%</strong></span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3.5 text-center"></td>
-                  </tr>
-                </>
-              ) : (
-                <tr><td colSpan="12" className="py-10 text-center text-slate-300 italic">Data kosong</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
 
       {/* Riwayat */}
+      {viewMode === 'dashboard' && (
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col min-h-[300px] relative">
         {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
 
@@ -6582,6 +6807,7 @@ function DashboardView({ data, isSyncing }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* --- MODAL SELISIH LAPORAN --- */}
       {showDiscrepancyModal && ReactDOM.createPortal(
@@ -7096,427 +7322,166 @@ function DashboardView({ data, isSyncing }) {
         document.body
       )}
 
-      {/* --- MODAL DETAIL PO RELEASE PER STASIUN (SHEET DASHBOARD B21:L55) --- */}
-      {selectedPoStation && ReactDOM.createPortal(
+      {/* --- MODAL DAFTAR DISMANTLED --- */}
+      {showDismantledModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setSelectedPoStation(null)}></div>
-
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden border border-slate-100">
-            {/* Header */}
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDismantledModal(false)}></div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
-                <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Icon name="train" size={18} className="text-blue-600" />
-                  Detail PO Release - {toProperCase(selectedPoStation)}
+                <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
+                  <Icon name="x-circle" size={18} className="mr-2 text-rose-500" />
+                  Rincian Pelanggan Dismantled
                 </h2>
-                <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 sm:mt-1">Daftar rincian PO Release untuk stasiun {toProperCase(selectedPoStation)} ({detailPoList.length} PO).</p>
+                <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5 sm:mt-1">
+                  Daftar pelanggan di-dismantle pada {formattedDate} ({dismantledDailyList.length} pelanggan).
+                </p>
               </div>
-              <button
-                onClick={() => setSelectedPoStation(null)}
-                className="p-1.5 rounded-lg bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors"
-              >
+              <button onClick={() => setShowDismantledModal(false)} className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
                 <Icon name="x" size={18} />
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-3 sm:p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-              {detailPoList.length > 0 ? (
+
+
+            {/* Filter Search & Stasiun Summary */}
+            <div className="p-3 sm:p-4 bg-white border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between shrink-0">
+              <div className="relative flex-1">
+                <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari ID, Nama Pelanggan, atau Stasiun..."
+                  value={dismantledSearchTerm}
+                  onChange={(e) => setDismantledSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              {/* Station Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 custom-scrollbar text-[10px]">
+                {dismantledPerStasiun.slice(0, 5).map(([st, cnt], i) => (
+                  <span key={i} className="px-2 py-1 bg-slate-100 text-slate-700 font-bold rounded-lg whitespace-nowrap border border-slate-200">
+                    {toProperCase(st)}: <span className="text-slate-900">{cnt}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+              {filteredDismantledList.length > 0 ? (
                 <>
-                  {/* TAMPILAN MOBILE: KARTU DETAIL PO KHUSUS MOBILE */}
-                  <div className="sm:hidden space-y-3">
-                    {detailPoList.map((po, i) => {
-                      const isCleanSchema = po.hpReguler !== undefined && !isNaN(Number(po.hpReguler));
-                      const noPo = po.noPoRelease || po.stasiun || '-';
-                      const jenis = po.jenisPo || '-';
-                      const tahap = po.hpByPo || po.tahapPembangunan || po.kategori || '-';
-                      const isPercepatan = String(tahap).toLowerCase().includes('percepatan');
-
-                      let hpReg = 0;
-                      let hpPerc = 0;
-                      let totHc = 0;
-                      let hcAktif = 0;
-                      let suspend = 0;
-                      let ready = 0;
-                      let dismantled = 0;
-
-                      if (isCleanSchema) {
-                        hpReg = Number(po.hpReguler || 0);
-                        hpPerc = Number(po.hpPercepatan || 0);
-                        totHc = Number(po.totalAktivasiHc || 0);
-                        hcAktif = Number(po.hcAktif || 0);
-                        suspend = Number(po.suspend || 0);
-                        ready = Number(po.readyToDismantle || 0);
-                        dismantled = Number(po.dismantled || 0);
-                      } else {
-                        if (isPercepatan) {
-                          hpReg = 0;
-                          hpPerc = typeof po.hcAktif === 'number' ? po.hcAktif : 0;
-                          totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                          hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                          ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                          dismantled = 0;
-                        } else {
-                          hpReg = typeof po.hpTerbangun === 'number' ? po.hpTerbangun : (typeof po.totalAktivasiHc === 'number' ? po.totalAktivasiHc : 0);
-                          hpPerc = 0;
-                          totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                          hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                          ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                          dismantled = 0;
-                        }
-                      }
-
-                      if (hpReg === 0 && hpPerc === 0 && po.hpTerbangun > 0) {
-                        if (isPercepatan) hpPerc = po.hpTerbangun;
-                        else hpReg = po.hpTerbangun;
-                      }
-
-                      const totalHp = hpReg + hpPerc;
-                      const perfVal = totalHp > 0 ? parseFloat(((totHc / totalHp) * 100).toFixed(2)) : (typeof po.performaHc === 'number' ? po.performaHc : 0);
-
+                  {/* TAMPILAN MOBILE: KARTU KHUSUS MOBILE */}
+                  <div className="sm:hidden space-y-2.5">
+                    {filteredDismantledList.map((cust, idx) => {
+                      const disDate = getCustomerDismantleDate(cust);
                       return (
-                        <div key={i} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm space-y-2.5">
+                        <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm space-y-2">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black flex items-center justify-center">{i + 1}</span>
-                                <h4 className="text-xs font-black text-slate-800 font-mono">{noPo}</h4>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-400 font-semibold">
-                                <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-bold">{jenis}</span>
-                                <span>•</span>
-                                <span>{tahap}</span>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-slate-800 truncate">{cust.namaPelanggan || 'Tanpa Nama'}</h4>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{cust.idPelanggan || '-'}</span>
+                                <span className="text-[8.5px] uppercase font-bold text-slate-400">{toProperCase(cust.stasiun)}</span>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-xs font-black text-blue-600">{perfVal}%</span>
-                              <div className="w-14 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-0.5">
-                                <div className={`h-full ${perfVal >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(perfVal, 100)}%` }}></div>
-                              </div>
-                            </div>
+                            <span className="px-2 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider border border-slate-300 bg-slate-100 text-slate-700 shrink-0">
+                              DISMANTLED
+                            </span>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 text-center">
-                            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200/60">
-                              <span className="text-[8px] font-bold text-slate-500 uppercase block truncate">
-                                {hpPerc > 0 && hpReg === 0 ? 'HP PERCEPATAN' : hpReg > 0 && hpPerc === 0 ? 'HP REGULER' : 'TOTAL HP'}
-                              </span>
-                              <span className="text-[11px] font-black text-slate-800">{totalHp.toLocaleString('id-ID')}</span>
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-50 text-[10px]">
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-slate-400 font-bold text-[8px] uppercase block">ODP / Port</span>
+                              <span className="font-semibold text-slate-700">{cust.odpAktual || '-'}{cust.portOdp ? ` / Port ${cust.portOdp}` : ''}</span>
                             </div>
-                            <div className="bg-blue-50/60 p-1.5 rounded-lg border border-blue-100">
-                              <span className="text-[8px] font-bold text-blue-600 uppercase block">Aktivasi HC</span>
-                              <span className="text-[11px] font-black text-blue-700">{totHc.toLocaleString('id-ID')}</span>
-                            </div>
-                            <div className="bg-emerald-50/60 p-1.5 rounded-lg border border-emerald-100">
-                              <span className="text-[8px] font-bold text-emerald-600 uppercase block">HC Aktif</span>
-                              <span className="text-[11px] font-black text-emerald-700">{hcAktif.toLocaleString('id-ID')}</span>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-slate-400 font-bold text-[8px] uppercase block">Tanggal Dismantle</span>
+                              <span className="font-semibold text-slate-700 truncate block">{disDate || '-'}</span>
                             </div>
                           </div>
-
-                          {(suspend > 0 || ready > 0 || dismantled > 0) && (
-                            <div className="flex items-center justify-between text-[9px] pt-1.5 px-1 text-slate-400 border-t border-slate-50 font-medium">
-                              <span>Suspend: <strong className="text-orange-600 font-bold">{suspend}</strong></span>
-                              <span>Ready: <strong className="text-amber-600 font-bold">{ready}</strong></span>
-                              <span>Dismantled: <strong className="text-rose-600 font-bold">{dismantled}</strong></span>
+                          {cust.catatan && (
+                            <div className="text-[9.5px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+                              Catatan: {cust.catatan}
                             </div>
                           )}
                         </div>
                       );
                     })}
-
-                    {/* Ringkasan Total Mobile */}
-                    {(() => {
-                      let sumHpReg = 0;
-                      let sumHpPerc = 0;
-                      let sumTotHc = 0;
-                      let sumHcAktif = 0;
-
-                      detailPoList.forEach(po => {
-                        const isCleanSchema = po.hpReguler !== undefined && !isNaN(Number(po.hpReguler));
-                        const tahap = po.hpByPo || po.tahapPembangunan || po.kategori || '-';
-                        const isPercepatan = String(tahap).toLowerCase().includes('percepatan');
-
-                        let hpReg = 0;
-                        let hpPerc = 0;
-                        let totHc = 0;
-                        let hcAktif = 0;
-
-                        if (isCleanSchema) {
-                          hpReg = Number(po.hpReguler || 0);
-                          hpPerc = Number(po.hpPercepatan || 0);
-                          totHc = Number(po.totalAktivasiHc || 0);
-                          hcAktif = Number(po.hcAktif || 0);
-                        } else {
-                          if (isPercepatan) {
-                            hpReg = 0;
-                            hpPerc = typeof po.hcAktif === 'number' ? po.hcAktif : 0;
-                            totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                            hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          } else {
-                            hpReg = typeof po.hpTerbangun === 'number' ? po.hpTerbangun : (typeof po.totalAktivasiHc === 'number' ? po.totalAktivasiHc : 0);
-                            hpPerc = 0;
-                            totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                            hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          }
-                        }
-
-                        if (hpReg === 0 && hpPerc === 0 && po.hpTerbangun > 0) {
-                          if (isPercepatan) hpPerc = po.hpTerbangun;
-                          else hpReg = po.hpTerbangun;
-                        }
-
-                        sumHpReg += hpReg;
-                        sumHpPerc += hpPerc;
-                        sumTotHc += totHc;
-                        sumHcAktif += hcAktif;
-                      });
-
-                      const sumTotalHp = sumHpReg + sumHpPerc;
-                      const overallPerf = sumTotalHp > 0 ? ((sumTotHc / sumTotalHp) * 100).toFixed(2) : "0.00";
-
-                      return (
-                        <div className="bg-slate-100/90 rounded-xl p-3 border border-slate-200 shadow-sm space-y-2">
-                          <div className="flex justify-between items-center text-xs font-black text-slate-800">
-                            <span>TOTAL KESELURUHAN</span>
-                            <span className="text-blue-600">{overallPerf}%</span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-1.5 text-center pt-1 border-t border-slate-200 text-[10px] font-bold">
-                            <div>
-                              <span className="text-[8px] text-slate-400 block">TOTAL HP</span>
-                              <span className="text-slate-700">{sumTotalHp.toLocaleString('id-ID')}</span>
-                            </div>
-                            <div>
-                              <span className="text-[8px] text-blue-500 block">AKTIVASI HC</span>
-                              <span className="text-blue-700">{sumTotHc.toLocaleString('id-ID')}</span>
-                            </div>
-                            <div>
-                              <span className="text-[8px] text-emerald-500 block">HC AKTIF</span>
-                              <span className="text-emerald-700">{sumHcAktif.toLocaleString('id-ID')}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
 
-                  {/* TAMPILAN DESKTOP: TABEL LEBAR */}
-                  <div className="hidden sm:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                    <table className="w-full text-[11px] text-left border-collapse whitespace-nowrap">
-                      <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3 text-center w-10">NO</th>
-                          <th className="px-4 py-3">NO PO RELEASE</th>
-                          <th className="px-4 py-3 text-center">JENIS PO</th>
-                          <th className="px-4 py-3 text-center">TAHAP PEMBANGUNAN</th>
-                          <th className="px-4 py-3 text-center">HP REGULER</th>
-                          <th className="px-4 py-3 text-center">HP PERCEPATAN</th>
-                          <th className="px-4 py-3 text-center">TOTAL AKTIVASI</th>
-                          <th className="px-4 py-3 text-center">HC AKTIF</th>
-                          <th className="px-4 py-3 text-center">SUSPEND</th>
-                          <th className="px-4 py-3 text-center">READY TO DISMANTLE</th>
-                          <th className="px-4 py-3 text-center">DISMANTLED</th>
-                          <th className="px-4 py-3 text-center">PERFORMA HC</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {detailPoList.map((po, i) => {
-                          const isCleanSchema = po.hpReguler !== undefined && !isNaN(Number(po.hpReguler));
-
-                          const noPo = po.noPoRelease || po.stasiun || '-';
-                          const jenis = po.jenisPo || '-';
-                          const tahap = po.hpByPo || po.tahapPembangunan || po.kategori || '-';
-                          const isPercepatan = String(tahap).toLowerCase().includes('percepatan');
-
-                          let hpReg = 0;
-                          let hpPerc = 0;
-                          let totHc = 0;
-                          let hcAktif = 0;
-                          let suspend = 0;
-                          let ready = 0;
-                          let dismantled = 0;
-
-                          if (isCleanSchema) {
-                            hpReg = Number(po.hpReguler || 0);
-                            hpPerc = Number(po.hpPercepatan || 0);
-                            totHc = Number(po.totalAktivasiHc || 0);
-                            hcAktif = Number(po.hcAktif || 0);
-                            suspend = Number(po.suspend || 0);
-                            ready = Number(po.readyToDismantle || 0);
-                            dismantled = Number(po.dismantled || 0);
-                          } else {
-                            if (isPercepatan) {
-                              hpReg = 0;
-                              hpPerc = typeof po.hcAktif === 'number' ? po.hcAktif : 0;
-                              totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                              hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                              suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                              ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                              dismantled = 0;
-                            } else {
-                              hpReg = typeof po.hpTerbangun === 'number' ? po.hpTerbangun : (typeof po.totalAktivasiHc === 'number' ? po.totalAktivasiHc : 0);
-                              hpPerc = 0;
-                              totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                              hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                              suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                              ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                              dismantled = 0;
-                            }
-                          }
-
-                          if (hpReg === 0 && hpPerc === 0 && po.hpTerbangun > 0) {
-                            if (isPercepatan) hpPerc = po.hpTerbangun;
-                            else hpReg = po.hpTerbangun;
-                          }
-
-                          const totalHp = hpReg + hpPerc;
-                          const perfVal = totalHp > 0 ? parseFloat(((totHc / totalHp) * 100).toFixed(2)) : (typeof po.performaHc === 'number' ? po.performaHc : 0);
-
-                          return (
-                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-4 py-2.5 text-center text-slate-400 font-semibold">{i + 1}</td>
-                              <td className="px-4 py-2.5 font-bold text-slate-700">{noPo}</td>
-                              <td className="px-4 py-2.5 text-center font-medium text-slate-600">{jenis}</td>
-                              <td className="px-4 py-2.5 text-center font-medium text-slate-600">{tahap}</td>
-                              <td className="px-4 py-2.5 text-center font-bold text-slate-700">{hpReg.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-bold text-slate-700">{hpPerc.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-bold text-blue-600">{totHc.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-bold text-emerald-600">{hcAktif.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-semibold text-orange-600">{suspend.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-medium text-amber-600">{ready.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center font-medium text-rose-600">{dismantled.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-2.5 text-center w-28">
-                                <div className="flex items-center gap-1.5 justify-center">
-                                  <div className="w-12 bg-slate-100 h-1.5 rounded-full overflow-hidden shrink-0">
-                                    <div className={`h-full ${perfVal >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(perfVal, 100)}%` }}></div>
-                                  </div>
-                                  <span className="text-[10px] font-extrabold text-slate-600">{perfVal}%</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-
-                        {/* Totals Row */}
-                        {(() => {
-                          let sumHpReg = 0;
-                          let sumHpPerc = 0;
-                          let sumTotHc = 0;
-                          let sumHcAktif = 0;
-                          let sumSuspend = 0;
-                          let sumReadyToDismantle = 0;
-                          let sumDismantled = 0;
-
-                          detailPoList.forEach(po => {
-                            const isCleanSchema = po.hpReguler !== undefined && !isNaN(Number(po.hpReguler));
-                            const tahap = po.hpByPo || po.tahapPembangunan || po.kategori || '-';
-                            const isPercepatan = String(tahap).toLowerCase().includes('percepatan');
-
-                            let hpReg = 0;
-                            let hpPerc = 0;
-                            let totHc = 0;
-                            let hcAktif = 0;
-                            let suspend = 0;
-                            let ready = 0;
-                            let dismantled = 0;
-
-                            if (isCleanSchema) {
-                              hpReg = Number(po.hpReguler || 0);
-                              hpPerc = Number(po.hpPercepatan || 0);
-                              totHc = Number(po.totalAktivasiHc || 0);
-                              hcAktif = Number(po.hcAktif || 0);
-                              suspend = Number(po.suspend || 0);
-                              ready = Number(po.readyToDismantle || 0);
-                              dismantled = Number(po.dismantled || 0);
-                            } else {
-                              if (isPercepatan) {
-                                hpReg = 0;
-                                hpPerc = typeof po.hcAktif === 'number' ? po.hcAktif : 0;
-                                totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                                hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                                suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                                ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                                dismantled = 0;
-                              } else {
-                                hpReg = typeof po.hpTerbangun === 'number' ? po.hpTerbangun : (typeof po.totalAktivasiHc === 'number' ? po.totalAktivasiHc : 0);
-                                hpPerc = 0;
-                                totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                                hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                                suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                                ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                                dismantled = 0;
-                              }
-                            }
-
-                            if (hpReg === 0 && hpPerc === 0 && po.hpTerbangun > 0) {
-                              if (isPercepatan) hpPerc = po.hpTerbangun;
-                              else hpReg = po.hpTerbangun;
-                            }
-
-                            sumHpReg += hpReg;
-                            sumHpPerc += hpPerc;
-                            sumTotHc += totHc;
-                            sumHcAktif += hcAktif;
-                            sumSuspend += suspend;
-                            sumReadyToDismantle += ready;
-                            sumDismantled += dismantled;
-                          });
-
-                          const sumTotalHp = sumHpReg + sumHpPerc;
-                          const overallPerf = sumTotalHp > 0
-                            ? ((sumTotHc / sumTotalHp) * 100).toFixed(2)
-                            : "0.00";
-
-                          return (
-                            <tr className="bg-slate-50 font-black text-slate-800 border-t-2 border-slate-200">
-                              <td className="px-4 py-3 text-center text-slate-400"></td>
-                              <td className="px-4 py-3 text-left">TOTAL</td>
-                              <td className="px-4 py-3 text-center"></td>
-                              <td className="px-4 py-3 text-center"></td>
-                              <td className="px-4 py-3 text-center text-slate-700">{sumHpReg.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-slate-700">{sumHpPerc.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-blue-600">{sumTotHc.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-emerald-600">{sumHcAktif.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-orange-600">{sumSuspend.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-amber-600">{sumReadyToDismantle.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center text-rose-600">{sumDismantled.toLocaleString('id-ID')}</td>
-                              <td className="px-4 py-3 text-center">
-                                <div className="flex items-center gap-1.5 justify-center">
-                                  <div className="w-12 bg-slate-200 h-1.5 rounded-full overflow-hidden shrink-0">
-                                    <div className="h-full bg-blue-600" style={{ width: `${Math.min(parseFloat(overallPerf), 100)}%` }}></div>
-                                  </div>
-                                  <span className="text-[10px] font-black text-slate-700">{overallPerf}%</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
+                  {/* TAMPILAN DESKTOP: TABEL */}
+                  <table className="hidden sm:table w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-3 w-16 text-center">No</th>
+                        <th className="px-6 py-3 w-32">ID Pelanggan</th>
+                        <th className="px-6 py-3">Nama & Stasiun</th>
+                        <th className="px-6 py-3">ODP & Port</th>
+                        <th className="px-6 py-3">Tanggal Dismantle</th>
+                        <th className="px-6 py-3">Alamat / Catatan</th>
+                        <th className="px-6 py-3 w-28 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredDismantledList.map((cust, idx) => {
+                        const disDate = getCustomerDismantleDate(cust);
+                        return (
+                          <tr key={idx} className="hover:bg-white transition-colors">
+                            <td className="px-6 py-3 text-center text-slate-400 font-medium">{idx + 1}</td>
+                            <td className="px-6 py-3 font-mono text-xs text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
+                            <td className="px-6 py-3">
+                              <div className="font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</div>
+                              <div className="text-xs text-slate-500">{toProperCase(cust.stasiun)}</div>
+                            </td>
+                            <td className="px-6 py-3 text-xs text-slate-600 font-medium">
+                              {cust.odpAktual || '-'}{cust.portOdp ? ` (Port ${cust.portOdp})` : ''}
+                            </td>
+                            <td className="px-6 py-3 text-xs text-slate-700 font-semibold">
+                              {disDate || '-'}
+                            </td>
+                            <td className="px-6 py-3 text-xs text-slate-500 max-w-xs truncate">
+                              {cust.catatan || cust.alamat || '-'}
+                            </td>
+                            <td className="px-6 py-3 text-center">
+                              <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-300">
+                                DISMANTLED
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </>
               ) : (
-                <div className="py-12 text-center text-slate-400 bg-white border border-slate-200 rounded-xl shadow-sm">
-                  <Icon name="folder-open" size={32} className="mx-auto mb-2 opacity-30" />
-                  <p className="font-semibold text-sm">Tidak ada data detail PO Release untuk stasiun ini.</p>
+                <div className="p-10 text-center text-slate-400">
+                  <Icon name="x-circle" size={36} className="mx-auto mb-2 text-slate-300 opacity-50" />
+                  <p className="text-xs font-bold text-slate-600">Tidak ada data pelanggan yang cocok</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Belum ada progres dismantled pada {formattedDate}.
+                  </p>
                 </div>
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-3 sm:p-4 border-t border-slate-100 bg-white flex justify-end shrink-0">
-              <button
-                onClick={() => setSelectedPoStation(null)}
-                className="w-full sm:w-auto px-5 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-900 rounded-xl text-xs font-bold text-white transition-all shadow-md active:scale-95"
-              >
-                Tutup Detail PO
-              </button>
+            <div className="p-3 sm:p-4 border-t border-slate-100 flex justify-end items-center bg-white shrink-0">
+              <button onClick={() => setShowDismantledModal(false)} className="w-full sm:w-auto px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all active:scale-95">Tutup</button>
             </div>
           </div>
         </div>,
         document.body
       )}
+
+      {/* --- MODAL DETAIL PO RELEASE PER STASIUN (SUPABASE INTEGRATED) --- */}
+      <PoReleaseModal
+        isOpen={Boolean(selectedPoStation)}
+        onClose={() => setSelectedPoStation(null)}
+        stasiun={selectedPoStation}
+        detailPoList={detailPoList}
+        pelangganData={data.pelangganData}
+        odpData={data.odpData}
+        onRefresh={onRefreshSilent || onRefresh}
+      />
 
     </div>
   );
@@ -9188,7 +9153,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     issueKendala: data?.issueKendala || '',
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
-    petugas: '' // Note: This still stores the Name in state for the UI dropdown
+    petugas: '', // Note: This still stores the Name in state for the UI dropdown
+    tanggalDismantle: data?.tanggalDismantle || '',
+    reasonDismantle: data?.reasonDismantle || ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -9313,7 +9280,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         catatan: payload.catatan,
         issue_kendala: payload.issueKendala,
         tanggal_kendala: payload.tanggalKendala,
-        reporter_kendala: payload.reporterKendala
+        reporter_kendala: payload.reporterKendala,
+        tanggal_dismantle: payload.tanggalDismantle || null,
+        reason_dismantle: payload.reasonDismantle || null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
 
@@ -9461,6 +9430,8 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           status_aktivasi: formData.aktivasi || 'Belum',
           catatan: formData.catatan || '',
           issue_kendala: formData.issueKendala || '',
+          tanggal_dismantle: formData.tanggalDismantle || null,
+          reason_dismantle: formData.reasonDismantle || null,
           created_at: nowIso,
           updated_at: nowIso
         };
@@ -9563,7 +9534,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             catatan: updatePayload.catatan,
             issue_kendala: updatePayload.issueKendala || null,
             tanggal_kendala: updatePayload.tanggalKendala || null,
-            reporter_kendala: updatePayload.reporterKendala || null
+            reporter_kendala: updatePayload.reporterKendala || null,
+            tanggal_dismantle: updatePayload.tanggalDismantle || null,
+            reason_dismantle: updatePayload.reasonDismantle || null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
 
@@ -9669,8 +9642,17 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                 {renderEditableDetailRow({ label: "Tanggal IKR", fieldKey: "tglIkr", valueOverride: formatDateStr(internalData.tglIkr) })}
                 {renderEditableDetailRow({ label: "Status Aktivasi", fieldKey: "aktivasi", options: statusOptions })}
                 {renderEditableDetailRow({ label: "Tanggal Aktivasi", fieldKey: "tglAktivasi", valueOverride: formatDateStr(internalData.tglAktivasi) })}
-                {internalData.tanggalBerakhir && renderEditableDetailRow({ label: "Tanggal Berakhir", fieldKey: "tanggalBerakhir", valueOverride: internalData.tanggalBerakhir ? internalData.tanggalBerakhir.substring(0, 10) : '-' })}
-                {(internalData.telatBayarHari !== null && internalData.telatBayarHari !== undefined) && renderEditableDetailRow({ label: "Telat Bayar", fieldKey: "telatBayarHari", valueOverride: `${internalData.telatBayarHari} Hari` })}
+                {['DISMANTLED', 'DISMANTLE'].includes(String(internalData.aktivasi).toUpperCase()) ? (
+                  <>
+                    {internalData.tanggalDismantle && renderEditableDetailRow({ label: "Tanggal Dismantle", fieldKey: "tanggalDismantle", valueOverride: internalData.tanggalDismantle ? internalData.tanggalDismantle.substring(0, 10) : '-' })}
+                    {internalData.reasonDismantle && renderEditableDetailRow({ label: "Alasan Dismantle", fieldKey: "reasonDismantle", fullWidth: true })}
+                  </>
+                ) : (
+                  <>
+                    {internalData.tanggalBerakhir && renderEditableDetailRow({ label: "Tanggal Berakhir", fieldKey: "tanggalBerakhir", valueOverride: internalData.tanggalBerakhir ? internalData.tanggalBerakhir.substring(0, 10) : '-' })}
+                    {(internalData.telatBayarHari !== null && internalData.telatBayarHari !== undefined) && renderEditableDetailRow({ label: "Telat Bayar", fieldKey: "telatBayarHari", valueOverride: `${internalData.telatBayarHari} Hari` })}
+                  </>
+                )}
                 <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
                 {renderEditableDetailRow({ label: "SN ONT", fieldKey: "snOnt", fullWidth: true })}
                 {renderEditableDetailRow({ label: "KODE ODP", fieldKey: "odpAktual", valueOverride: internalData.kodeOdp || internalData.odpAktual })}
@@ -9737,6 +9719,18 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Dismantle Fields */}
+                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 mb-2">
+                  <label className="block relative z-[80]">
+                    <span className="text-[11px] font-bold text-rose-500 mb-1.5 flex items-center gap-1 uppercase tracking-wider"><Icon name="calendar" size={14} /> Tanggal Dismantle</span>
+                    <input type="date" name="tanggalDismantle" value={formData.tanggalDismantle} onChange={handleInputChange} disabled={isSaving} className="w-full p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-700 font-bold focus:ring-2 focus:ring-rose-500 outline-none" />
+                  </label>
+                  <label className="block relative z-[80]">
+                    <span className="text-[11px] font-bold text-rose-500 mb-1.5 flex items-center gap-1 uppercase tracking-wider"><Icon name="alert-circle" size={14} /> Alasan Dismantle</span>
+                    <input type="text" name="reasonDismantle" placeholder="Cth: Pindah rumah, nunggak, dll" value={formData.reasonDismantle} onChange={handleInputChange} disabled={isSaving} className="w-full p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-700 font-bold placeholder-rose-300 focus:ring-2 focus:ring-rose-500 outline-none" />
+                  </label>
+                </div>
 
                 {/* 1. CUSTOM DROPDOWN STASIUN (Paling Atas Sesuai Request) */}
                 <div className="md:col-span-2 relative z-[90]">
@@ -13597,7 +13591,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         <Icon name="clock" size={8} /> {umurWoStr}
                       </span>
                     )}
-                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'DISMANTLE') && (
+                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
                       <>
                         {(Number(item.telatBayarHari) > 0) && (
                           <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
@@ -13609,6 +13603,27 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                             Exp: {item.tanggalBerakhir.substring(0, 10)}
                           </span>
                         )}
+                      </>
+                    )}
+                    {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
+                      <>
+                        {item.tanggalDismantle && (
+                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
+                            <Icon name="calendar" size={8} className="text-rose-400" /> Dis: {item.tanggalDismantle.substring(0, 10)}
+                          </span>
+                        )}
+                        {(() => {
+                          const r = (item.reasonDismantle || '').trim();
+                          const k = (item.issueKendala || '').trim();
+                          const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+                          const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
+                          if (!reasonText) return null;
+                          return (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded mt-0.5 max-w-[150px] truncate" title={`Alasan: ${reasonText}`}>
+                              <Icon name="info" size={8} className="text-slate-400 shrink-0" /> {reasonText}
+                            </span>
+                          );
+                        })()}
                       </>
                     )}
                   </div>
@@ -13901,7 +13916,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                           )}
 
                           {/* INDIKATOR TELAT BAYAR & EXP (Hanya untuk Suspend & Ready To Dismantle) */}
-                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'DISMANTLE') && (
+                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
                             <>
                               {(Number(item.telatBayarHari) > 0) && (
                                 <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
@@ -13915,6 +13930,31 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                                   Exp: {item.tanggalBerakhir.substring(0, 10)}
                                 </span>
                               )}
+                            </>
+                          )}
+
+                          {/* INDIKATOR DISMANTLE (Hanya Tgl Dismantle & Reason) */}
+                          {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
+                            <>
+                              {item.tanggalDismantle && (
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
+                                  <Icon name="calendar" size={9} className="text-rose-400" />
+                                  Dismantle: {item.tanggalDismantle.substring(0, 10)}
+                                </span>
+                              )}
+                              {(() => {
+                                const r = (item.reasonDismantle || '').trim();
+                                const k = (item.issueKendala || '').trim();
+                                const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+                                const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
+                                if (!reasonText) return null;
+                                return (
+                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-700 bg-slate-100 border border-slate-200 max-w-[280px] truncate" title={`Alasan: ${reasonText}`}>
+                                    <Icon name="info" size={9} className="text-slate-500 shrink-0" />
+                                    Alasan: {reasonText}
+                                  </span>
+                                );
+                              })()}
                             </>
                           )}
 
@@ -14120,6 +14160,9 @@ function CoverageGISView({ data, targetCoords }) {
   const markerLayerRef = useRef(null);
   const userLayerRef = useRef(null);
   const lineLayerRef = useRef(null);
+  const boundaryLayerRef = useRef(null);
+
+  const [showBoundaries, setShowBoundaries] = useState(true);
 
   const [gmapsLink, setGmapsLink] = useState('');
   const [manualLat, setManualLat] = useState('');
@@ -14276,6 +14319,57 @@ function CoverageGISView({ data, targetCoords }) {
       }
     });
   }, [visibleOdps]);
+
+  // --- LAYER BOUNDARY COVERAGE (DARI FILE KML) ---
+  useEffect(() => {
+    if (!mapInstance.current || !window.L) return;
+
+    if (boundaryLayerRef.current) {
+      mapInstance.current.removeLayer(boundaryLayerRef.current);
+      boundaryLayerRef.current = null;
+    }
+
+    if (!showBoundaries) return;
+
+    boundaryLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
+
+    (coverageBoundaries || []).forEach(feat => {
+      if (!feat.coordinates || feat.coordinates.length === 0) return;
+
+      const polygon = window.L.polygon(feat.coordinates, {
+        color: '#0284c7',
+        weight: 2,
+        fillColor: '#38bdf8',
+        fillOpacity: 0.18,
+        dashArray: '5, 5'
+      });
+
+      polygon.bindTooltip(
+        `<div style="font-family:'Inter',sans-serif; font-size:11px; font-weight:bold; color:#0f172a;">${feat.name}</div>`,
+        { sticky: true, opacity: 0.9 }
+      );
+
+      polygon.bindPopup(`
+        <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 180px;">
+          <div style="font-size:10px; font-weight:bold; color:#0284c7; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:flex; align-items:center; gap:4px;">
+            <span>🗺️ Area Coverage Aktual</span>
+          </div>
+          <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 4px;">${feat.name}</strong>
+          ${feat.description ? `<p style="font-size:10px; color:#64748b; margin-bottom:6px;">${feat.description}</p>` : ''}
+          <span style="font-size:9px; font-weight:600; color:#0369a1; background:#e0f2fe; padding:2px 6px; border-radius:4px;">${feat.coordinates.length} Titik Sudut</span>
+        </div>
+      `);
+
+      polygon.on('mouseover', () => {
+        polygon.setStyle({ fillOpacity: 0.4, weight: 3, color: '#0369a1' });
+      });
+      polygon.on('mouseout', () => {
+        polygon.setStyle({ fillOpacity: 0.18, weight: 2, color: '#0284c7' });
+      });
+
+      boundaryLayerRef.current.addLayer(polygon);
+    });
+  }, [showBoundaries]);
 
   // --- FUNGSI INTI EKSEKUSI KALKULASI ---
   const executeCoverageCalculation = (tLat, tLng, radius) => {
@@ -14661,6 +14755,24 @@ function CoverageGISView({ data, targetCoords }) {
             </span>
           </button>
 
+          {/* Toggle Coverage Boundary KML */}
+          <button
+            type="button"
+            onClick={() => setShowBoundaries(prev => !prev)}
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${showBoundaries
+              ? 'bg-sky-700 text-white border-sky-800 shadow-sky-900/30'
+              : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
+              }`}
+            title="Tampilkan / Sembunyikan Area Coverage Boundary dari KML"
+          >
+            <Icon name="map-pin" size={13} className={showBoundaries ? "text-sky-300" : "text-sky-600"} />
+            <span>Boundary Coverage</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${showBoundaries ? 'bg-sky-900 text-white' : 'bg-sky-50 text-sky-700 border border-sky-200/60'
+              }`}>
+              {coverageBoundaries.length} Area
+            </span>
+          </button>
+
           {/* Quick Toggle: Mode Cerdas Radius Terdekat */}
           {userLocation && (
             <button
@@ -14732,6 +14844,10 @@ function CoverageGISView({ data, targetCoords }) {
                     <span className="w-3 h-1 bg-purple-500 rounded shrink-0"></span>
                     <span className="text-[11px] font-medium text-slate-700">Jalur Kabel</span>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded bg-sky-400/30 border border-sky-500 shrink-0"></span>
+                    <span className="text-[11px] font-medium text-slate-700">Boundary KML</span>
+                  </div>
                 </div>
               </div>
 
@@ -14755,6 +14871,31 @@ function CoverageGISView({ data, targetCoords }) {
                     <strong className="text-[11px] text-blue-900 block font-bold leading-tight">Fokus Radius Terdekat Saja ({searchRadius}m)</strong>
                     <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
                       Saat titik lokasi aktif, hanya menampilkan ODP terdekat dalam radius {searchRadius}m agar peta super ringan.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Boundary Coverage KML */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Area Boundary Coverage</span>
+                  <span className="text-[9px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200/60">Coverage KML</span>
+                </div>
+                <div
+                  onClick={() => setShowBoundaries(prev => !prev)}
+                  className="flex items-start gap-2.5 p-2.5 bg-sky-50/60 hover:bg-sky-50 border border-sky-100 rounded-xl cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={showBoundaries}
+                    onChange={() => { }}
+                    className="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                  />
+                  <div>
+                    <strong className="text-[11px] text-sky-900 block font-bold leading-tight">Tampilkan Boundary Polygon ({coverageBoundaries.length} Area)</strong>
+                    <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                      Batas wilayah cakupan operasional aktual dari KML Coverage Desnarum.
                     </p>
                   </div>
                 </div>
