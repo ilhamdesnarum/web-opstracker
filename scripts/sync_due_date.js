@@ -202,6 +202,20 @@ async function main() {
               } catch (_e) {}
             }
 
+            let tglDismantle = null;
+            let reasonDismantle = null;
+            if (cfg.key === "dismantled" || cfg.dbStatus === "Dismantled" || customer.status === "dismantled") {
+              if (customer.submit_request_ikr_id) {
+                const sub = customer.submit_request_ikr_id;
+                const rawDate = sub.updated_at || sub.created_at || sub.est_request_datetime;
+                if (rawDate) tglDismantle = formatKeWIB(rawDate);
+                reasonDismantle = sub.reason || (sub.notes && sub.notes !== "." ? sub.notes : "") || "";
+              }
+              if (!reasonDismantle && customer.reason_detail) {
+                reasonDismantle = customer.reason_detail;
+              }
+            }
+
             const rowPayload = {
               id_pelanggan: idPelanggan,
               nama_pelanggan: nama,
@@ -218,6 +232,13 @@ async function main() {
               port_odp: portOdp,
               updated_at: new Date().toISOString()
             };
+
+            if (tglDismantle) {
+              rowPayload.tanggal_dismantle = tglDismantle;
+            }
+            if (reasonDismantle) {
+              rowPayload.reason_dismantle = reasonDismantle;
+            }
 
             stationRows.push(rowPayload);
             statusCount++;
