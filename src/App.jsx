@@ -46,7 +46,7 @@ const parseSupabaseDocument = (fields) => {
     namaPelanggan: fields.nama_pelanggan || "",
     nomorHp: fields.nomor_hp || "",
     alamat: fields.alamat || fields.alamat_pelanggan || fields.alamat_pemasangan || "",
-    stasiun: (fields.stasiun === "Semarang Tawang" || fields.stasiun === "SEMARANG TAWANG") ? "Tawang" : (fields.stasiun || ""),
+    stasiun: (fields.stasiun === "Tawang" || fields.stasiun === "TAWANG") ? "Semarang Tawang" : (fields.stasiun || ""),
     tahapPembangunan: fields.tahap_pembangunan || fields.tahap || "",
     odpAktual: fields.odp || fields.odp_aktual || fields.kode_odp || "",
     portOdp: fields.port_odp || "",
@@ -74,7 +74,8 @@ const parseSupabaseDocument = (fields) => {
     updatedAt: fields.updated_at || fields.updatedAt || "",
     createdAt: fields.created_at || fields.createdAt || "",
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
-    reasonDismantle: fields.reason_dismantle || ""
+    reasonDismantle: fields.reason_dismantle || "",
+    fotoDismantle: fields.foto_dismantle || ""
   };
 };
 
@@ -152,6 +153,20 @@ const parseSupabasePoRelease = (fields) => {
     dismantled: Number(fields.dismantled || 0),
     performaHc: perf,
     catatan: fields.catatan || ''
+  };
+};
+
+// Helper untuk parse dokumen Petugas dari Supabase ke camelCase React
+const parseSupabasePetugasDocument = (fields) => {
+  return {
+    id: fields.id,
+    chatId: fields.chat_id || '',
+    username: fields.username || '',
+    nama: fields.nama || '',
+    stasiun: fields.stasiun || '',
+    jabatan: fields.jabatan || 'Teknisi',
+    status: fields.status || 'Active',
+    akunIkr: fields.akun_ikr || ''
   };
 };
 
@@ -320,9 +335,7 @@ const setCachedData = (key, data) => {
   }
 };
 
-const APPS_SCRIPT_URL = import.meta.env.DEV
-  ? "/api/gas/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec"
-  : "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
 
 const api = {
   run: async (actionName, payloadData = {}) => {
@@ -354,6 +367,78 @@ const api = {
       console.warn(`[API - ${actionName}]:`, error.message || error);
       return { success: false, error: error.message || "Gagal menghubungi server." };
     }
+  }
+};
+
+const TELEGRAM_BOT_TOKEN = "8789065775:AAEsOr7g1myDHyHPPuhuujNR07euM3tNmEs";
+
+const sendTelegramVisitDM = async (payload, petugasList = []) => {
+  try {
+    if (!payload || !payload.petugas) return;
+
+    const rawPetugas = String(payload.petugas || '').trim();
+    if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
+    const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+
+    let targetTeknisi = null;
+    if (Array.isArray(petugasList) && petugasList.length > 0) {
+      targetTeknisi = petugasList.find(t =>
+        String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+        String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas
+      );
+    }
+
+    if (!targetTeknisi) {
+      const cached = getCachedData('otas_teknisi_cache');
+      if (Array.isArray(cached) && cached.length > 0) {
+        targetTeknisi = cached.find(t =>
+          String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+          String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase()
+        );
+      }
+    }
+
+    if (!targetTeknisi || !targetTeknisi.chatId) {
+      console.warn("Tidak dapat mengirim DM Telegram: chatId tidak ditemukan untuk", rawPetugas);
+      return;
+    }
+
+    const chatId = targetTeknisi.chatId;
+    const namaAsli = targetTeknisi.nama || rawPetugas;
+    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+
+    let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨\n\n`;
+    msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk mengecek kendala/visit berikut:\n\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
+    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+    } else {
+      msg += `🗺️ <b>Tikor:</b> -\n`;
+    }
+    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    msg += `⚠️ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
+    if (payload.catatan) {
+      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+    }
+    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! 🛠️</i>`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msg,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false
+      })
+    });
+    console.log("Berhasil kirim DM Assign Tiket ke", namaAsli, chatId);
+  } catch (err) {
+    console.warn("Gagal kirim DM Telegram:", err);
   }
 };
 
@@ -845,6 +930,27 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
       message: isEditing ? 'Menyimpan perubahan petugas di latar belakang...' : 'Menambahkan petugas baru di latar belakang...'
     });
 
+    // Sinkronisasi ke Supabase
+    try {
+      const sbPayload = {
+        chat_id: finalData.chatId || null,
+        username: finalData.username || null,
+        nama: finalData.nama,
+        stasiun: finalData.stasiun || '',
+        jabatan: finalData.jabatan || 'Teknisi',
+        status: finalData.status || 'Active'
+      };
+      supabase.from('petugas').select('id').eq('nama', finalData.nama).limit(1).then(({ data: existList }) => {
+        if (existList && existList.length > 0) {
+          supabase.from('petugas').update(sbPayload).eq('id', existList[0].id).then();
+        } else {
+          supabase.from('petugas').insert([sbPayload]).then();
+        }
+      }).catch(e => console.warn("Supabase sync petugas:", e));
+    } catch (e) {
+      console.warn("Supabase petugas warning:", e);
+    }
+
     api.run('updatePetugasData', finalData)
       .then((res) => {
         setSyncToast({
@@ -882,6 +988,11 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
 
       // Jalankan sinkronisasi di latar belakang!
       setSyncToast({ show: true, type: 'syncing', message: 'Menghapus penempatan petugas di latar belakang...' });
+
+      // Update juga di Supabase
+      try {
+        supabase.from('petugas').update({ stasiun: '' }).eq('nama', target.nama).then().catch(e => console.warn(e));
+      } catch (e) {}
 
       api.run('updatePetugasData', target)
         .then((res) => {
@@ -1252,7 +1363,8 @@ function App({ onLogout }) {
 
   const [data, setData] = useState({
     dailyProgress: [], petugasData: [], odpData: [],
-    recentHistory: [], stationData: [], pelangganData: [], visitData: []
+    recentHistory: [], stationData: [], pelangganData: [], visitData: [],
+    teknisiData: getCachedData('otas_teknisi_cache') || []
   });
 
   const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
@@ -1468,26 +1580,28 @@ function App({ onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v5', null);
+        setCachedData('otas_pelanggan_cache_v6', null);
         setCachedData('otas_odp_cache_v4', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_po_release_cache', null);
         setCachedData('otas_detail_po_cache', null);
         setCachedData('otas_visit_cache', null);
+        setCachedData('otas_teknisi_cache', null);
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v5');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v6');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v5', null);
+        setCachedData('otas_pelanggan_cache_v6', null);
       }
 
       let parsedOdp = getCachedData('otas_odp_cache_v4');
       let cachedStation = getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
+      let cachedTeknisi = getCachedData('otas_teknisi_cache');
 
       const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo;
 
@@ -1500,32 +1614,34 @@ function App({ onLogout }) {
       }
 
       // Hydrate state langsung jika cache lokal tersedia
-      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit || cachedDetailPo) {
+      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit || cachedDetailPo || cachedTeknisi) {
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
           odpData: parsedOdp || prev.odpData,
           stationData: cachedStation?.length > 0 ? cachedStation : prev.stationData,
           detailPoData: cachedDetailPo?.length > 0 ? cachedDetailPo : prev.detailPoData,
-          visitData: cachedVisit?.length > 0 ? cachedVisit : prev.visitData
+          visitData: cachedVisit?.length > 0 ? cachedVisit : prev.visitData,
+          teknisiData: cachedTeknisi?.length > 0 ? cachedTeknisi : prev.teknisiData
         }));
       }
 
-      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo) {
+      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,created_at,updated_at';
+        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
         const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
-        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo] = await Promise.all([
+        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas] = await Promise.all([
           parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
           cachedVisit ? Promise.resolve(null) : fetchAllSupabaseData('log_visit', '*', 'id'),
-          cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id')
+          cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
+          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null)
         ]);
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v5', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v6', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -1546,13 +1662,18 @@ function App({ onLogout }) {
           setCachedData('otas_po_release_cache', cachedDetailPo);
           setCachedData('otas_detail_po_cache', cachedDetailPo);
         }
+        if (supabasePetugas && supabasePetugas.length > 0) {
+          cachedTeknisi = supabasePetugas.map(parseSupabasePetugasDocument);
+          setCachedData('otas_teknisi_cache', cachedTeknisi);
+        }
 
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
           odpData: parsedOdp || prev.odpData,
           detailPoData: cachedDetailPo || prev.detailPoData,
-          visitData: cachedVisit || prev.visitData
+          visitData: cachedVisit || prev.visitData,
+          teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData
         }));
       }
 
@@ -1562,6 +1683,7 @@ function App({ onLogout }) {
           if (fastResult && !fastResult.error) {
             if (fastResult.stationData?.length > 0) setCachedData('otas_station_cache', fastResult.stationData);
             if (!cachedDetailPo && fastResult.detailPoData?.length > 0) setCachedData('otas_detail_po_cache', fastResult.detailPoData);
+            if (fastResult.teknisiData?.length > 0) setCachedData('otas_teknisi_cache', fastResult.teknisiData);
 
             setData(prev => {
               const currentPelanggan = (parsedPelanggan && parsedPelanggan.length > 0)
@@ -1570,8 +1692,9 @@ function App({ onLogout }) {
               return {
                 ...prev,
                 ...fastResult,
-                detailPoData: (cachedDetailPo && cachedDetailPo.length > 0) ? cachedDetailPo : (fastResult.detailPoData || prev.detailPoData),
+                detailPoData: (cachedDetailPo && cachedDetailPo.length > 0) ? cachedDetailPo : prev.detailPoData,
                 visitData: cachedVisit || prev.visitData,
+                teknisiData: (fastResult.teknisiData && fastResult.teknisiData.length > 0) ? fastResult.teknisiData : (cachedTeknisi || prev.teknisiData || []),
                 dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
                 pelangganData: currentPelanggan,
                 odpData: parsedOdp || prev.odpData
@@ -1599,28 +1722,52 @@ function App({ onLogout }) {
   // --- SINKRONISASI SENYAP DI LATAR BELAKANG (REAL-TIME TANPA LOADING SCREEN) ---
   const fetchDataSilent = async () => {
     try {
-      const [fastResult, supabasePo] = await Promise.all([
-        api.run('getFastDashboardData').catch(() => null),
-        fetchAllSupabaseData('po_release', '*', 'id').catch(() => null)
-      ]);
+      // 1. Ambil data Supabase secara instan (biasanya < 500ms)
+      fetchAllSupabaseData('po_release', '*', 'id').then(supabasePo => {
+        if (supabasePo && supabasePo.length > 0) {
+          const parsedSupabasePo = supabasePo.map(parseSupabasePoRelease);
+          
+          setData(prev => {
+            setCachedData('otas_po_release_cache', parsedSupabasePo);
+            setCachedData('otas_detail_po_cache', parsedSupabasePo);
+            
+            return {
+              ...prev,
+              detailPoData: parsedSupabasePo
+            };
+          });
+        }
+      }).catch(err => console.warn('Silent Supabase PO fail:', err));
 
-      let updatedPo = null;
-      if (supabasePo && supabasePo.length > 0) {
-        updatedPo = supabasePo.map(parseSupabasePoRelease);
-        setCachedData('otas_po_release_cache', updatedPo);
-        setCachedData('otas_detail_po_cache', updatedPo);
-      }
+      fetchAllSupabaseData('petugas', '*', 'nama').then(supabasePetugas => {
+        if (supabasePetugas && supabasePetugas.length > 0) {
+          const updatedPetugas = supabasePetugas.map(parseSupabasePetugasDocument);
+          setCachedData('otas_teknisi_cache', updatedPetugas);
+          setData(prev => ({
+            ...prev,
+            teknisiData: updatedPetugas
+          }));
+        }
+      }).catch(err => console.warn('Silent Supabase Petugas fail:', err));
 
-      setData(prev => ({
-        ...prev,
-        dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
-        dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getGlobalStatusStr(p) === 'KENDALA') : prev.dataKendalaSheet),
-        petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
-        stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
-        detailPoData: updatedPo || prev.detailPoData || fastResult?.detailPoData || [],
-        fastKpi: fastResult?.fastKpi || prev.fastKpi
-      }));
-      setLastSyncedTime(new Date());
+      // 2. Ambil data GAS (bisa memakan waktu 5-7 detik)
+      api.run('getFastDashboardData').then(fastResult => {
+        if (!fastResult) return;
+        
+        setData(prev => {
+          return {
+            ...prev,
+            dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
+            dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getGlobalStatusStr(p) === 'KENDALA') : prev.dataKendalaSheet),
+            petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
+            stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
+            // detailPoData tidak di-override oleh GAS karena sudah 100% Supabase
+            fastKpi: fastResult?.fastKpi || prev.fastKpi
+          };
+        });
+        setLastSyncedTime(new Date());
+      }).catch(err => console.warn('Silent GAS fail:', err));
+
     } catch (err) {
       console.error("Silent background sync failed:", err);
     }
@@ -1660,7 +1807,7 @@ function App({ onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v5', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v6', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -1803,6 +1950,39 @@ function App({ onLogout }) {
           });
         }
       )
+    // Setup Supabase Real-Time Listener untuk petugas
+    const petugasChannel = supabase
+      .channel('schema-petugas-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'petugas'
+        },
+        (payload) => {
+          setData(prev => {
+            let newPetugasList = [...(prev.teknisiData || [])];
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updatedP = parseSupabasePetugasDocument(payload.new);
+              const idx = newPetugasList.findIndex(p => (p.id && updatedP.id && String(p.id) === String(updatedP.id)) || (p.nama && updatedP.nama && p.nama.toLowerCase() === updatedP.nama.toLowerCase()));
+              if (idx !== -1) {
+                newPetugasList[idx] = { ...newPetugasList[idx], ...updatedP };
+              } else {
+                newPetugasList.push(updatedP);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = payload.old?.id;
+              newPetugasList = newPetugasList.filter(p => p.id !== deletedId);
+            }
+            setCachedData('otas_teknisi_cache', newPetugasList);
+            return {
+              ...prev,
+              teknisiData: newPetugasList
+            };
+          });
+        }
+      )
       .subscribe();
 
     // Setup interval sinkronisasi otomatis setiap 30 detik untuk sisa data non-pelanggan (seperti KPI/stok stasiun)
@@ -1815,6 +1995,7 @@ function App({ onLogout }) {
       supabase.removeChannel(visitChannel);
       supabase.removeChannel(odpChannel);
       supabase.removeChannel(poChannel);
+      supabase.removeChannel(petugasChannel);
       clearInterval(interval);
     };
   }, []);
@@ -2550,6 +2731,8 @@ export function OkupansiView({ data, setData }) {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [deletingOdp, setDeletingOdp] = useState(null);
   const [isDeletingOdp, setIsDeletingOdp] = useState(false);
+  const [showMassDeleteModal, setShowMassDeleteModal] = useState(false);
+  const [isMassDeleting, setIsMassDeleting] = useState(false);
   const [isSyncingPorts, setIsSyncingPorts] = useState(false);
 
   // Peta dinamis jumlah pelanggan per ODP (dibersihkan dari karakter tersembunyi)
@@ -2951,6 +3134,40 @@ export function OkupansiView({ data, setData }) {
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
     } finally {
       setIsDeletingOdp(false);
+    }
+  };
+
+  const handleMassDeleteOdp = async () => {
+    if (!filteredManageOdps || filteredManageOdps.length === 0) return;
+    setIsMassDeleting(true);
+    try {
+      const idsToDelete = filteredManageOdps.map(o => o.id);
+      
+      const BATCH_SIZE = 200;
+      for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
+        const batch = idsToDelete.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('odp').delete().in('id', batch);
+        if (error) throw error;
+      }
+      
+      if (typeof setData === 'function') {
+        setData(prev => {
+          const filtered = (prev.odpData || []).filter(o => !idsToDelete.includes(o.id));
+          setCachedData('otas_odp_cache_v4', filtered);
+          return { ...prev, odpData: filtered };
+        });
+      }
+      
+      setSyncToast({ show: true, type: 'success', message: `${idsToDelete.length} ODP berhasil dihapus massal!` });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
+      setShowMassDeleteModal(false);
+      setManagePage(1);
+    } catch (err) {
+      console.error("Gagal hapus ODP massal:", err);
+      setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus ODP massal: ' + err.message });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+    } finally {
+      setIsMassDeleting(false);
     }
   };
 
@@ -3847,7 +4064,7 @@ export function OkupansiView({ data, setData }) {
             </div>
 
             {/* CONTENT BODY */}
-            <div className="p-4 sm:p-5 flex-1 overflow-y-auto">
+            <div className="p-4 sm:p-5 flex-1 overflow-y-auto min-h-0">
               {addOdpTab === 'manual' ? (
                 <div className="space-y-4">
                   {/* PENGATURAN STASIUN & TAHAP */}
@@ -4549,6 +4766,15 @@ export function OkupansiView({ data, setData }) {
                   <span>{isSyncingPorts ? 'Menyinkronkan...' : 'Sinkronkan Port'}</span>
                 </button>
                 <button
+                  onClick={() => setShowMassDeleteModal(true)}
+                  disabled={isMassDeleting || filteredManageOdps.length === 0}
+                  className={`px-3 sm:px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs sm:text-sm font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isMassDeleting || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  title={filteredManageOdps.length > 0 ? `Hapus ${filteredManageOdps.length} ODP yang tampil di filter ini` : 'Tidak ada ODP sesuai filter'}
+                >
+                  <Icon name="trash-2" size={14} className={isMassDeleting ? 'animate-pulse text-rose-600' : 'text-rose-600'} />
+                  <span className="hidden sm:inline">{isMassDeleting ? 'Menghapus...' : 'Hapus Massal'}</span>
+                </button>
+                <button
                   onClick={() => {
                     const defaultSt = manageStationFilter || selectedStation || (uniqueStations.length > 0 ? uniqueStations[0] : '');
                     const defaultTh = manageTahapFilter || '';
@@ -4574,7 +4800,7 @@ export function OkupansiView({ data, setData }) {
             </div>
 
             {/* TABEL DAFTAR ODP */}
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 min-h-0">
               <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
                 <table className="w-full text-left text-xs text-slate-600 min-w-[850px]">
                   <thead className="bg-slate-100/80 text-slate-500 uppercase text-[10px] font-bold tracking-wider sticky top-0 z-10 border-b border-slate-200">
@@ -4949,6 +5175,48 @@ export function OkupansiView({ data, setData }) {
                   <><Icon name="loader" size={14} className="animate-spin" /> Menghapus...</>
                 ) : (
                   <><Icon name="trash-2" size={14} /> Ya, Hapus ODP</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL HAPUS MASSAL ODP */}
+      {showMassDeleteModal && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-modal">
+            <div className="p-5 flex flex-col items-center text-center">
+              <div className="w-14 h-14 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                <Icon name="alert-triangle" size={28} />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-2">Hapus ODP Massal</h3>
+              <p className="text-sm text-slate-600">
+                Anda yakin ingin menghapus permanen <strong>{filteredManageOdps.length} ODP</strong> yang sedang difilter ini?
+              </p>
+              <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-3 mt-4 text-xs text-rose-800 text-left">
+                <span className="font-bold block mb-1">Perhatian:</span>
+                Tindakan ini tidak dapat dibatalkan. Semua ODP dalam daftar filter saat ini akan dihapus dari sistem.
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowMassDeleteModal(false)}
+                disabled={isMassDeleting}
+                className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200 transition-colors text-xs cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleMassDeleteOdp}
+                disabled={isMassDeleting}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-md flex items-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-70"
+              >
+                {isMassDeleting ? (
+                  <><Icon name="loader" size={14} className="animate-spin" /> Menghapus...</>
+                ) : (
+                  <><Icon name="trash-2" size={14} /> Ya, Hapus {filteredManageOdps.length} ODP</>
                 )}
               </button>
             </div>
@@ -6148,7 +6416,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     const map = {};
     dismantledDailyList.forEach(item => {
       let st = toProperCase(item.stasiun || 'Tanpa Stasiun');
-      if (st === 'Semarang Tawang') st = 'Tawang';
+      if (st === 'Tawang') st = 'Semarang Tawang';
       if (st) map[st] = (map[st] || 0) + 1;
     });
     return Object.entries(map)
@@ -6434,17 +6702,39 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       </div>
 
       {/* KPI CARDS (2-COL ON MOBILE, 5-COL ON DESKTOP) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
-        <StatCard title="Total Aktivasi HC" value={renderStatValue(totalPelangganAktif)} icon="activity" bg="bg-orange-50" iconColor="text-orange-500" infoTooltip="Total seluruh Aktivasi HC dari Dashboard E16." />
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
+        <StatCard
+          className="col-span-2 lg:col-span-1"
+          title="Total Aktivasi HC"
+          value={renderStatValue(totalPelangganAktif)}
+          icon="activity"
+          bg="bg-orange-50"
+          iconColor="text-orange-500"
+          infoTooltip="Total seluruh Aktivasi HC dari Dashboard E16."
+        />
 
-        <StatCard title="Aktivasi Harian" value={renderStatValue(totalAktivasiHarian)} icon="check-circle" bg="bg-emerald-50" iconColor="text-emerald-500" infoTooltip={`Total aktivasi pada tanggal ${formattedDate}`} />
+        <StatCard
+          title="Aktivasi Harian"
+          value={renderStatValue(totalAktivasiHarian)}
+          icon="check-circle"
+          bg="bg-emerald-50"
+          iconColor="text-emerald-500"
+          infoTooltip={`Total aktivasi pada tanggal ${formattedDate}`}
+        />
 
         <div
           onClick={() => { if (kendalaList.length > 0 && !isSyncing) setShowKendalaModal(true); }}
           className={kendalaList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-rose-200" : ""}
           title={kendalaList.length > 0 && !isSyncing ? "Klik untuk melihat detail pelanggan yang terkendala" : ""}
         >
-          <StatCard title="Kendala Harian" value={renderStatValue(totalKendalaHarian)} icon="alert-triangle" bg="bg-rose-50" iconColor="text-rose-500" infoTooltip={`Total pelanggan yang masih dalam status Kendala`} />
+          <StatCard
+            title="Kendala Harian"
+            value={renderStatValue(totalKendalaHarian)}
+            icon="alert-triangle"
+            bg="bg-rose-50"
+            iconColor="text-rose-500"
+            infoTooltip={`Total pelanggan yang masih dalam status Kendala`}
+          />
         </div>
 
         <div
@@ -6452,12 +6742,19 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
           className={visitList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-purple-200" : ""}
           title={visitList.length > 0 && !isSyncing ? "Klik untuk melihat detail tiket visit/gangguan" : ""}
         >
-          <StatCard title="Visit / Gangguan" value={renderStatValue(totalVisitHarian)} icon="headset" bg="bg-purple-50" iconColor="text-purple-500" infoTooltip={`Total tiket visit/gangguan pada tanggal ${formattedDate}`} />
+          <StatCard
+            title="Visit / Gangguan"
+            value={renderStatValue(totalVisitHarian)}
+            icon="headset"
+            bg="bg-purple-50"
+            iconColor="text-purple-500"
+            infoTooltip={`Total tiket visit/gangguan pada tanggal ${formattedDate}`}
+          />
         </div>
 
         <div
           onClick={() => { if (totalDismantledHarian > 0 && !isSyncing) setShowDismantledModal(true); }}
-          className={`col-span-2 sm:col-span-1 ${totalDismantledHarian > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-slate-300" : ""}`}
+          className={totalDismantledHarian > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-slate-300" : ""}
           title={totalDismantledHarian > 0 && !isSyncing ? "Klik untuk melihat rincian pelanggan dismantled" : ""}
         >
           <StatCard
@@ -6813,7 +7110,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {showDiscrepancyModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDiscrepancyModal(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
                 <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
@@ -6827,7 +7124,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </button>
             </div>
 
-            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 min-h-0 custom-scrollbar bg-slate-50/30">
               {discrepancyList.length > 0 ? (
                 <>
                   {/* TAMPILAN MOBILE: KARTU KHUSUS MOBILE */}
@@ -6869,7 +7166,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
                   {/* TAMPILAN DESKTOP: TABEL LEBAR */}
                   <table className="hidden sm:table w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-100 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[10px] uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-3">ID Pelanggan</th>
                         <th className="px-6 py-3">Nama & Stasiun</th>
@@ -6923,7 +7220,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {showKendalaModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowKendalaModal(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
                 <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
@@ -6937,7 +7234,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </button>
             </div>
 
-            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 min-h-0 custom-scrollbar bg-slate-50/30">
               {kendalaList.length > 0 ? (
                 <>
                   {/* TAMPILAN MOBILE: KARTU LIST KENDALA KHUSUS MOBILE */}
@@ -6976,7 +7273,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
                   {/* TAMPILAN DESKTOP: TABEL */}
                   <table className="hidden sm:table w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-100 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[10px] uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-3 w-32">ID Pelanggan</th>
                         <th className="px-6 py-3 w-48">Nama & Stasiun</th>
@@ -7025,7 +7322,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {showVisitModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowVisitModal(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
                 <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
@@ -7039,7 +7336,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </button>
             </div>
 
-            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 min-h-0 custom-scrollbar bg-slate-50/30">
               {visitList.length > 0 ? (
                 <>
                   {/* TAMPILAN MOBILE: KARTU LIST VISIT KHUSUS MOBILE */}
@@ -7106,7 +7403,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
                   {/* TAMPILAN DESKTOP: TABEL */}
                   <table className="hidden sm:table w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-100 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[10px] uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-3 w-32">Waktu</th>
                         <th className="px-6 py-3 w-48">Pelanggan & Stasiun</th>
@@ -7220,7 +7517,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {selectedRegStation && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setSelectedRegStation(null)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
                 <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
@@ -7234,7 +7531,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </button>
             </div>
 
-            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 min-h-0 custom-scrollbar bg-slate-50/30">
               {registrasiList.length > 0 ? (
                 <>
                   {/* TAMPILAN MOBILE: KARTU LIST REGISTRASI KHUSUS MOBILE */}
@@ -7272,7 +7569,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
                   {/* TAMPILAN DESKTOP: TABEL */}
                   <table className="hidden sm:table w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-100 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[10px] uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-3 w-16 text-center">No</th>
                         <th className="px-6 py-3">ID Pelanggan</th>
@@ -7326,7 +7623,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {showDismantledModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDismantledModal(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[95vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
                 <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
@@ -7367,7 +7664,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </div>
             </div>
 
-            <div className="p-3 sm:p-0 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/30">
+            <div className="p-3 sm:p-0 overflow-y-auto flex-1 min-h-0 custom-scrollbar bg-slate-50/30">
               {filteredDismantledList.length > 0 ? (
                 <>
                   {/* TAMPILAN MOBILE: KARTU KHUSUS MOBILE */}
@@ -7411,39 +7708,39 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
                   {/* TAMPILAN DESKTOP: TABEL */}
                   <table className="hidden sm:table w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-100 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[10px] uppercase tracking-wider">
                       <tr>
-                        <th className="px-6 py-3 w-16 text-center">No</th>
-                        <th className="px-6 py-3 w-32">ID Pelanggan</th>
-                        <th className="px-6 py-3">Nama & Stasiun</th>
-                        <th className="px-6 py-3">ODP & Port</th>
-                        <th className="px-6 py-3">Tanggal Dismantle</th>
-                        <th className="px-6 py-3">Alamat / Catatan</th>
-                        <th className="px-6 py-3 w-28 text-center">Status</th>
+                        <th className="px-4 py-2 w-12 text-center">No</th>
+                        <th className="px-4 py-2 w-28">ID Pelanggan</th>
+                        <th className="px-4 py-2">Nama & Stasiun</th>
+                        <th className="px-4 py-2">ODP & Port</th>
+                        <th className="px-4 py-2">Tanggal Dismantle</th>
+                        <th className="px-4 py-2">Alamat / Catatan</th>
+                        <th className="px-4 py-2 w-24 text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredDismantledList.map((cust, idx) => {
                         const disDate = getCustomerDismantleDate(cust);
                         return (
-                          <tr key={idx} className="hover:bg-white transition-colors">
-                            <td className="px-6 py-3 text-center text-slate-400 font-medium">{idx + 1}</td>
-                            <td className="px-6 py-3 font-mono text-xs text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
-                            <td className="px-6 py-3">
-                              <div className="font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</div>
-                              <div className="text-xs text-slate-500">{toProperCase(cust.stasiun)}</div>
+                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-2 text-center text-slate-400 font-medium">{idx + 1}</td>
+                            <td className="px-4 py-2 font-mono text-[11px] text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
+                            <td className="px-4 py-2">
+                              <div className="font-bold text-slate-800 text-[13px]">{cust.namaPelanggan || 'Tanpa Nama'}</div>
+                              <div className="text-[11px] text-slate-500">{toProperCase(cust.stasiun)}</div>
                             </td>
-                            <td className="px-6 py-3 text-xs text-slate-600 font-medium">
+                            <td className="px-4 py-2 text-[11px] text-slate-600 font-medium">
                               {cust.odpAktual || '-'}{cust.portOdp ? ` (Port ${cust.portOdp})` : ''}
                             </td>
-                            <td className="px-6 py-3 text-xs text-slate-700 font-semibold">
+                            <td className="px-4 py-2 text-[11px] text-slate-700 font-semibold">
                               {disDate || '-'}
                             </td>
-                            <td className="px-6 py-3 text-xs text-slate-500 max-w-xs truncate">
+                            <td className="px-4 py-2 text-[11px] text-slate-500 max-w-xs truncate">
                               {cust.catatan || cust.alamat || '-'}
                             </td>
-                            <td className="px-6 py-3 text-center">
-                              <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-300">
+                            <td className="px-4 py-2 text-center">
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-bold uppercase tracking-wider rounded border border-slate-300">
                                 DISMANTLED
                               </span>
                             </td>
@@ -7465,7 +7762,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
             </div>
 
             <div className="p-3 sm:p-4 border-t border-slate-100 flex justify-end items-center bg-white shrink-0">
-              <button onClick={() => setShowDismantledModal(false)} className="w-full sm:w-auto px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all active:scale-95">Tutup</button>
+              <button onClick={() => setShowDismantledModal(false)} className="w-full sm:w-auto px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-lg shadow-md transition-all active:scale-95">Tutup</button>
             </div>
           </div>
         </div>,
@@ -9386,6 +9683,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
         const failsafeLog = setTimeout(() => { finalizeSuccessLog(); }, 3500);
 
+        // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
+        sendTelegramVisitDM(payload, petugasList);
+
         api.run('insertVisitLog', payload)
           .then((res) => {
             clearTimeout(failsafeLog);
@@ -9692,6 +9992,17 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                       </a>
                     ) : (
                       <div className="rounded-xl border-2 border-slate-200 border-dashed bg-slate-50 aspect-video flex flex-col items-center justify-center text-slate-400 relative"><Icon name="image-off" size={28} className="mb-2 opacity-40" /><span className="text-xs font-semibold">Foto ONT Belum Ada</span></div>
+                    )}
+                    {internalData.fotoDismantle && (
+                      <a href={internalData.fotoDismantle} target="_blank" rel="noreferrer" className="block group relative rounded-xl overflow-hidden border border-slate-300 bg-slate-100 aspect-video shadow-sm md:col-span-2">
+                        <img src={getDriveDirectUrl(internalData.fotoDismantle)} alt="Foto ONT Dismantle" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/600x400/e2e8f0/64748b?text=Gagal+Memuat+Foto+Dismantle'; }} />
+                        <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/20 transition-colors flex items-center justify-center">
+                          <Icon name="external-link" className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size={28} />
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900/80 to-transparent p-2">
+                          <span className="text-[10px] text-white font-medium drop-shadow">Foto ONT Dismantle</span>
+                        </div>
+                      </a>
                     )}
                   </div>
                 </div>
@@ -10889,8 +11200,9 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     setNewTicketError('');
 
     let usernamePetugas = newTicketPetugas;
-    if (newTicketPetugas && petugasList.length > 0) {
-      const tk = petugasList.find(t => t.nama === newTicketPetugas);
+    const listTeknisi = (petugasList && petugasList.length > 0) ? petugasList : (getCachedData('otas_teknisi_cache') || []);
+    if (newTicketPetugas && listTeknisi.length > 0) {
+      const tk = listTeknisi.find(t => t.nama === newTicketPetugas || t.username === newTicketPetugas);
       if (tk && tk.username) {
         usernamePetugas = tk.username.startsWith('@') ? tk.username : '@' + tk.username;
       }
@@ -10928,6 +11240,12 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       setNewTicketSuccess(true);
       setTimeout(() => { setShowNewTicketModal(false); resetNewTicketModal(); }, 1500);
     };
+
+    // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
+    sendTelegramVisitDM(payload, listTeknisi);
+
+    // Sinkronisasi ke Google Sheet di background
+    api.run('insertVisitLog', payload).catch(e => console.warn("GAS insertVisitLog error:", e));
 
     try {
       await supabase.from('log_visit').insert({
@@ -13606,10 +13924,14 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       </>
                     )}
                     {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
-                      <>
-                        {item.tanggalDismantle && (
-                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
-                            <Icon name="calendar" size={8} className="text-rose-400" /> Dis: {item.tanggalDismantle.substring(0, 10)}
+                      <div className="flex flex-col items-start gap-1 mt-1 w-full">
+                        {item.tanggalDismantle ? (
+                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
+                            <Icon name="calendar" size={8} className="text-rose-400" /> Dismantle: {item.tanggalDismantle.substring(0, 10)}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                            <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Dismantle: -
                           </span>
                         )}
                         {(() => {
@@ -13619,12 +13941,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                           const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
                           if (!reasonText) return null;
                           return (
-                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded mt-0.5 max-w-[150px] truncate" title={`Alasan: ${reasonText}`}>
-                              <Icon name="info" size={8} className="text-slate-400 shrink-0" /> {reasonText}
+                            <span className="inline-flex items-center gap-1 text-[8px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded max-w-[220px] truncate" title={`Alasan: ${reasonText}`}>
+                              <Icon name="info" size={8} className="text-slate-500 shrink-0" /> Alasan: {reasonText}
                             </span>
                           );
                         })()}
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -13635,6 +13957,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                 {/* Kendala Mobile Row */}
                 {(() => {
+                  if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') return null;
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
                   if (!hasKendala && !issueText) return null;
@@ -13900,133 +14223,155 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex flex-col items-start">
-                        {/* BARIS 1: BADGES STATUS & UMUR WO */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                      {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') ? (
+                        <div className="flex flex-col items-start gap-1">
+                          {/* 1. STATUS DISMANTLED */}
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
                             {displayStatusStr}
                           </span>
 
-                          {/* INDIKATOR UMUR WO */}
-                          {umurWoStr && (
-                            <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
-                              <Icon name="clock" size={10} />
-                              {umurWoStr}
+                          {/* 2. TGL DISMANTLED */}
+                          {item.tanggalDismantle ? (
+                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
+                              <Icon name="calendar" size={9} className="text-rose-400" />
+                              Dismantle: {item.tanggalDismantle.substring(0, 10)}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Dismantle tidak tercatat">
+                              <Icon name="calendar" size={9} className="text-slate-400" />
+                              Tgl Dismantle: -
                             </span>
                           )}
 
-                          {/* INDIKATOR TELAT BAYAR & EXP (Hanya untuk Suspend & Ready To Dismantle) */}
-                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
-                            <>
-                              {(Number(item.telatBayarHari) > 0) && (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                                  <Icon name="clock" size={9} className="text-rose-500" />
-                                  Telat {item.telatBayarHari} Hari
-                                </span>
-                              )}
-                              {item.tanggalBerakhir && (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
-                                  <Icon name="calendar" size={9} className="text-slate-400" />
-                                  Exp: {item.tanggalBerakhir.substring(0, 10)}
-                                </span>
-                              )}
-                            </>
-                          )}
+                          {/* 3. ALASAN DISMANTLED (BADGE ABU-ABU) */}
+                          {(() => {
+                            const r = (item.reasonDismantle || '').trim();
+                            const k = (item.issueKendala || '').trim();
+                            const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+                            const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
+                            if (!reasonText) return null;
+                            return (
+                              <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-700 bg-slate-100 border border-slate-200 max-w-[280px]" title={`Alasan: ${reasonText}`}>
+                                <Icon name="info" size={9} className="text-slate-500 shrink-0" />
+                                <span className="truncate">Alasan: {reasonText}</span>
+                              </span>
+                            );
+                          })()}
 
-                          {/* INDIKATOR DISMANTLE (Hanya Tgl Dismantle & Reason) */}
-                          {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
-                            <>
-                              {item.tanggalDismantle && (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
-                                  <Icon name="calendar" size={9} className="text-rose-400" />
-                                  Dismantle: {item.tanggalDismantle.substring(0, 10)}
-                                </span>
-                              )}
-                              {(() => {
-                                const r = (item.reasonDismantle || '').trim();
-                                const k = (item.issueKendala || '').trim();
-                                const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
-                                const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
-                                if (!reasonText) return null;
-                                return (
-                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-700 bg-slate-100 border border-slate-200 max-w-[280px] truncate" title={`Alasan: ${reasonText}`}>
-                                    <Icon name="info" size={9} className="text-slate-500 shrink-0" />
-                                    Alasan: {reasonText}
-                                  </span>
-                                );
-                              })()}
-                            </>
-                          )}
-
-                          {/* INDIKATOR KENDALA */}
-                          {displayStatusStr === 'KENDALA' && (
-                            <div className="relative flex items-center">
-                              <div
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenKendalaId(openKendalaId === item.idPelanggan ? null : item.idPelanggan);
-                                }}
-                                className={`p-1 rounded-full shadow-sm transition-colors cursor-pointer ${openKendalaId === item.idPelanggan ? 'bg-rose-500 text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-200 animate-pulse'}`}
-                              >
-                                <Icon name="alert-triangle" size={12} />
-                              </div>
-
-                              {openKendalaId === item.idPelanggan && (
-                                <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-3 w-64 bg-white border border-rose-200 shadow-2xl rounded-xl p-4 z-50 animate-dropdown origin-right cursor-default">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setOpenKendalaId(null); }}
-                                    className="absolute top-2.5 right-2.5 p-1 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
-                                  >
-                                    <Icon name="x" size={14} />
-                                  </button>
-
-                                  <div className="text-xs font-bold text-rose-600 mb-2.5 flex items-center gap-1.5 border-b border-rose-50 pb-2 pr-6">
-                                    <Icon name="info" size={16} /> Laporan Kendala
-                                  </div>
-                                  <p className="text-xs text-slate-700 mb-4 leading-relaxed whitespace-normal break-words font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                                    "{issue || 'Isi kendala tidak tercatat'}"
-                                  </p>
-                                  <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
-                                    <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
-                                    <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? standardizeDate(date) : '-'}</span>
-                                  </div>
-
-                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
-                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 ml-[1px] border-[6px] border-transparent border-l-rose-200 -z-10"></div>
-                                </div>
-                              )}
+                          {/* PETUGAS (JIKA ADA) */}
+                          {(item.petugasIkr || item.petugasAktivasi) && (
+                            <div className="mt-0.5 flex items-center text-[10px] text-slate-400">
+                              <Icon name="user" size={10} className="mr-1 shrink-0" />
+                              <span className="truncate max-w-[140px]">
+                                {item.petugasAktivasi || item.petugasIkr}
+                              </span>
                             </div>
                           )}
                         </div>
-
-                        {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
-                        {(() => {
-                          const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
-                          const issueText = issue && issue !== item.alamat ? issue : '';
-
-                          if (!hasKendala && !issueText) return null;
-                          return (
-                            <div className="col-span-full mt-1.5 flex flex-col gap-1.5">
-                              {(hasKendala || issueText) && (
-                                <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2.5 py-1.5 rounded-md" title={item.issueKendala || issueText}>
-                                  <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                  <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* BARIS 3: PETUGAS (JIKA ADA) */}
-                        {(item.petugasIkr || item.petugasAktivasi) && (
-                          <div className="mt-1 flex items-center text-[10px] text-slate-400">
-                            <Icon name="user" size={10} className="mr-1 shrink-0" />
-                            <span className="truncate max-w-[140px]">
-                              {item.petugasAktivasi || item.petugasIkr}
+                      ) : (
+                        <div className="flex flex-col items-start">
+                          {/* BARIS 1: BADGES STATUS & UMUR WO */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                              {displayStatusStr}
                             </span>
+
+                            {/* INDIKATOR UMUR WO */}
+                            {umurWoStr && (
+                              <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
+                                <Icon name="clock" size={10} />
+                                {umurWoStr}
+                              </span>
+                            )}
+
+                            {/* INDIKATOR TELAT BAYAR & EXP (Hanya untuk Suspend & Ready To Dismantle) */}
+                            {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
+                              <>
+                                {(Number(item.telatBayarHari) > 0) && (
+                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                    <Icon name="clock" size={9} className="text-rose-500" />
+                                    Telat {item.telatBayarHari} Hari
+                                  </span>
+                                )}
+                                {item.tanggalBerakhir && (
+                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
+                                    <Icon name="calendar" size={9} className="text-slate-400" />
+                                    Exp: {item.tanggalBerakhir.substring(0, 10)}
+                                  </span>
+                                )}
+                              </>
+                            )}
+
+                            {/* INDIKATOR KENDALA */}
+                            {displayStatusStr === 'KENDALA' && (
+                              <div className="relative flex items-center">
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenKendalaId(openKendalaId === item.idPelanggan ? null : item.idPelanggan);
+                                  }}
+                                  className={`p-1 rounded-full shadow-sm transition-colors cursor-pointer ${openKendalaId === item.idPelanggan ? 'bg-rose-500 text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-200 animate-pulse'}`}
+                                >
+                                  <Icon name="alert-triangle" size={12} />
+                                </div>
+
+                                {openKendalaId === item.idPelanggan && (
+                                  <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-3 w-64 bg-white border border-rose-200 shadow-2xl rounded-xl p-4 z-50 animate-dropdown origin-right cursor-default">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setOpenKendalaId(null); }}
+                                      className="absolute top-2.5 right-2.5 p-1 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
+                                    >
+                                      <Icon name="x" size={14} />
+                                    </button>
+
+                                    <div className="text-xs font-bold text-rose-600 mb-2.5 flex items-center gap-1.5 border-b border-rose-50 pb-2 pr-6">
+                                      <Icon name="info" size={16} /> Laporan Kendala
+                                    </div>
+                                    <p className="text-xs text-slate-700 mb-4 leading-relaxed whitespace-normal break-words font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                      "{issue || 'Isi kendala tidak tercatat'}"
+                                    </p>
+                                    <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
+                                      <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
+                                      <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? standardizeDate(date) : '-'}</span>
+                                    </div>
+
+                                    <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
+                                    <div className="absolute top-1/2 left-full transform -translate-y-1/2 ml-[1px] border-[6px] border-transparent border-l-rose-200 -z-10"></div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+
+                          {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
+                          {(() => {
+                            const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
+                            const issueText = issue && issue !== item.alamat ? issue : '';
+
+                            if (!hasKendala && !issueText) return null;
+                            return (
+                              <div className="col-span-full mt-1.5 flex flex-col gap-1.5">
+                                {(hasKendala || issueText) && (
+                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2.5 py-1.5 rounded-md" title={item.issueKendala || issueText}>
+                                    <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
+                                    <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* BARIS 3: PETUGAS (JIKA ADA) */}
+                          {(item.petugasIkr || item.petugasAktivasi) && (
+                            <div className="mt-1 flex items-center text-[10px] text-slate-400">
+                              <Icon name="user" size={10} className="mr-1 shrink-0" />
+                              <span className="truncate max-w-[140px]">
+                                {item.petugasAktivasi || item.petugasIkr}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex justify-center gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
@@ -14654,7 +14999,7 @@ function CoverageGISView({ data, targetCoords }) {
             </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 custom-scrollbar bg-slate-50/30 relative">
+          <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 custom-scrollbar bg-slate-50/30 relative min-h-0">
             {!userLocation ? (
               <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 opacity-60 absolute inset-0">
                 <Icon name="map" size={32} className="mb-2 sm:mb-3" />
@@ -14990,10 +15335,10 @@ function CoverageGISView({ data, targetCoords }) {
   );
 }
 
-function StatCard({ title, value, icon, bg, iconColor, subtext, infoTooltip, onClick }) {
+function StatCard({ title, value, icon, bg, iconColor, subtext, infoTooltip, onClick, className = '' }) {
   return (
     <div
-      className={`bg-white rounded-xl p-3.5 lg:p-6 shadow-sm border border-slate-200 lg:border-slate-100 flex flex-col justify-between lg:justify-center transition-all hover:shadow-md relative group ${onClick ? 'cursor-pointer hover:border-blue-300' : ''}`}
+      className={`bg-white rounded-xl p-3.5 lg:p-6 shadow-sm border border-slate-200 lg:border-slate-100 flex flex-col justify-between lg:justify-center transition-all hover:shadow-md relative group ${onClick ? 'cursor-pointer hover:border-blue-300' : ''} ${className}`}
       onClick={onClick}
     >
       {infoTooltip && (

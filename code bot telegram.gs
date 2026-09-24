@@ -10,6 +10,10 @@ const MASTER_VISIT_ID = "13jcv3tNA4ncAj7WTv4xE0_Tb63_FU5JF0hLIfasJk2M";
 const STOK_GUDANG_ID = "1dsQgRJUX-ZLFAHE4t4UxZdxQCpgG4eICkF7AqsV08G0";
 const MASTER_FILE_ID = "13jcv3tNA4ncAj7WTv4xE0_Tb63_FU5JF0hLIfasJk2M";
 
+// ================= SUPABASE WEB OPSTRACKER CONFIG =================
+const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
+
 // ================= SUPABASE SCM TRACKER CONFIG =================
 var SCM_SUPABASE_URL = "https://tngdhjggjbnaoxkfxqej.supabase.co";
 var SCM_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuZ2RoamdnamJuYW94a2Z4cWVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTIwNDgsImV4cCI6MjEwMDM4ODA0OH0.c751j1b-kMaV9caikq8Pl1h9jUHPYW-jXKPINdcN6JM";
@@ -48,9 +52,6 @@ function callScmSupabase(endpoint, method, payload, extraHeaders) {
 // [+] ID Folder "Database Pelanggan"
 const PARENT_FOLDER_ID = "1wYSNN7k5zkim8fIP0jUvagoRpKt7FTij"; 
 
-// ================= SUPABASE OPS TRACKER CONFIG =================
-const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
 
 function upsertToSupabase(payloadArray) {
   if (!payloadArray || payloadArray.length === 0) return;
@@ -60,7 +61,7 @@ function upsertToSupabase(payloadArray) {
     item.updated_at = nowIso;
   });
 
-  var url = SUPABASE_URL + "/rest/v1/data_pelanggan";
+  var url = SUPABASE_URL + "/rest/v1/data_pelanggan?on_conflict=id_pelanggan";
   var options = {
     method: "post",
     contentType: "application/json",
@@ -137,7 +138,7 @@ function syncVisitLogToSupabase(action, payload) {
       };
       if (payload.petugas) updateBody.petugas = String(payload.petugas);
 
-      var url = SUPABASE_URL + "/rest/v1/log_visit?id_pelanggan=eq." + encodeURIComponent(idPel) + "&status_visit=eq.OPEN";
+      var url = SUPABASE_URL + "/rest/v1/log_visit?id_pelanggan=eq." + encodeURIComponent(idPel) + "&status_visit=ilike.OPEN";
       var options = {
         method: "patch",
         contentType: "application/json",
@@ -775,6 +776,8 @@ function getStationList() {
     
     for (let i = 0; i < data.length; i++) {
       let stName = String(data[i][0]).trim();
+      if (stName === "Tawang") stName = "Semarang Tawang"; // Paksa tampil sebagai Semarang Tawang
+      
       // Memastikan nama stasiun tidak kosong, bukan error formula (#VALUE!, #REF!, dll), dan menghindari duplikat
       if (stName !== "" && !stName.startsWith("#") && !stations.includes(stName)) {
         stations.push(stName);
@@ -784,6 +787,7 @@ function getStationList() {
     // [+] Fallback & Tambahan dari STATION_DB_MAP (jika di Master_Database ada error formula)
     for (let key in STATION_DB_MAP) {
       let cleanKey = key.trim();
+      if (cleanKey === "Tawang") continue; // Skip Tawang karena kita pakai Semarang Tawang
       if (!stations.includes(cleanKey)) {
         stations.push(cleanKey);
       }
@@ -1162,6 +1166,7 @@ let lng = String(rows[target-1][6] || "").replace(/['"]/g, "").trim();
             "stasiun": stationName === "Tawang" ? "Semarang Tawang" : stationName,
             "aktivasi": "Dismantled",
             "alasan_dismantle": data.alasan_dismantle,
+            "tanggal_dismantle": Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd"),
             "kode_odp": data.kode_odp,
             "odp_aktual": data.kode_odp,
             "port_odp": "",
@@ -1761,227 +1766,52 @@ function processMaterialLog(p) {
   const materials = getMaterialsMapping();
   const whId = findWarehouseId(p.lokasi_gudang, warehouses) || p.lokasi_gudang;
 
-  p.items.forEach((item, idx) => {
-    let skuId = resolveMaterialSku(item.nama, materials);
-    let itemQty = Number(item.qty) || 0;
-    let pekerjaanAktual = p.pekerjaan || "-";
-
-    // 1. TRANSAKSI PENGEMBALIAN (KEMBALI)
-    if (p.transaksi === "kembali" && item.id_ref) {
-      // Ambil data lama dari technician_logs
-      let oldLogRes = callScmSupabase("technician_logs?id=eq." + encodeURIComponent(item.id_ref));
-      let oldLog = Array.isArray(oldLogRes) && oldLogRes.length > 0 ? oldLogRes[0] : null;
-      
-      // Tentukan gudang ASAL pengambilan agar lurus 100%
-      let originWhId = oldLog && oldLog.warehouse_id ? oldLog.warehouse_id : (whId || findWarehouseId(p.lokasi_gudang, warehouses));
-      let originWhName = oldLog && oldLog.warehouse_name ? oldLog.warehouse_name : p.lokasi_gudang;
-
-      let qtyAmbil = oldLog ? (Number(oldLog.qty_take) || 0) : itemQty;
-      pekerjaanAktual = oldLog && oldLog.work_order ? oldLog.work_order : (p.pekerjaan || "-");
-      let qtyKembali = itemQty;
-      let qtyPakai = Math.max(0, qtyAmbil - qtyKembali);
-
-      item.qtyAmbil = qtyAmbil;
-      item.qtyPakai = qtyPakai;
-      skuId = oldLog && oldLog.material_id ? oldLog.material_id : skuId;
-
-      // Update technician_logs jadi CLOSED
-      callScmSupabase("technician_logs?id=eq." + encodeURIComponent(item.id_ref), "PATCH", {
-        status: "CLOSED",
-        qty_return: qtyKembali,
-        qty_used: qtyPakai,
-        closed_at: now.toISOString(),
-        notes: (p.keterangan ? p.keterangan + " | " : "") + `Ambil: ${qtyAmbil}, Pakai: ${qtyPakai}, Kembali: ${qtyKembali}`
-      });
-
-      // Kembalikan sisa fisik LURUS ke gudang ASAL pengambilan
-      if (qtyKembali > 0 && originWhId && skuId) {
-        const PRECON_PAIRS = {
-          "M-PR-IKR-50M": "M-PR-D-50M",
-          "M-PR-IKR-100M": "M-PR-D-100M",
-          "M-PR-IKR-150M": "M-PR-D-150M"
-        };
-        let targetReturnSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || skuId);
-
-        let invRes = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(originWhId) + "&material_id=eq." + encodeURIComponent(targetReturnSku));
-        if (Array.isArray(invRes) && invRes.length > 0) {
-          let currentStock = Number(invRes[0].stock_qty) || 0;
-          callScmSupabase("inventory?id=eq." + invRes[0].id, "PATCH", {
-            stock_qty: currentStock + qtyKembali,
-            last_updated: now.toISOString()
-          });
+  if (p.transaksi === "input" || p.transaksi === "masuk") {
+    // ========================================================
+    // 3. TRANSAKSI PENERIMAAN DARI SUPPLIER (RESTOCK MASUK PO)
+    // ========================================================
+    let matchedPo = null;
+    let targetPoKey = String(p.po || p.pekerjaan || "").trim();
+    if (targetPoKey && targetPoKey !== "-" && targetPoKey !== "Internal") {
+      try {
+        let cleanPo = encodeURIComponent(targetPoKey);
+        let poRes = callScmSupabase("po_requests?or=(no_rab.eq." + cleanPo + ",po_suplier.eq." + cleanPo + ",id.eq." + cleanPo + ")&select=*,po_items(*)");
+        if (Array.isArray(poRes) && poRes.length > 0) {
+          matchedPo = poRes[0];
         }
+      } catch (errPo) {
+        Logger.log("Error lookup PO: " + errPo.message);
       }
+    }
 
-      // Catat mutasi pengembalian untuk Log Transaksi SCM LURUS ke gudang ASAL
-      if (qtyKembali > 0) {
-        const PRECON_PAIRS = {
-          "M-PR-IKR-50M": "M-PR-D-50M",
-          "M-PR-IKR-100M": "M-PR-D-100M",
-          "M-PR-IKR-150M": "M-PR-D-150M"
-        };
-        let targetReturnSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || skuId);
+    const receiptId = "RCV-BOT-" + Date.now();
+    const receiptRef = matchedPo ? (matchedPo.no_rab || matchedPo.id) : (targetPoKey || "Internal");
+    const internalId = matchedPo ? matchedPo.id : null;
+    const siteName = (matchedPo && matchedPo.site_name) ? matchedPo.site_name : (p.stasiun || "-");
+    const suratJalan = (p.no_sj && p.no_sj !== "-") ? p.no_sj : (linkFoto.startsWith("http") ? linkFoto : (receiptRef || "SJ-Telegram"));
+    const poSupplier = matchedPo ? (matchedPo.po_suplier || targetPoKey) : (targetPoKey || "-");
 
-        callScmSupabase("mutations", "POST", [{
-          id: "MUT-RET-" + Date.now() + "-" + idx,
-          date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss"),
-          source_warehouse: "Teknisi: " + safePetugas,
-          dest_warehouse: originWhName,
-          material_id: targetReturnSku,
-          qty: qtyKembali
-        }]);
-      }
+    // A. Simpan Header ke tabel receipts (Supabase SCM Tracker)
+    callScmSupabase("receipts", "POST", [{
+      id: receiptId,
+      date: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy, HH.mm.ss"),
+      warehouse_name: p.lokasi_gudang,
+      ref: receiptRef,
+      internal_id: internalId,
+      site_name: siteName,
+      surat_jalan: suratJalan,
+      po_suplier: poSupplier,
+      suplier: p.supplier || (matchedPo ? matchedPo.mitra : "-") || "-",
+      driver: safePetugas
+    }]);
 
-    } else if (p.transaksi === "ambil") {
-      // 2. TRANSAKSI PENGAMBILAN (AMBIL)
-      const logId = "TLOG-" + Date.now() + "-" + (idx + 1);
+    // B. Iterasi Setiap Item Masuk
+    p.items.forEach((item, idx) => {
+      let skuId = resolveMaterialSku(item.nama, materials);
+      let itemQty = Number(item.qty) || 0;
+      if (itemQty <= 0 || !skuId) return;
 
-      // Cek apakah item adalah Precon dengan prioritas IKR -> Fallback Distribusi
-      const PRECON_PAIRS = {
-        "M-PR-IKR-50M": "M-PR-D-50M",
-        "M-PR-IKR-100M": "M-PR-D-100M",
-        "M-PR-IKR-150M": "M-PR-D-150M"
-      };
-
-      let targetIkrSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || null);
-      let targetDistSku = targetIkrSku ? PRECON_PAIRS[targetIkrSku] : null;
-
-      if (targetIkrSku && targetDistSku && whId) {
-        // Cek stok IKR & Distribusi di gudang terkait
-        let invIkr = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(targetIkrSku));
-        let invDist = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(targetDistSku));
-
-        let stockIkr = (Array.isArray(invIkr) && invIkr.length > 0) ? (Number(invIkr[0].stock_qty) || 0) : 0;
-        let stockDist = (Array.isArray(invDist) && invDist.length > 0) ? (Number(invDist[0].stock_qty) || 0) : 0;
-
-        let ambilIkr = 0;
-        let ambilDist = 0;
-
-        if (stockIkr >= itemQty) {
-          ambilIkr = itemQty;
-        } else {
-          ambilIkr = Math.max(0, stockIkr);
-          ambilDist = itemQty - ambilIkr;
-        }
-
-        // Potong stok IKR jika ada
-        if (ambilIkr > 0 && Array.isArray(invIkr) && invIkr.length > 0) {
-          callScmSupabase("inventory?id=eq." + invIkr[0].id, "PATCH", {
-            stock_qty: stockIkr - ambilIkr,
-            last_updated: now.toISOString()
-          });
-          callScmSupabase("outbounds", "POST", [{
-            id: Date.now() + idx,
-            warehouse: p.lokasi_gudang,
-            pic: safePetugas,
-            spk: pekerjaanAktual,
-            date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
-            timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
-            created_at: now.toISOString(),
-            material_id: targetIkrSku,
-            qty: ambilIkr
-          }]);
-        }
-
-        // Potong stok Distribusi (Fallback) jika stok IKR habis/kurang
-        if (ambilDist > 0 && Array.isArray(invDist) && invDist.length > 0) {
-          callScmSupabase("inventory?id=eq." + invDist[0].id, "PATCH", {
-            stock_qty: Math.max(0, stockDist - ambilDist),
-            last_updated: now.toISOString()
-          });
-          callScmSupabase("outbounds", "POST", [{
-            id: Date.now() + idx + 999,
-            warehouse: p.lokasi_gudang,
-            pic: safePetugas,
-            spk: pekerjaanAktual + " (Fallback Distribusi)",
-            date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
-            timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
-            created_at: now.toISOString(),
-            material_id: targetDistSku,
-            qty: ambilDist
-          }]);
-        }
-
-        // Simpan ke technician_logs
-        let alokasiKet = ambilDist > 0 ? `(Alokasi: ${ambilIkr} IKR, ${ambilDist} Distribusi)` : `(Alokasi: ${ambilIkr} IKR)`;
-        callScmSupabase("technician_logs", "POST", [{
-          id: logId,
-          username: safePetugas,
-          warehouse_id: whId,
-          warehouse_name: p.lokasi_gudang,
-          station: p.stasiun,
-          work_order: pekerjaanAktual,
-          material_id: targetIkrSku,
-          material_name: item.nama,
-          qty_take: itemQty,
-          qty_return: 0,
-          qty_used: 0,
-          status: "OPEN",
-          notes: (p.keterangan ? p.keterangan + " • " : "") + alokasiKet,
-          photo_url: linkFoto
-        }]);
-
-      } else {
-        // Material Standar Reguler (Non-Precon)
-        callScmSupabase("technician_logs", "POST", [{
-          id: logId,
-          username: safePetugas,
-          warehouse_id: whId,
-          warehouse_name: p.lokasi_gudang,
-          station: p.stasiun,
-          work_order: pekerjaanAktual,
-          material_id: skuId,
-          material_name: item.nama,
-          qty_take: itemQty,
-          qty_return: 0,
-          qty_used: 0,
-          status: "OPEN",
-          notes: p.keterangan || "-",
-          photo_url: linkFoto
-        }]);
-
-        callScmSupabase("outbounds", "POST", [{
-          id: Date.now() + idx,
-          warehouse: p.lokasi_gudang,
-          pic: safePetugas,
-          spk: pekerjaanAktual,
-          date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
-          timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
-          created_at: now.toISOString(),
-          material_id: skuId,
-          qty: itemQty
-        }]);
-
-        if (whId && skuId) {
-          let invRes = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(skuId));
-          if (Array.isArray(invRes) && invRes.length > 0) {
-            let currentStock = Number(invRes[0].stock_qty) || 0;
-            let newStock = Math.max(0, currentStock - itemQty);
-            callScmSupabase("inventory?id=eq." + invRes[0].id, "PATCH", {
-              stock_qty: newStock,
-              last_updated: now.toISOString()
-            });
-          }
-        }
-      }
-    } else if (p.transaksi === "input") {
-      // 3. TRANSAKSI PENERIMAAN DARI SUPPLIER (RESTOCK MASUK)
-      const receiptId = "RCV-BOT-" + Date.now() + "-" + (idx + 1);
-
-      // A. Simpan Header ke tabel receipts (Supabase SCM Tracker)
-      callScmSupabase("receipts", "POST", [{
-        id: receiptId,
-        date: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
-        warehouse_name: p.lokasi_gudang,
-        ref: p.po || "Internal",
-        site_name: p.stasiun || "-",
-        surat_jalan: linkFoto.startsWith("http") ? linkFoto : (p.po || "SJ-Telegram"),
-        po_suplier: p.po || "-",
-        suplier: p.supplier || "-",
-        driver: safePetugas
-      }]);
-
-      // B. Simpan Item ke tabel receipt_items
+      // 1. Simpan Item ke tabel receipt_items
       callScmSupabase("receipt_items", "POST", [{
         id: Date.now() + idx,
         receipt_id: receiptId,
@@ -1991,7 +1821,7 @@ function processMaterialLog(p) {
         selisih: 0
       }]);
 
-      // C. Tambah Stok Fisik ke tabel inventory di Gudang Terkait
+      // 2. Tambah Stok Fisik ke tabel inventory di Gudang Terkait
       if (whId && skuId) {
         let invRes = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(skuId));
         if (Array.isArray(invRes) && invRes.length > 0) {
@@ -2002,6 +1832,7 @@ function processMaterialLog(p) {
           });
         } else {
           callScmSupabase("inventory", "POST", [{
+            id: "INV-" + Date.now() + "-" + idx,
             warehouse_id: whId,
             material_id: skuId,
             stock_qty: itemQty,
@@ -2009,8 +1840,251 @@ function processMaterialLog(p) {
           }]);
         }
       }
+
+      // 3. Update PO Items (Received Total & Req Qty) di Supabase agar Received & GAP terupdate
+      if (matchedPo && Array.isArray(matchedPo.po_items)) {
+        let poItem = matchedPo.po_items.find(pi => pi.material_id === skuId);
+        if (poItem) {
+          let curReceived = Number(poItem.received_total) || 0;
+          let newReceived = curReceived + itemQty;
+          let baseReq = Number(poItem.original_req_qty || poItem.req_qty) || 0;
+          let newReqQty = Math.max(0, baseReq - newReceived);
+
+          callScmSupabase("po_items?po_id=eq." + encodeURIComponent(matchedPo.id) + "&material_id=eq." + encodeURIComponent(skuId), "PATCH", {
+            received_total: newReceived,
+            req_qty: newReqQty
+          });
+        }
+      }
+    });
+
+    // C. Update status PO Request
+    if (matchedPo) {
+      try {
+        let checkItems = callScmSupabase("po_items?po_id=eq." + encodeURIComponent(matchedPo.id));
+        let allDone = true;
+        if (Array.isArray(checkItems) && checkItems.length > 0) {
+          allDone = checkItems.every(pi => (Number(pi.req_qty) || 0) <= 0);
+        }
+        let newPoStatus = allDone ? "Completed" : "Parsial";
+        callScmSupabase("po_requests?id=eq." + encodeURIComponent(matchedPo.id), "PATCH", {
+          status: newPoStatus
+        });
+      } catch (errSt) {
+        Logger.log("Error updating PO status: " + errSt.message);
+      }
     }
-  });
+
+  } else {
+    // ========================================================
+    // 1 & 2. TRANSAKSI PENGEMBALIAN & PENGAMBILAN
+    // ========================================================
+    p.items.forEach((item, idx) => {
+      let skuId = resolveMaterialSku(item.nama, materials);
+      let itemQty = Number(item.qty) || 0;
+      let pekerjaanAktual = p.pekerjaan || "-";
+
+      // 1. TRANSAKSI PENGEMBALIAN (KEMBALI)
+      if (p.transaksi === "kembali" && item.id_ref) {
+        // Ambil data lama dari technician_logs
+        let oldLogRes = callScmSupabase("technician_logs?id=eq." + encodeURIComponent(item.id_ref));
+        let oldLog = Array.isArray(oldLogRes) && oldLogRes.length > 0 ? oldLogRes[0] : null;
+        
+        // Tentukan gudang ASAL pengambilan agar lurus 100%
+        let originWhId = oldLog && oldLog.warehouse_id ? oldLog.warehouse_id : (whId || findWarehouseId(p.lokasi_gudang, warehouses));
+        let originWhName = oldLog && oldLog.warehouse_name ? oldLog.warehouse_name : p.lokasi_gudang;
+
+        let qtyAmbil = oldLog ? (Number(oldLog.qty_take) || 0) : itemQty;
+        pekerjaanAktual = oldLog && oldLog.work_order ? oldLog.work_order : (p.pekerjaan || "-");
+        let qtyKembali = itemQty;
+        let qtyPakai = Math.max(0, qtyAmbil - qtyKembali);
+
+        item.qtyAmbil = qtyAmbil;
+        item.qtyPakai = qtyPakai;
+        skuId = oldLog && oldLog.material_id ? oldLog.material_id : skuId;
+
+        // Update technician_logs jadi CLOSED
+        callScmSupabase("technician_logs?id=eq." + encodeURIComponent(item.id_ref), "PATCH", {
+          status: "CLOSED",
+          qty_return: qtyKembali,
+          qty_used: qtyPakai,
+          closed_at: now.toISOString(),
+          notes: (p.keterangan ? p.keterangan + " | " : "") + `Ambil: ${qtyAmbil}, Pakai: ${qtyPakai}, Kembali: ${qtyKembali}`
+        });
+
+        // Kembalikan sisa fisik LURUS ke gudang ASAL pengambilan
+        if (qtyKembali > 0 && originWhId && skuId) {
+          const PRECON_PAIRS = {
+            "M-PR-IKR-50M": "M-PR-D-50M",
+            "M-PR-IKR-100M": "M-PR-D-100M",
+            "M-PR-IKR-150M": "M-PR-D-150M"
+          };
+          let targetReturnSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || skuId);
+
+          let invRes = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(originWhId) + "&material_id=eq." + encodeURIComponent(targetReturnSku));
+          if (Array.isArray(invRes) && invRes.length > 0) {
+            let currentStock = Number(invRes[0].stock_qty) || 0;
+            callScmSupabase("inventory?id=eq." + invRes[0].id, "PATCH", {
+              stock_qty: currentStock + qtyKembali,
+              last_updated: now.toISOString()
+            });
+          }
+        }
+
+        // Catat mutasi pengembalian untuk Log Transaksi SCM LURUS ke gudang ASAL
+        if (qtyKembali > 0) {
+          const PRECON_PAIRS = {
+            "M-PR-IKR-50M": "M-PR-D-50M",
+            "M-PR-IKR-100M": "M-PR-D-100M",
+            "M-PR-IKR-150M": "M-PR-D-150M"
+          };
+          let targetReturnSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || skuId);
+
+          callScmSupabase("mutations", "POST", [{
+            id: "MUT-RET-" + Date.now() + "-" + idx,
+            date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss"),
+            source_warehouse: "Teknisi: " + safePetugas,
+            dest_warehouse: originWhName,
+            material_id: targetReturnSku,
+            qty: qtyKembali
+          }]);
+        }
+
+      } else if (p.transaksi === "ambil") {
+        // 2. TRANSAKSI PENGAMBILAN (AMBIL)
+        const logId = "TLOG-" + Date.now() + "-" + (idx + 1);
+
+        // Cek apakah item adalah Precon dengan prioritas IKR -> Fallback Distribusi
+        const PRECON_PAIRS = {
+          "M-PR-IKR-50M": "M-PR-D-50M",
+          "M-PR-IKR-100M": "M-PR-D-100M",
+          "M-PR-IKR-150M": "M-PR-D-150M"
+        };
+
+        let targetIkrSku = PRECON_PAIRS[skuId] ? skuId : (Object.keys(PRECON_PAIRS).find(k => PRECON_PAIRS[k] === skuId) || null);
+        let targetDistSku = targetIkrSku ? PRECON_PAIRS[targetIkrSku] : null;
+
+        if (targetIkrSku && targetDistSku && whId) {
+          // Cek stok IKR & Distribusi di gudang terkait
+          let invIkr = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(targetIkrSku));
+          let invDist = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(targetDistSku));
+
+          let stockIkr = (Array.isArray(invIkr) && invIkr.length > 0) ? (Number(invIkr[0].stock_qty) || 0) : 0;
+          let stockDist = (Array.isArray(invDist) && invDist.length > 0) ? (Number(invDist[0].stock_qty) || 0) : 0;
+
+          let ambilIkr = 0;
+          let ambilDist = 0;
+
+          if (stockIkr >= itemQty) {
+            ambilIkr = itemQty;
+          } else {
+            ambilIkr = Math.max(0, stockIkr);
+            ambilDist = itemQty - ambilIkr;
+          }
+
+          // Potong stok IKR jika ada
+          if (ambilIkr > 0 && Array.isArray(invIkr) && invIkr.length > 0) {
+            callScmSupabase("inventory?id=eq." + invIkr[0].id, "PATCH", {
+              stock_qty: stockIkr - ambilIkr,
+              last_updated: now.toISOString()
+            });
+            callScmSupabase("outbounds", "POST", [{
+              id: Date.now() + idx,
+              warehouse: p.lokasi_gudang,
+              pic: safePetugas,
+              spk: pekerjaanAktual,
+              date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
+              timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
+              created_at: now.toISOString(),
+              material_id: targetIkrSku,
+              qty: ambilIkr
+            }]);
+          }
+
+          // Potong stok Distribusi (Fallback) jika stok IKR habis/kurang
+          if (ambilDist > 0 && Array.isArray(invDist) && invDist.length > 0) {
+            callScmSupabase("inventory?id=eq." + invDist[0].id, "PATCH", {
+              stock_qty: Math.max(0, stockDist - ambilDist),
+              last_updated: now.toISOString()
+            });
+            callScmSupabase("outbounds", "POST", [{
+              id: Date.now() + idx + 999,
+              warehouse: p.lokasi_gudang,
+              pic: safePetugas,
+              spk: pekerjaanAktual + " (Fallback Distribusi)",
+              date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
+              timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
+              created_at: now.toISOString(),
+              material_id: targetDistSku,
+              qty: ambilDist
+            }]);
+          }
+
+          // Simpan ke technician_logs
+          let alokasiKet = ambilDist > 0 ? `(Alokasi: ${ambilIkr} IKR, ${ambilDist} Distribusi)` : `(Alokasi: ${ambilIkr} IKR)`;
+          callScmSupabase("technician_logs", "POST", [{
+            id: logId,
+            username: safePetugas,
+            warehouse_id: whId,
+            warehouse_name: p.lokasi_gudang,
+            station: p.stasiun,
+            work_order: pekerjaanAktual,
+            material_id: targetIkrSku,
+            material_name: item.nama,
+            qty_take: itemQty,
+            qty_return: 0,
+            qty_used: 0,
+            status: "OPEN",
+            notes: (p.keterangan ? p.keterangan + " • " : "") + alokasiKet,
+            photo_url: linkFoto
+          }]);
+
+        } else {
+          // Material Standar Reguler (Non-Precon)
+          callScmSupabase("technician_logs", "POST", [{
+            id: logId,
+            username: safePetugas,
+            warehouse_id: whId,
+            warehouse_name: p.lokasi_gudang,
+            station: p.stasiun,
+            work_order: pekerjaanAktual,
+            material_id: skuId,
+            material_name: item.nama,
+            qty_take: itemQty,
+            qty_return: 0,
+            qty_used: 0,
+            status: "OPEN",
+            notes: p.keterangan || "-",
+            photo_url: linkFoto
+          }]);
+
+          callScmSupabase("outbounds", "POST", [{
+            id: Date.now() + idx,
+            warehouse: p.lokasi_gudang,
+            pic: safePetugas,
+            spk: pekerjaanAktual,
+            date: Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"),
+            timestamp: Utilities.formatDate(now, "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss"),
+            created_at: now.toISOString(),
+            material_id: skuId,
+            qty: itemQty
+          }]);
+
+          if (whId && skuId) {
+            let invRes = callScmSupabase("inventory?warehouse_id=eq." + encodeURIComponent(whId) + "&material_id=eq." + encodeURIComponent(skuId));
+            if (Array.isArray(invRes) && invRes.length > 0) {
+              let currentStock = Number(invRes[0].stock_qty) || 0;
+              let newStock = Math.max(0, currentStock - itemQty);
+              callScmSupabase("inventory?id=eq." + invRes[0].id, "PATCH", {
+                stock_qty: newStock,
+                last_updated: now.toISOString()
+              });
+            }
+          }
+        }
+      }
+    });
+  }
 
   // Bersihkan cache
   try {
@@ -3506,7 +3580,9 @@ function syncSinglePelangganToSupabase(idPelanggan, payload) {
   if (payload.foto_rumah && !payload.foto_rumah.startsWith("Error")) supabasePayload.foto_rumah_pelanggan = payload.foto_rumah;
   if (payload.foto_ont && !payload.foto_ont.startsWith("Error")) supabasePayload.foto_ont_terpasang = payload.foto_ont;
   if (payload.foto_sn && !payload.foto_sn.startsWith("Error")) supabasePayload.foto_sn_ont = payload.foto_sn;
-  if (payload.foto_dismantle && !payload.foto_dismantle.startsWith("Error")) supabasePayload.foto_dismantle = payload.foto_dismantle;
+  if (payload.foto_dismantle && !payload.foto_dismantle.startsWith("Error")) {
+    supabasePayload.foto_dismantle = payload.foto_dismantle;
+  }
   
   if (payload.kabel_precon && payload.kabel_precon !== "-") supabasePayload.kabel_precon = payload.kabel_precon;
   if (payload.issue_kendala && payload.issue_kendala !== "-") supabasePayload.issue_kendala = payload.issue_kendala;
@@ -3522,7 +3598,13 @@ function syncSinglePelangganToSupabase(idPelanggan, payload) {
   if (payload.visit_penyebab || payload.visit_perbaikan) {
     supabasePayload.issue_kendala = (payload.visit_penyebab || "") + " - " + (payload.visit_perbaikan || "");
   }
-  if (payload.alasan_dismantle) supabasePayload.catatan = payload.alasan_dismantle;
+  if (payload.alasan_dismantle) {
+    supabasePayload.catatan = payload.alasan_dismantle;
+    supabasePayload.reason_dismantle = payload.alasan_dismantle;
+  }
+  if (payload.tanggal_dismantle) {
+    supabasePayload.tanggal_dismantle = payload.tanggal_dismantle;
+  }
   
   try {
     if (typeof upsertToSupabase === "function") {

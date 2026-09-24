@@ -516,7 +516,7 @@ function OkupansiMobileView({ data, activeStation }) {
               </button>
             </div>
             
-            <div className="p-2 overflow-y-auto custom-scrollbar flex-1 bg-slate-50">
+            <div className="p-2 overflow-y-auto custom-scrollbar flex-1 min-h-0 bg-slate-50">
               {odpModal.customers.length === 0 ? (
                 <div className="py-10 flex flex-col items-center justify-center text-center">
                   <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">

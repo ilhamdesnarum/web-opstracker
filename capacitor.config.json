@@ -1,0 +1,5 @@
+{
+  "appId": "com.opstracker.app",
+  "appName": "OpsTracker",
+  "webDir": "dist"
+}

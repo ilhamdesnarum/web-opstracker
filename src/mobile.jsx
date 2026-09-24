@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
+import { PoReleaseModal } from './components/PoReleaseModal';
+import { isPercepatanCustomer } from './utils';
 import './index.css';
 
 const DetailRow = ({ label, value, isLink, href }) => value ? (
@@ -65,7 +67,8 @@ const parseSupabaseDocument = (fields) => {
     namaPelanggan: fields.nama_pelanggan || "",
     nomorHp: fields.nomor_hp || "",
     alamat: fields.alamat || fields.alamat_pelanggan || fields.alamat_pemasangan || "",
-    stasiun: fields.stasiun || "",
+    stasiun: (fields.stasiun === "Tawang" || fields.stasiun === "TAWANG") ? "Semarang Tawang" : (fields.stasiun || ""),
+    tahapPembangunan: fields.tahap_pembangunan || fields.tahap || "",
     odpAktual: fields.odp || fields.odp_aktual || fields.kode_odp || "",
     portOdp: fields.port_odp || "",
     latitude: fields.latitude || "",
@@ -88,7 +91,12 @@ const parseSupabaseDocument = (fields) => {
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: (fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null && fields.telat_bayar_hari !== "") ? Number(fields.telat_bayar_hari) : null,
-    namaSales: fields.nama_sales || fields.sales || ""
+    namaSales: (fields.nama_sales && fields.nama_sales !== "-") ? fields.nama_sales : (fields.sales && fields.sales !== "-" ? fields.sales : "Daftar Mandiri"),
+    updatedAt: fields.updated_at || fields.updatedAt || "",
+    createdAt: fields.created_at || fields.createdAt || "",
+    tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
+    reasonDismantle: fields.reason_dismantle || "",
+    fotoDismantle: fields.foto_dismantle || ""
   };
 };
 
@@ -137,6 +145,48 @@ const parseSupabaseVisitDocument = (fields) => {
     petugas: fields.petugas || "",
     evidence: fields.evidence || "",
     waktuClose: fields.waktu_close || ""
+  };
+};
+
+// Helper untuk parse dokumen PO Release dari Supabase ke camelCase React
+const parseSupabasePoRelease = (fields) => {
+  const hpReg = Number(fields.hp_reguler || 0);
+  const hpPerc = Number(fields.hp_percepatan || 0);
+  const totHp = Number(fields.hp_terbangun || (hpReg + hpPerc) || 0);
+  const totAkt = Number(fields.total_aktivasi_hc || 0);
+  const perf = totHp > 0 ? parseFloat(((totAkt / totHp) * 100).toFixed(2)) : (Number(fields.performa_hc) || 0);
+
+  return {
+    id: fields.id,
+    stasiun: fields.stasiun || '',
+    noPoRelease: fields.no_po_release || '',
+    jenisPo: fields.jenis_po || 'Direct',
+    tahapPembangunan: fields.tahap_pembangunan || '',
+    segmen: fields.segmen || (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler'),
+    hpReguler: hpReg,
+    hpPercepatan: hpPerc,
+    hpTerbangun: totHp,
+    totalAktivasiHc: totAkt,
+    hcAktif: Number(fields.hc_aktif || 0),
+    suspend: Number(fields.suspend || 0),
+    readyToDismantle: Number(fields.ready_to_dismantle || 0),
+    dismantled: Number(fields.dismantled || 0),
+    performaHc: perf,
+    catatan: fields.catatan || ''
+  };
+};
+
+// Helper untuk parse dokumen Petugas dari Supabase ke camelCase React
+const parseSupabasePetugasDocument = (fields) => {
+  return {
+    id: fields.id,
+    chatId: fields.chat_id || '',
+    username: fields.username || '',
+    nama: fields.nama || '',
+    stasiun: fields.stasiun || '',
+    jabatan: fields.jabatan || 'Teknisi',
+    status: fields.status || 'Active',
+    akunIkr: fields.akun_ikr || ''
   };
 };
 
@@ -261,12 +311,16 @@ const getCachedData = (key, maxAgeMs = 24 * 60 * 60 * 1000) => {
 };
 
 // Helper untuk menyimpan cache persistent
-const compressCacheItem = (data) => {
+const compressCacheItem = (data, key = '') => {
   if (!Array.isArray(data)) return data;
+  const isPelanggan = typeof key === 'string' && key.includes('pelanggan');
   return data.map(item => {
     if (typeof item !== 'object' || item === null) return item;
     const min = {};
     for (const k in item) {
+      if (isPelanggan && (k.startsWith('foto') || k === 'catatan' || k === 'issueKendala')) {
+        continue;
+      }
       const val = item[k];
       if (val !== "" && val !== null && val !== undefined) {
         min[k] = val;
@@ -283,7 +337,7 @@ const setCachedData = (key, data) => {
       sessionStorage.removeItem(key);
       return;
     }
-    const compressed = compressCacheItem(data);
+    const compressed = compressCacheItem(data, key);
     const payload = { timestamp: Date.now(), data: compressed };
     const jsonStr = JSON.stringify(payload);
     try {
@@ -302,9 +356,7 @@ const toProperCase = (str) => {
   return String(str).split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 };
 
-const APPS_SCRIPT_URL = import.meta.env.DEV 
-  ? "/api/gas/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec"
-  : "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
 
 const api = {
   run: async (actionName, payloadData = {}) => {
@@ -329,6 +381,78 @@ const api = {
       console.warn(`[API - ${actionName}]:`, error.message || error);
       return { success: false, error: error.message || "Gagal menghubungi server." };
     }
+  }
+};
+
+const TELEGRAM_BOT_TOKEN = "8789065775:AAEsOr7g1myDHyHPPuhuujNR07euM3tNmEs";
+
+const sendTelegramVisitDM = async (payload, petugasList = []) => {
+  try {
+    if (!payload || !payload.petugas) return;
+
+    const rawPetugas = String(payload.petugas || '').trim();
+    if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
+    const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+
+    let targetTeknisi = null;
+    if (Array.isArray(petugasList) && petugasList.length > 0) {
+      targetTeknisi = petugasList.find(t =>
+        String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+        String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas
+      );
+    }
+
+    if (!targetTeknisi) {
+      const cached = getCachedData('otas_teknisi_cache');
+      if (Array.isArray(cached) && cached.length > 0) {
+        targetTeknisi = cached.find(t =>
+          String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+          String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase()
+        );
+      }
+    }
+
+    if (!targetTeknisi || !targetTeknisi.chatId) {
+      console.warn("Tidak dapat mengirim DM Telegram: chatId tidak ditemukan untuk", rawPetugas);
+      return;
+    }
+
+    const chatId = targetTeknisi.chatId;
+    const namaAsli = targetTeknisi.nama || rawPetugas;
+    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+
+    let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨\n\n`;
+    msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk mengecek kendala/visit berikut:\n\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
+    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+    } else {
+      msg += `🗺️ <b>Tikor:</b> -\n`;
+    }
+    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    msg += `⚠️ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
+    if (payload.catatan) {
+      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+    }
+    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! 🛠️</i>`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msg,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false
+      })
+    });
+    console.log("Berhasil kirim DM Assign Tiket ke", namaAsli, chatId);
+  } catch (err) {
+    console.warn("Gagal kirim DM Telegram:", err);
   }
 };
 
@@ -494,7 +618,7 @@ const MobileApp = () => {
   const [data, setData] = useState({
     pelangganData: [],
     visitData: [],
-    teknisiData: [],
+    teknisiData: getCachedData('otas_teknisi_cache') || [],
     odpData: [],
     stationData: [],
     dataRegistrasi: [],
@@ -794,12 +918,15 @@ const MobileApp = () => {
       const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
 
       let st = String(reg.stasiun || '').toUpperCase().trim();
+      if (st === 'TAWANG') st = 'SEMARANG TAWANG';
       const ALL_STATIONS_LOCAL = ['ALASTUA', 'BRUMBUNG', 'KALIBODRI', 'KALIWUNGU', 'KRADENAN', 'KRENGSENG', 'RANDUBLATUNG', 'SEMARANG TAWANG', 'SULUR', 'WADU', 'WELERI'];
       const matched = ALL_STATIONS_LOCAL.find(s => st.includes(s));
       if (matched) st = matched;
 
-      const st1 = st.toLowerCase();
-      const st2 = String(stasiun).toLowerCase().trim();
+      let st1 = st.toLowerCase();
+      let st2 = String(stasiun).toLowerCase().trim();
+      if (st1 === 'tawang') st1 = 'semarang tawang';
+      if (st2 === 'tawang') st2 = 'semarang tawang';
       const matchStation = st1 === st2 || st1.includes(st2) || st2.includes(st1);
 
       return matchDate && matchStation;
@@ -940,13 +1067,18 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
-        setCachedData('otas_pelanggan_cache_v4', null);
+        setCachedData('otas_pelanggan_cache_v6', null);
         setCachedData('otas_cache_visit', null);
         setCachedData('otas_odp_cache_v4', null);
       }
       setGlobalError(null);
 
-      const cachedPelanggan = getCachedData('otas_pelanggan_cache_v4');
+      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v6');
+      if (cachedPelanggan && cachedPelanggan.length < 5000) {
+        cachedPelanggan = null;
+        setCachedData('otas_pelanggan_cache_v6', null);
+      }
+
       const cachedVisit = getCachedData('otas_cache_visit');
       const cachedOdp = getCachedData('otas_odp_cache_v4');
 
@@ -958,12 +1090,12 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
-        const pelangganCols = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales';
+        const pelangganCols = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
         fetchPromises.push(
           fetchAllSupabaseData('data_pelanggan', pelangganCols, 'id_pelanggan')
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v4', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v6', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -998,6 +1130,41 @@ const MobileApp = () => {
         );
       }
 
+      // 4. PO Release Data dari Supabase
+      let cachedPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
+      let finalPo = cachedPo;
+      if (!cachedPo) {
+        fetchPromises.push(
+          fetchAllSupabaseData('po_release', '*', 'id')
+            .then((sbData) => {
+              if (sbData && sbData.length > 0) {
+                finalPo = sbData.map(parseSupabasePoRelease);
+                setCachedData('otas_po_release_cache', finalPo);
+                setCachedData('otas_detail_po_cache', finalPo);
+              }
+            }).catch(e => {
+              console.error("Gagal memuat po_release dari Supabase:", e);
+            })
+        );
+      }
+
+      // 5. Data Petugas dari Supabase
+      let cachedPetugas = getCachedData('otas_teknisi_cache');
+      let finalPetugas = cachedPetugas;
+      if (!cachedPetugas) {
+        fetchPromises.push(
+          fetchAllSupabaseData('petugas', '*', 'nama')
+            .then((sbData) => {
+              if (sbData && sbData.length > 0) {
+                finalPetugas = sbData.map(parseSupabasePetugasDocument);
+                setCachedData('otas_teknisi_cache', finalPetugas);
+              }
+            }).catch(e => {
+              console.warn("Gagal memuat petugas dari Supabase:", e);
+            })
+        );
+      }
+
       await Promise.all(fetchPromises);
 
       // Hydrate state langsung jika data Supabase sudah siap
@@ -1006,23 +1173,29 @@ const MobileApp = () => {
         pelangganData: finalPelanggan || prev.pelangganData,
         visitData: finalVisit || prev.visitData,
         odpData: finalOdp || prev.odpData,
+        detailPoData: finalPo || prev.detailPoData,
+        teknisiData: finalPetugas || prev.teknisiData
       }));
 
-      // 4. Auxiliary Data dari Google Apps Script (Fast Dashboard)
+      // 5. Auxiliary Data dari Google Apps Script (Fast Dashboard)
       api.run('getFastDashboardData')
         .then(fastResult => {
           if (fastResult && !fastResult.error) {
+            if (fastResult.teknisiData && Array.isArray(fastResult.teknisiData) && fastResult.teknisiData.length > 0) {
+              setCachedData('otas_teknisi_cache', fastResult.teknisiData);
+            }
             setData(prev => ({
               ...prev,
               ...fastResult,
               pelangganData: finalPelanggan || prev.pelangganData,
               visitData: finalVisit || prev.visitData,
               odpData: finalOdp || prev.odpData,
+              teknisiData: (fastResult?.teknisiData?.length > 0) ? fastResult.teknisiData : prev.teknisiData,
               dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
               dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getFinalPelangganStatus(p) === 'KENDALA') : prev.dataKendalaSheet),
               petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
               stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
-              detailPoData: fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData,
+              detailPoData: (finalPo && finalPo.length > 0) ? finalPo : (fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData),
               fastKpi: fastResult?.fastKpi || prev.fastKpi
             }));
           }
@@ -1176,10 +1349,83 @@ const MobileApp = () => {
       )
       .subscribe();
 
+    // Setup Supabase Real-Time Listener untuk po_release
+    const poChannel = supabase
+      .channel('mobile-po-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'po_release'
+        },
+        (payload) => {
+          setData(prev => {
+            let newDetailPo = [...(prev.detailPoData || [])];
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updatedPo = parseSupabasePoRelease(payload.new);
+              const idx = newDetailPo.findIndex(p => (p.id && updatedPo.id && String(p.id) === String(updatedPo.id)) || (p.noPoRelease === updatedPo.noPoRelease && p.stasiun === updatedPo.stasiun));
+              if (idx !== -1) {
+                newDetailPo[idx] = { ...newDetailPo[idx], ...updatedPo };
+              } else {
+                newDetailPo.unshift(updatedPo);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = payload.old?.id;
+              newDetailPo = newDetailPo.filter(p => String(p.id) !== String(deletedId));
+            }
+            setCachedData('otas_po_release_cache', newDetailPo);
+            setCachedData('otas_detail_po_cache', newDetailPo);
+            return {
+              ...prev,
+              detailPoData: newDetailPo
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    // Setup Supabase Real-Time Listener untuk petugas
+    const petugasChannel = supabase
+      .channel('mobile-petugas-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'petugas'
+        },
+        (payload) => {
+          setData(prev => {
+            let newPetugasList = [...(prev.teknisiData || [])];
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updatedP = parseSupabasePetugasDocument(payload.new);
+              const idx = newPetugasList.findIndex(p => (p.id && updatedP.id && String(p.id) === String(updatedP.id)) || (p.nama && updatedP.nama && p.nama.toLowerCase() === updatedP.nama.toLowerCase()));
+              if (idx !== -1) {
+                newPetugasList[idx] = { ...newPetugasList[idx], ...updatedP };
+              } else {
+                newPetugasList.push(updatedP);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = payload.old?.id;
+              newPetugasList = newPetugasList.filter(p => p.id !== deletedId);
+            }
+            setCachedData('otas_teknisi_cache', newPetugasList);
+            return {
+              ...prev,
+              teknisiData: newPetugasList
+            };
+          });
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(pelangganChannel);
       supabase.removeChannel(visitChannel);
       supabase.removeChannel(odpChannel);
+      supabase.removeChannel(poChannel);
+      supabase.removeChannel(petugasChannel);
     };
   }, []);
 
@@ -1203,6 +1449,7 @@ const MobileApp = () => {
     let kendalaHarian = 0;
     let ikrHarian = 0;
     let visitHarian = 0;
+    let dismantledHarian = 0;
 
     const ALL_STATIONS = ['ALASTUA', 'BRUMBUNG', 'KALIBODRI', 'KALIWUNGU', 'KRADENAN', 'KRENGSENG', 'RANDUBLATUNG', 'SEMARANG TAWANG', 'SULUR', 'WADU', 'WELERI'];
     const aktStasiunCounts = {};
@@ -1253,6 +1500,12 @@ const MobileApp = () => {
         const ptgsIkr = p.petugasIkr || 'Unknown';
         if (!petugasIkrCounts[ptgsIkr]) petugasIkrCounts[ptgsIkr] = { user: ptgsIkr, stasiun: p.stasiun || '-', value: 0 };
         petugasIkrCounts[ptgsIkr].value++;
+      }
+
+      const isDis = String(p.statusAktivasi || p.status_aktivasi || p.aktivasi || '').toLowerCase().includes('dismantle');
+      const tglDis = standardizeDate(p.tanggalDismantle || p.tanggal_dismantle);
+      if (isDis && tglDis === todayStr) {
+        dismantledHarian++;
       }
 
       // Kendala dihitung dari dataKendalaSheet di bawah
@@ -1306,7 +1559,8 @@ const MobileApp = () => {
     (data.dataRegistrasi || []).forEach(reg => {
       const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
       if (valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl)) {
-        let st = String(reg.stasiun || '').toUpperCase();
+        let st = String(reg.stasiun || '').toUpperCase().trim();
+        if (st === 'TAWANG') st = 'SEMARANG TAWANG';
         const matched = ALL_STATIONS.find(s => st.includes(s));
         if (matched) st = matched;
 
@@ -1337,7 +1591,7 @@ const MobileApp = () => {
     const leaderboardKendala = Object.values(reporterKendalaCounts).filter(u => String(u.user || '').toLowerCase() !== 'unknown').sort((a, b) => b.value - a.value).slice(0, 10);
     const leadMaxKendala = Math.max(...leaderboardKendala.map(l => l.value), 1);
 
-    return { totalAktivasi, aktivasiHarian, kendalaHarian, visitHarian, totalRegToday, regArray, maxVal, aktHarianArray, aktMaxVal, ikrHarian, leaderboardAktivasi, leadMaxAktivasi, leaderboardIkr, leadMaxIkr, leaderboardKendala, leadMaxKendala };
+    return { totalAktivasi, aktivasiHarian, kendalaHarian, visitHarian, dismantledHarian, totalRegToday, regArray, maxVal, aktHarianArray, aktMaxVal, ikrHarian, leaderboardAktivasi, leadMaxAktivasi, leaderboardIkr, leadMaxIkr, leaderboardKendala, leadMaxKendala };
   }, [data.pelangganData, data.visitData, data.dataRegistrasi, data.fastKpi, data.stationData, todayStr]);
 
   const discrepancyList = useMemo(() => {
@@ -1753,7 +2007,8 @@ const MobileApp = () => {
       const isAktif = ikrStat === 'SUDAH' || ikrStat.includes('DISMANTLE');
       const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
       if (isAktif && tAkt === todayStrLocal) {
-        const st = String(p.stasiun || '').toLowerCase().trim();
+        let st = String(p.stasiun || '').toLowerCase().trim();
+        if (st === 'tawang') st = 'semarang tawang';
         stationAktifTodayMap[st] = (stationAktifTodayMap[st] || 0) + 1;
       }
     });
@@ -1764,55 +2019,96 @@ const MobileApp = () => {
 
     return rawStations.map(item => {
       const rawSt = String(item.stasiun || '').trim();
-      const stLower = rawSt.toLowerCase();
+      let stLower = rawSt.toLowerCase();
+      if (stLower === 'tawang') stLower = 'semarang tawang';
 
-      const hpReguler = item.hpReguler !== undefined ? parseInt(item.hpReguler) : parseInt(item.hpTerbangun || 0);
-      const hpPercepatan = item.hpPercepatan !== undefined ? parseInt(item.hpPercepatan) : parseInt(item.aktifHariIni || 0);
-      const hpVal = hpReguler + hpPercepatan;
+      // Kapasitas HP dari PO Release Supabase
+      const poForStation = (data.detailPoData || []).filter(po => {
+        let pSt = String(po.stasiun || '').trim().toLowerCase();
+        if (pSt === 'tawang') pSt = 'semarang tawang';
+        return pSt === stLower || pSt.includes(stLower) || stLower.includes(pSt);
+      });
 
-      const aktReguler = item.aktivasiReguler !== undefined ? parseInt(item.aktivasiReguler) : parseInt(item.totalAktivasiHc || 0);
-      const aktPercepatan = item.aktivasiPercepatan !== undefined ? parseInt(item.aktivasiPercepatan) : parseInt(item.hcAktif || 0);
+      let poHpReg = 0;
+      let poHpPerc = 0;
+      if (poForStation.length > 0) {
+        poForStation.forEach(po => {
+          poHpReg += Number(po.hpReguler || 0);
+          poHpPerc += Number(po.hpPercepatan || 0);
+        });
+      } else {
+        poHpReg = item.hpReguler !== undefined ? parseInt(item.hpReguler) : parseInt(item.hpTerbangun || 0);
+        poHpPerc = item.hpPercepatan !== undefined ? parseInt(item.hpPercepatan) : parseInt(item.aktifHariIni || 0);
+      }
+      const hpVal = poHpReg + poHpPerc;
 
-      const hcAktifReguler = item.hcAktifReguler !== undefined ? parseInt(item.hcAktifReguler) : parseInt(item.performaHc || 0);
-      const hcAktifPercepatan = item.hcAktifPercepatan !== undefined ? parseInt(item.hcAktifPercepatan) : parseInt(item.tieringHc || 0);
+      // Kalkulasi angka riil HC langsung dari data pelanggan aktual di Supabase
+      let liveAktReg = 0;
+      let liveAktPerc = 0;
+      let liveHcAktReg = 0;
+      let liveHcAktPerc = 0;
+      let liveTotAkt = 0;
+      let liveTotHcAkt = 0;
 
-      const totalHcVal = item.totalAktivasiHc !== undefined && item.hpPercepatan !== undefined
-        ? parseInt(item.totalAktivasiHc)
-        : (item.keterangan !== undefined ? parseInt(item.keterangan || 0) : (aktReguler + aktPercepatan));
+      (data.pelangganData || []).forEach(p => {
+        let pSt = String(p.stasiun || '').trim().toLowerCase();
+        if (pSt === 'tawang') pSt = 'semarang tawang';
+        if (pSt !== stLower && !(stLower.includes(pSt) || pSt.includes(stLower))) return;
 
-      const hcAktifVal = hcAktifReguler + hcAktifPercepatan;
+        const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+        const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
 
-      const aktifToday = stationAktifTodayMap[stLower] !== undefined
-        ? stationAktifTodayMap[stLower]
-        : (item.hpPercepatan !== undefined ? parseInt(item.aktifHariIni || 0) : parseInt(item.performaAktivasi || 0));
+        const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
+        const isSuspend = akt === 'SUSPEND';
+        const isReady = akt === 'READY TO DISMANTLE';
+        const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
+        const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
 
-      const perf = hpVal > 0 ? ((totalHcVal / hpVal) * 100).toFixed(2) : 0;
+        if (isAktivasi) {
+          liveTotAkt++;
+          if (isAktif) liveTotHcAkt++;
+
+          const isPerc = isPercepatanCustomer(p, data.odpData);
+          if (isPerc) {
+            liveAktPerc++;
+            if (isAktif) liveHcAktPerc++;
+          } else {
+            liveAktReg++;
+            if (isAktif) liveHcAktReg++;
+          }
+        }
+      });
+
+      const aktifToday = stationAktifTodayMap[stLower] || 0;
+      const perf = hpVal > 0 ? ((liveTotAkt / hpVal) * 100).toFixed(2) : 0;
 
       return {
         rawStasiun: rawSt,
         stasiun: toProperCase(rawSt),
-        hpReguler: hpReguler.toLocaleString('id-ID'),
-        hpPercepatan: hpPercepatan.toLocaleString('id-ID'),
+        hpReguler: poHpReg.toLocaleString('id-ID'),
+        hpPercepatan: poHpPerc.toLocaleString('id-ID'),
         hp: hpVal.toLocaleString('id-ID'),
         hpRaw: hpVal,
-        aktReguler: aktReguler.toLocaleString('id-ID'),
-        aktPercepatan: aktPercepatan.toLocaleString('id-ID'),
-        total: totalHcVal.toLocaleString('id-ID'),
-        hcAktifReguler: hcAktifReguler.toLocaleString('id-ID'),
-        hcAktifPercepatan: hcAktifPercepatan.toLocaleString('id-ID'),
-        hc: hcAktifVal.toLocaleString('id-ID'),
+        aktReguler: liveAktReg.toLocaleString('id-ID'),
+        aktPercepatan: liveAktPerc.toLocaleString('id-ID'),
+        total: liveTotAkt.toLocaleString('id-ID'),
+        hcAktifReguler: liveHcAktReg.toLocaleString('id-ID'),
+        hcAktifPercepatan: liveHcAktPerc.toLocaleString('id-ID'),
+        hc: liveTotHcAkt.toLocaleString('id-ID'),
         aktif: aktifToday > 0 ? `+${aktifToday}` : '-',
         performa: Number(perf)
       };
     });
-  }, [data.stationData, data.pelangganData]);
+  }, [data.stationData, data.pelangganData, data.detailPoData]);
 
   // DETAIL PO DITERAPKAN PER STASIUN
   const detailPoList = useMemo(() => {
     if (!selectedPoStation) return [];
-    const targetSt = String(selectedPoStation).toLowerCase().trim();
+    let targetSt = String(selectedPoStation).toLowerCase().trim();
+    if (targetSt === 'tawang') targetSt = 'semarang tawang';
     return (data.detailPoData || []).filter(po => {
-      const poSt = String(po.stasiun || '').toLowerCase().trim();
+      let poSt = String(po.stasiun || '').toLowerCase().trim();
+      if (poSt === 'tawang') poSt = 'semarang tawang';
       return poSt === targetSt || poSt.includes(targetSt) || targetSt.includes(poSt);
     });
   }, [data.detailPoData, selectedPoStation]);
@@ -2217,8 +2513,9 @@ const MobileApp = () => {
     setNewTicketError('');
 
     let usernamePetugas = newTicketPetugas;
-    if (newTicketPetugas && data.teknisiData.length > 0) {
-      const tk = data.teknisiData.find(t => t.nama === newTicketPetugas);
+    const listTeknisi = (data.teknisiData && data.teknisiData.length > 0) ? data.teknisiData : (getCachedData('otas_teknisi_cache') || []);
+    if (newTicketPetugas && listTeknisi.length > 0) {
+      const tk = listTeknisi.find(t => t.nama === newTicketPetugas || t.username === newTicketPetugas);
       if (tk && tk.username) {
         usernamePetugas = tk.username.startsWith('@') ? tk.username : '@' + tk.username;
       }
@@ -2260,6 +2557,12 @@ const MobileApp = () => {
       showToast('Tiket berhasil dibuat!');
       setTimeout(() => { setShowNewTicketModal(false); resetNewTicketModal(); }, 500);
     };
+
+    // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
+    sendTelegramVisitDM(payload, listTeknisi);
+
+    // Sinkronisasi ke Google Sheet di background
+    api.run('insertVisitLog', payload).catch(e => console.warn("GAS insertVisitLog error:", e));
 
     try {
       await supabase.from('log_visit').insert({
@@ -2700,9 +3003,9 @@ const MobileApp = () => {
                 <Icon name="activity" size={120} className="absolute -right-8 -bottom-8 text-white opacity-10" />
               </div>
 
-              {/* 4 Stat Cards */}
+              {/* Stat Cards: Total Aktivasi HC (Row 1), Aktivasi & Kendala (Row 2), Visit & Dismantled (Row 3) */}
               <div className="grid grid-cols-2 gap-2 mt-4">
-                <div className="bg-white rounded-xl p-2.5 shadow-sm border border-slate-200 flex flex-col justify-between">
+                <div className="col-span-2 bg-white rounded-xl p-2.5 shadow-sm border border-slate-200 flex flex-col justify-between">
                   <div className="flex justify-between items-start mb-1.5">
                     <h3 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-tight truncate mr-1">Total Aktivasi HC</h3>
                   </div>
@@ -2762,6 +3065,22 @@ const MobileApp = () => {
                     )}
                     <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center text-purple-500 shrink-0">
                       <Icon name="headphones" size={12} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-2.5 shadow-sm border border-slate-200 flex flex-col justify-between">
+                  <div className="flex justify-between items-start mb-1.5">
+                    <h3 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-tight truncate mr-1">Dismantled Harian</h3>
+                  </div>
+                  <div className="flex justify-between items-end">
+                    {isGlobalLoading ? (
+                      <div className="h-5 w-10 bg-slate-200 rounded animate-pulse"></div>
+                    ) : (
+                      <span className="text-xl font-black text-slate-800 leading-none">{homeStats.dismantledHarian}</span>
+                    )}
+                    <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                      <Icon name="x-circle" size={12} />
                     </div>
                   </div>
                 </div>
@@ -3134,147 +3453,16 @@ const MobileApp = () => {
             </div>
           )}
 
-          {/* MODAL DETAIL PO */}
-          {selectedPoStation && createPortal(
-            <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setSelectedPoStation(null)}></div>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 animate-modal flex flex-col border border-slate-100 overflow-hidden max-h-[85vh]">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 flex items-center justify-between text-white">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center border border-white/30">
-                      <Icon name="file-text" size={16} />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm leading-tight">Detail PO - {toProperCase(selectedPoStation)}</h3>
-                      <p className="text-[9px] text-blue-100">Progress Release PO Stasiun</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setSelectedPoStation(null)} className="p-1 rounded-lg hover:bg-white/20 transition-colors text-white">
-                    <Icon name="x" size={16} />
-                  </button>
-                </div>
-
-                {/* Body */}
-                <div className="p-3.5 overflow-y-auto space-y-3 custom-scrollbar flex-1 bg-slate-50">
-                  {detailPoList.length === 0 ? (
-                    <div className="bg-white rounded-xl p-6 text-center border border-slate-200 shadow-sm">
-                      <Icon name="folder-minus" size={32} className="text-slate-300 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-slate-600">Belum ada Rilis PO</p>
-                      <p className="text-[10px] text-slate-400 mt-1">Data PO release untuk stasiun {toProperCase(selectedPoStation)} belum tersedia.</p>
-                    </div>
-                  ) : (
-                    detailPoList.map((po, idx) => {
-                      const isCleanSchema = po.hpReguler !== undefined && !isNaN(Number(po.hpReguler));
-
-                      const noPo = po.noPoRelease || po.stasiun || '-';
-                      const jenis = po.jenisPo || 'PO Release';
-                      const tahap = po.hpByPo || po.tahapPembangunan || po.kategori || '-';
-                      const isPercepatan = String(tahap).toLowerCase().includes('percepatan');
-
-                      let hpReg = 0;
-                      let hpPerc = 0;
-                      let totHc = 0;
-                      let hcAktif = 0;
-                      let suspend = 0;
-                      let ready = 0;
-                      let dismantled = 0;
-
-                      if (isCleanSchema) {
-                        hpReg = Number(po.hpReguler || 0);
-                        hpPerc = Number(po.hpPercepatan || 0);
-                        totHc = Number(po.totalAktivasiHc || 0);
-                        hcAktif = Number(po.hcAktif || 0);
-                        suspend = Number(po.suspend || 0);
-                        ready = Number(po.readyToDismantle || 0);
-                        dismantled = Number(po.dismantled || 0);
-                      } else {
-                        // Legacy raw payload mapping with exact shifted column alignment
-                        if (isPercepatan) {
-                          hpReg = 0;
-                          hpPerc = typeof po.hcAktif === 'number' ? po.hcAktif : 0;
-                          totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                          hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                          ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                          dismantled = 0;
-                        } else {
-                          hpReg = typeof po.totalAktivasiHc === 'number' ? po.totalAktivasiHc : (typeof po.hpTerbangun === 'number' ? po.hpTerbangun : 0);
-                          hpPerc = 0;
-                          totHc = typeof po.suspend === 'number' ? po.suspend : 0;
-                          hcAktif = typeof po.readyToDismantle === 'number' ? po.readyToDismantle : 0;
-                          suspend = typeof po.dismantled === 'number' ? po.dismantled : 0;
-                          ready = typeof po.performaHc === 'number' ? po.performaHc : 0;
-                          dismantled = 0;
-                        }
-                      }
-
-                      if (hpReg === 0 && hpPerc === 0 && po.hpTerbangun > 0) {
-                        hpReg = po.hpTerbangun;
-                      }
-
-                      const matchNum = String(tahap).match(/\d+/);
-                      const extractedHp = matchNum ? parseInt(matchNum[0], 10) : 0;
-                      if (hpReg === 0 && hpPerc === 0 && extractedHp > 0) {
-                        if (isPercepatan) hpPerc = extractedHp;
-                        else hpReg = extractedHp;
-                      }
-
-                      const totalHp = hpReg + hpPerc;
-                      const perf = totalHp > 0 ? parseFloat(((totHc / totalHp) * 100).toFixed(2)) : (typeof po.performaHc === 'number' ? po.performaHc : 0);
-
-                      return (
-                        <div key={idx} className="bg-white rounded-xl p-3 border border-slate-200 shadow-sm space-y-2">
-                          <div className="flex justify-between items-start pb-2 border-b border-slate-100">
-                            <div>
-                              <span className="text-[8px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 uppercase">
-                                {jenis}
-                              </span>
-                              <h4 className="font-black text-slate-800 text-xs mt-1">{noPo}</h4>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-[10px] font-black text-slate-700">{perf}%</span>
-                              <div className="w-14 h-1 bg-slate-100 rounded-full overflow-hidden mt-1">
-                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(perf, 100)}%` }}></div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-1.5 text-center bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                            <div>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase">Tahap Pembangunan</p>
-                              <p className="text-[11px] font-black text-slate-700 truncate" title={tahap}>{tahap}</p>
-                            </div>
-                            <div>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase">HP Terbangun</p>
-                              <p className="text-[11px] font-black text-slate-800">{totalHp.toLocaleString('id-ID')}</p>
-                            </div>
-                            <div>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase">Total Aktivasi</p>
-                              <p className="text-[11px] font-black text-blue-600">{totHc.toLocaleString('id-ID')}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center text-[9px] font-medium text-slate-500 pt-0.5">
-                            <span>Reg: <b className="text-slate-700 font-bold">{hpReg.toLocaleString('id-ID')}</b> | Perc: <b className="text-slate-700 font-bold">{hpPerc.toLocaleString('id-ID')}</b></span>
-                            <span>HC Aktif: <b className="text-emerald-600 font-bold">{hcAktif.toLocaleString('id-ID')}</b> | Susp: <b className="text-orange-600">{suspend}</b> | Ready Dis: <b className="text-amber-600">{ready}</b> | Dis: <b className="text-rose-600">{dismantled}</b></span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Footer Summary */}
-                {detailPoList.length > 0 && (
-                  <div className="px-4 py-2.5 bg-white border-t border-slate-200 text-[11px] font-bold text-slate-700 flex justify-between items-center">
-                    <span>Total {detailPoList.length} Release PO</span>
-                    <span className="text-[9px] text-slate-400 font-normal">Desnarum OpsTracker</span>
-                  </div>
-                )}
-              </div>
-            </div>, document.body
-          )}
+          {/* MODAL DETAIL PO (SUPABASE INTEGRATED) */}
+          <PoReleaseModal
+            isOpen={Boolean(selectedPoStation)}
+            onClose={() => setSelectedPoStation(null)}
+            stasiun={selectedPoStation}
+            detailPoList={detailPoList}
+            pelangganData={data.pelangganData}
+            odpData={data.odpData}
+            onRefresh={fetchData}
+          />
 
           {/* MODAL SELISIH LAPORAN */}
           {showDiscrepancyModal && createPortal(
@@ -3873,6 +4061,11 @@ const MobileApp = () => {
                                   <Icon name="clock" size={9} /> {ageDays === 0 ? (p._ageHours >= 0 ? `${p._ageHours} Jam` : '0 Jam') : `${ageDays} hari`}
                                 </span>
                               )}
+                              {st === 'DISMANTLED' && p.tanggalDismantle && (
+                                <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-rose-50 text-rose-600 border-rose-200">
+                                  <Icon name="calendar" size={9} className="text-rose-400" /> Dismantle: {p.tanggalDismantle.substring(0, 10)}
+                                </span>
+                              )}
                             </div>
 
                             {(p.petugasAktivasi || p.user) && (
@@ -3882,13 +4075,29 @@ const MobileApp = () => {
                             )}
                           </div>
 
-                          {(p.issueKendala && p.issueKendala !== p.alamat) && (
-                            <div className="flex flex-col gap-1.5">
-                              <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1.5 rounded-md" title={p.issueKendala}>
-                                <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                                <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {p.issueKendala}</span>
+                          {st === 'DISMANTLED' ? (
+                            (() => {
+                              const r = (p.reasonDismantle || '').trim();
+                              const k = (p.issueKendala || '').trim();
+                              const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+                              const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
+                              if (!reasonText) return null;
+                              return (
+                                <div className="flex items-start gap-1.5 text-[9px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-1.5 rounded-md" title={reasonText}>
+                                  <Icon name="info" size={10} className="text-slate-500 shrink-0 mt-0.5" />
+                                  <span className="whitespace-normal leading-relaxed italic"><span className="font-extrabold text-slate-800">Alasan:</span> {reasonText}</span>
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            (p.issueKendala && p.issueKendala !== p.alamat) && (
+                              <div className="flex flex-col gap-1.5">
+                                <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1.5 rounded-md" title={p.issueKendala}>
+                                  <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
+                                  <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {p.issueKendala}</span>
+                                </div>
                               </div>
-                            </div>
+                            )
                           )}
                         </div>
                       </div>
@@ -5067,6 +5276,7 @@ const MobileApp = () => {
         const regData = (data.dataRegistrasi || []).find(r => r.idPelanggan === sp.idPelanggan || r.idPelanggan === sp.id_pelanggan);
         const fotoRumah = sp.fotoRumahPelanggan || regData?.fotoRumahPelanggan || null;
         const fotoOnt = sp.fotoOntTerpasang || regData?.fotoOntTerpasang || null;
+        const fotoDismantle = sp.fotoDismantle || null;
         const fotoPerbaikan = sp.fotoPerbaikan || null;
 
         const getDriveDirectUrl = (url) => {
@@ -5210,10 +5420,10 @@ const MobileApp = () => {
                     </div>
                   </>
                 )}
-                {!isEditingPelanggan && st !== 'CLOSED VISIT' && (fotoRumah || fotoOnt) && (
+                {!isEditingPelanggan && st !== 'CLOSED VISIT' && (fotoRumah || fotoOnt || fotoDismantle) && (
                   <>
                     <div className="text-[10px] font-black text-rose-700 bg-rose-50 py-1.5 px-3 rounded-lg flex items-center gap-1.5 mb-2 mt-4">
-                      <Icon name="image" size={13} /> Foto IKR / Instalasi
+                      <Icon name="image" size={13} /> Foto Dokumentasi / Dismantle
                     </div>
                     <div className="grid grid-cols-2 gap-3 mt-2">
                       {fotoRumah && (
@@ -5232,6 +5442,17 @@ const MobileApp = () => {
                           <span className="text-[9px] font-bold text-slate-400 text-center uppercase tracking-wider">Foto ONT</span>
                           <a href={fotoOnt} target="_blank" rel="noreferrer" className="block border border-slate-200 rounded-xl overflow-hidden aspect-square bg-slate-50 flex items-center justify-center relative group shadow-sm active:scale-95 transition-transform">
                             <img src={getDriveDirectUrl(fotoOnt)} alt="Foto ONT" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.outerHTML = '<div class="text-[10px] text-slate-400 p-2 text-center font-medium w-full">Gagal memuat</div>'; }} />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                              <Icon name="external-link" size={16} className="text-white drop-shadow-md" />
+                            </div>
+                          </a>
+                        </div>
+                      )}
+                      {fotoDismantle && (
+                        <div className="flex flex-col gap-1.5 col-span-2">
+                          <span className="text-[9px] font-bold text-slate-400 text-center uppercase tracking-wider">Foto Bukti Dismantle</span>
+                          <a href={fotoDismantle} target="_blank" rel="noreferrer" className="block border border-slate-200 rounded-xl overflow-hidden aspect-video bg-slate-50 flex items-center justify-center relative group shadow-sm active:scale-95 transition-transform">
+                            <img src={getDriveDirectUrl(fotoDismantle)} alt="Foto Dismantle" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.outerHTML = '<div class="text-[10px] text-slate-400 p-2 text-center font-medium w-full">Gagal memuat</div>'; }} />
                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                               <Icon name="external-link" size={16} className="text-white drop-shadow-md" />
                             </div>

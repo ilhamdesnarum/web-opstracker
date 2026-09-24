@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { toProperCase, getGlobalStatusStr, extractKendalaData } from '../utils';
+import { toProperCase, getGlobalStatusStr, extractKendalaData, getCustomerDismantleDate } from '../utils';
 
 // --- Komponen Icon Anti-Crash ---
 const Icon = ({ name, size = 20, className = "" }) => {
@@ -50,26 +50,57 @@ const DashboardView = ({ data, isSyncing }) => {
     return (data.visitData || []).filter(v => (v.timestamp ? String(v.timestamp).split(' ')[0] : '') === selectedDate).length;
   }, [data.visitData, selectedDate]);
 
+  const dailyDismantledCount = useMemo(() => {
+    return (data.pelangganData || []).filter(item => {
+      const s = getGlobalStatusStr(item);
+      const isDis = s === 'DISMANTLED' || s === 'DISMANTLE';
+      if (!isDis) return false;
+      const disDate = getCustomerDismantleDate(item);
+      return disDate === selectedDate;
+    }).length;
+  }, [data.pelangganData, selectedDate]);
+
+  const totalDismantled = useMemo(() => {
+    let count = (data.pelangganData || []).filter(item => {
+      const s = getGlobalStatusStr(item);
+      return s === 'DISMANTLED' || s === 'DISMANTLE';
+    }).length;
+    const fromPo = (data.detailPoData || []).reduce((acc, po) => acc + Number(po.dismantled || 0), 0);
+    return Math.max(count, fromPo);
+  }, [data.pelangganData, data.detailPoData]);
+
   // --- REGISTRASI PER STASIUN ASLI ---
   const registrasiPerStasiun = useMemo(() => {
     const stats = {};
-    (data.stationData || []).forEach(st => { if (st.stasiun) stats[String(st.stasiun).toLowerCase()] = 0; });
-
-    const parts = selectedDate.split('-'); 
-    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`; 
-
-    (data.dataRegistrasi || []).forEach(reg => {
-       const rawDate = String(reg.tanggal || reg.tanggalRegistrasi || '');
-       if (rawDate.includes(targetDateIndo) || rawDate.includes(selectedDate)) {
-           const st = String(reg.stasiun || '').toLowerCase();
-           if (stats[st] !== undefined) stats[st] += 1;
-       }
+    (data.stationData || []).forEach(st => {
+      let s = String(st.stasiun || '').trim().toLowerCase();
+      if (s === 'tawang') s = 'semarang tawang';
+      if (s) stats[s] = 0;
     });
 
-    return Object.keys(stats).sort().map(key => ({ stasiun: key, total: stats[key] }));
+    const parts = selectedDate.split('-');
+    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    const targetDateIntl = selectedDate;
+
+    (data.dataRegistrasi || []).forEach(reg => {
+      const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
+      if (valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl)) {
+        let st = String(reg.stasiun || '').trim().toLowerCase();
+        if (st === 'tawang') st = 'semarang tawang';
+        if (stats[st] !== undefined) stats[st] += 1;
+        else stats[st] = 1;
+      }
+    });
+
+    return Object.keys(stats).sort().map(key => ({
+      stasiun: key,
+      total: stats[key]
+    }));
   }, [data.dataRegistrasi, data.stationData, selectedDate]);
 
-  const totalRegistrasi = registrasiPerStasiun.reduce((acc, curr) => acc + curr.total, 0);
+  const totalRegistrasi = useMemo(() => {
+    return registrasiPerStasiun.reduce((acc, curr) => acc + curr.total, 0);
+  }, [registrasiPerStasiun]);
 
   // --- CHART DATA ASLI ---
   const trainChartData = useMemo(() => {
@@ -88,23 +119,15 @@ const DashboardView = ({ data, isSyncing }) => {
   }, [data.stationData, data.pelangganData, selectedDate]);
 
   return (
-    <div className="max-w-[1440px] mx-auto space-y-4 lg:space-y-6 page-enter pb-6 sm:pb-10">
-      {/* DESKTOP TOP BAR (TANGGAL) - ASLI */}
-      <div className="hidden lg:flex justify-end w-full mb-2">
-        <div className="bg-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 sm:gap-3 hover:border-blue-400 transition-all">
-          <Icon name="calendar" size={16} className="text-blue-600 shrink-0" />
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="text-sm font-bold text-slate-700 outline-none bg-transparent cursor-pointer" />
-        </div>
-      </div>
-
-      {/* MOBILE ONLY: Welcome Banner */}
-      <div className="lg:hidden bg-gradient-to-br from-blue-700 to-[#1e3a8a] rounded-xl p-4 text-white shadow-md relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-1">
+    <div className="space-y-4 sm:space-y-6 animate-fade max-w-[1440px] mx-auto pb-6 sm:pb-10">
+      {/* TOP BAR / TANGGAL */}
+      <div className="bg-gradient-to-br from-blue-700 to-[#1e3a8a] rounded-xl sm:rounded-2xl p-4 sm:p-6 text-white shadow-md sm:shadow-xl relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="relative z-10">
-          <h2 className="text-base font-bold mb-0.5 tracking-tight">Halo, Tim Leader!</h2>
-          <p className="text-blue-100 text-[10.5px]">Pantau Operasional Desnarum hari ini.</p>
+          <h2 className="text-lg sm:text-2xl font-black mb-1 tracking-tight">Selamat Datang di OpsTracker!</h2>
+          <p className="text-blue-100 text-xs sm:text-sm font-medium">Pantau Operasional Desnarum hari ini.</p>
         </div>
         <div className="relative z-10 flex items-center justify-between sm:justify-end gap-2">
-          <div className="bg-white/15 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-white/20 flex items-center gap-1.5 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
+          <div className="bg-white/15 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-white/20 flex items-center gap-2 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
             <div className="flex items-center gap-1.5">
               <Icon name="calendar" size={14} className="text-blue-200" />
               <span className="text-[10px] font-bold text-blue-200 sm:hidden">Tanggal:</span>
@@ -115,12 +138,13 @@ const DashboardView = ({ data, isSyncing }) => {
         <Icon name="activity" size={110} className="absolute -right-6 -bottom-6 text-white opacity-10 pointer-events-none" />
       </div>
 
-      {/* KPI CARDS (2-COL ON MOBILE, 4-COL ON DESKTOP) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
-        <StatCard title="Total Aktivasi HC" value={totalPelangganAktif} icon="activity" bg="bg-orange-50" iconColor="text-orange-500" isLoading={isSyncing} />
+      {/* KPI CARDS (2-COL ON MOBILE, 5-COL ON DESKTOP) */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-4 md:gap-6">
+        <StatCard className="col-span-2 lg:col-span-1" title="Total Aktivasi HC" value={totalPelangganAktif} icon="activity" bg="bg-orange-50" iconColor="text-orange-500" isLoading={isSyncing} />
         <StatCard title="Aktivasi Harian" value={dailyAktivasiCount} icon="check-circle" bg="bg-emerald-50" iconColor="text-emerald-500" isLoading={isSyncing} />
         <StatCard title="Kendala Harian" value={dailyKendalaCount} icon="alert-triangle" bg="bg-rose-50" iconColor="text-rose-500" isLoading={isSyncing} />
         <StatCard title="Visit / Gangguan" value={dailyVisitCount} icon="headset" bg="bg-purple-50" iconColor="text-purple-500" isLoading={isSyncing} />
+        <StatCard title="Dismantled Harian" value={dailyDismantledCount} icon="x-circle" bg="bg-slate-100" iconColor="text-slate-600" isLoading={isSyncing} infoTooltip={`Total pelanggan di-dismantle pada ${formattedDate} (Total Kumulatif: ${totalDismantled})`} />
       </div>
 
       {/* REGISTRASI PELANGGAN SECTION */}
@@ -179,8 +203,8 @@ const DashboardView = ({ data, isSyncing }) => {
   );
 };
 
-const StatCard = ({ title, value, icon, bg, iconColor, isLoading }) => (
-  <div className="bg-white rounded-xl p-2.5 lg:p-6 shadow-sm border border-slate-200 lg:border-slate-100 flex flex-col justify-between lg:justify-center transition-all hover:shadow-md relative overflow-hidden group">
+const StatCard = ({ title, value, icon, bg, iconColor, isLoading, className = '' }) => (
+  <div className={`bg-white rounded-xl p-2.5 lg:p-6 shadow-sm border border-slate-200 lg:border-slate-100 flex flex-col justify-between lg:justify-center transition-all hover:shadow-md relative overflow-hidden group ${className}`}>
     {/* Mobile View (< lg) */}
     <div className="lg:hidden">
       <div className="flex justify-between items-start mb-1.5">

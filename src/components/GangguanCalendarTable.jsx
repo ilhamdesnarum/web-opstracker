@@ -684,7 +684,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
             }}
           />
 
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl xl:max-w-6xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] relative z-10 animate-modal">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-7xl xl:max-w-[85vw] overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] relative z-10 animate-modal">
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/90">
               <div className="flex items-center gap-3">

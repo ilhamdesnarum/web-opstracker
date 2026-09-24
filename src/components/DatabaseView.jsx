@@ -207,6 +207,20 @@ const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCove
                     <Icon name="tag" size={10} className="text-slate-400" />
                     <span className="truncate font-mono font-semibold">{item.snOnt || '-'}</span>
                   </div>
+                  {(status === 'DISMANTLED' || status === 'READY TO DISMANTLE') && (
+                    <>
+                      <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
+                        <Icon name="calendar" size={10} className="text-rose-400" />
+                        <span className="truncate font-semibold">{item.tanggalDismantle ? `Dismantle: ${item.tanggalDismantle}` : 'Tgl Dismantle: -'}</span>
+                      </div>
+                      {item.reasonDismantle && (
+                        <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
+                          <Icon name="alert-circle" size={10} className="text-rose-400" />
+                          <span className="truncate font-semibold text-rose-500">Alasan: {item.reasonDismantle}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-1 sm:pt-1.5 border-t border-slate-50">
@@ -281,6 +295,16 @@ const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCove
                     </td>
                     <td className="px-6 py-4 text-center">
                        <StatusBadge status={status} />
+                       {(status === 'DISMANTLED' || status === 'READY TO DISMANTLE') && (
+                         <div className="mt-2 text-left bg-slate-50 p-1.5 rounded-lg border border-slate-100 mx-auto w-32">
+                           <div className="text-[9px] font-bold text-slate-600 flex items-center gap-1">
+                             <Icon name="calendar" size={10} /> {item.tanggalDismantle || '-'}
+                           </div>
+                           <div className="text-[9px] text-rose-500 font-semibold truncate mt-0.5" title={item.reasonDismantle}>
+                             {item.reasonDismantle || '-'}
+                           </div>
+                         </div>
+                       )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
@@ -361,7 +385,9 @@ const ActionModal = ({ type, data, onClose, onGoToCoverage, onLocalPelangganUpda
     catatan: data?.catatan || '',
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
-    petugas: ''
+    petugas: '',
+    tanggalDismantle: data?.tanggalDismantle || '',
+    reasonDismantle: data?.reasonDismantle || ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -388,7 +414,7 @@ const ActionModal = ({ type, data, onClose, onGoToCoverage, onLocalPelangganUpda
   const modalContent = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={onClose}></div>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[90vh] overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
           <h2 className="text-xl font-black text-slate-800 capitalize tracking-tight">{type} Pelanggan</h2>
           <button onClick={onClose} className="p-2 hover:bg-rose-50 hover:text-rose-500 rounded-xl transition-all"><Icon name="x" size={24} /></button>
@@ -407,18 +433,30 @@ const ActionModal = ({ type, data, onClose, onGoToCoverage, onLocalPelangganUpda
                   <input value={formData.namaPelanggan} onChange={e => setFormData({...formData, namaPelanggan: e.target.value})} className="mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
                 </label>
               </div>
-              <div className="space-y-4">
-                <label className="block">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Stasiun</span>
-                  <input value={formData.stasiun} onChange={e => setFormData({...formData, stasiun: e.target.value})} className="mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">KODE ODP</span>
-                  <input value={formData.odpAktual} onChange={e => setFormData({...formData, odpAktual: e.target.value})} className="mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
-                </label>
-              </div>
-           </div>
-        </div>
+               <div className="space-y-4">
+                 <label className="block">
+                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Stasiun</span>
+                   <input value={formData.stasiun} onChange={e => setFormData({...formData, stasiun: e.target.value})} className="mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
+                 </label>
+                 <label className="block">
+                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest">KODE ODP</span>
+                   <input value={formData.odpAktual} onChange={e => setFormData({...formData, odpAktual: e.target.value})} className="mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
+                 </label>
+               </div>
+               
+               {/* Dismantle Fields */}
+               <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                  <label className="block">
+                    <span className="text-xs font-black text-rose-400 uppercase tracking-widest flex items-center gap-1"><Icon name="calendar" size={14} /> Tanggal Dismantle</span>
+                    <input type="date" value={formData.tanggalDismantle} onChange={e => setFormData({...formData, tanggalDismantle: e.target.value})} className="mt-1 w-full p-3 bg-rose-50 border border-rose-200 rounded-xl font-bold text-rose-700 focus:ring-rose-500 focus:border-rose-500 outline-none" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-black text-rose-400 uppercase tracking-widest flex items-center gap-1"><Icon name="alert-circle" size={14} /> Alasan Dismantle</span>
+                    <input type="text" placeholder="Cth: Pindah rumah, nunggak, dsb" value={formData.reasonDismantle} onChange={e => setFormData({...formData, reasonDismantle: e.target.value})} className="mt-1 w-full p-3 bg-rose-50 border border-rose-200 rounded-xl font-bold text-rose-700 focus:ring-rose-500 focus:border-rose-500 outline-none placeholder-rose-300" />
+                  </label>
+               </div>
+            </div>
+         </div>
 
         <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
           <button onClick={onClose} className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-200 rounded-xl">Batal</button>

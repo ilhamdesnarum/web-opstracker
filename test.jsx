@@ -2053,10 +2053,10 @@
 
         let start = '', end = '', rangeStr = '';
         const t = new Date();
-
         if (timeFilter === 'semua') {
           start = '';
-          end = '';
+          const lastDayOfCurrentMonth = new Date(t.getFullYear(), t.getMonth() + 1, 0);
+          end = getLocalDateStr(lastDayOfCurrentMonth);
           rangeStr = 'Semua Waktu';
         } else if (timeFilter === 'hari_ini') {
           start = end = getLocalDateStr(t);
@@ -2098,14 +2098,14 @@
           const status = getGlobalStatusStr(item);
 
           if (status.includes('AKTIF') || status === 'DONE') {
-            const tAkt = item.tglAktivasi ? String(item.tglAktivasi).split('T')[0] : '';
+            const tAkt = standardizeDate ? standardizeDate(item.tglAktivasi) : (item.tglAktivasi ? String(item.tglAktivasi).split('T')[0] : '');
             let inRange = true;
             if (start && end) inRange = tAkt >= start && tAkt <= end;
+            else if (end) inRange = tAkt <= end;
+            else if (start) inRange = tAkt >= start;
             if (inRange) actList.push(item);
           }
           else if (status === 'WAITING') {
-            // Outstanding data TIDAK DIFILTER BERDASARKAN RENTANG WAKTU.
-            // Karena data antrean (Waiting) merepresentasikan kondisi saat ini secara real-time.
             outList.push(item);
           }
         });
@@ -2116,12 +2116,11 @@
           return dB.localeCompare(dA);
         });
         outList.sort((a, b) => {
-          // Jika ada tanggal input/IKR, urutkan dari yg terlama menunggu
           const dA = a.tglIkr || ''; const dB = b.tglIkr || '';
           return dA.localeCompare(dB);
         });
 
-        return { aktivasiList: actList, outstandingList: outList, filterRangeStr: rangeStr };
+        return { aktivasiList: actList, outstandingList: outList, filterRangeStr: rangeStr, startDateStr: start, endDateStr: end };
       }, [data.pelangganData, timeFilter, customMonth, startDate, endDate, stationFilter]);
 
       // --- LOGIKA TINGKAT KESULITAN DINAMIS (UPDATED: WEIGHTED AVERAGE) ---
@@ -2176,9 +2175,17 @@
         if (!aktivasiList) return [];
         const map = {};
 
+        const now = new Date();
+        const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const todayStr = getLocalDateStr(now);
+        const currentYearStr = String(now.getFullYear());
+
         aktivasiList.forEach(item => {
           let dateStr = item.tglAktivasi ? String(item.tglAktivasi).split('T')[0] : '';
           if (!dateStr) return; // Abaikan jika tidak ada valid date
+
+          const itemYearMonth = dateStr.substring(0, 7);
+          if (itemYearMonth > currentYearMonth) return;
 
           let key = '';
           let dateRangeStr = null;
@@ -2186,9 +2193,11 @@
           // Pemetaan Sumbu-X
           if (trendMode === 'yearly') {
             key = dateStr.substring(0, 4); // YYYY
+            if (key > currentYearStr) return;
           } else if (trendMode === 'monthly') {
-            key = dateStr.substring(0, 7); // YYYY-MM
+            key = itemYearMonth; // YYYY-MM
           } else if (trendMode === 'weekly') {
+            if (dateStr.substring(0, 10) > todayStr) return;
             const d = new Date(dateStr);
             const weekNum = getISOWeekNumber(d);
             const year = d.getFullYear();
@@ -2196,6 +2205,7 @@
             dateRangeStr = getWeekDateRange(year, weekNum);
           } else if (trendMode === 'daily') {
             key = dateStr.substring(0, 10); // YYYY-MM-DD
+            if (key > todayStr) return;
           }
 
           if (!map[key]) map[key] = { label: key, aktivasi: 0, dateRange: dateRangeStr };
