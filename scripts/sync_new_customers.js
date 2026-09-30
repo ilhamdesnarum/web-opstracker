@@ -161,38 +161,65 @@ async function checkExistingInSupabase(customerIds) {
   const map = new Map();
   if (!customerIds || customerIds.length === 0) return map;
 
-  const cleanIds = customerIds.map(id => String(id).trim().replace(/['"(),]/g, '')).filter(Boolean);
-  if (cleanIds.length === 0) return map;
+  const rawCleanIds = customerIds
+    .map(id => String(id || '').trim().replace(/['"(),]/g, ''))
+    .filter(Boolean);
+  if (rawCleanIds.length === 0) return map;
 
-  for (let i = 0; i < cleanIds.length; i += 50) {
-    const chunk = cleanIds.slice(i, i + 50);
-    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${chunk.join(',')})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales`;
-    try {
-      const res = await fetch(url, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        },
-        signal: AbortSignal.timeout(20000)
-      });
-      if (res.ok) {
-        const found = await res.json();
-        for (const f of found) {
-          if (f && f.id_pelanggan) {
-            map.set(f.id_pelanggan.trim(), f);
-            map.set(f.id_pelanggan.trim().toUpperCase(), f);
+  // Sertakan variasi ID asli, uppercase, dan lowercase agar tidak terkendala case sensitivity di PostgreSQL
+  const idSet = new Set();
+  rawCleanIds.forEach(id => {
+    idSet.add(id);
+    idSet.add(id.toUpperCase());
+    idSet.add(id.toLowerCase());
+  });
+  const allIdsToSearch = Array.from(idSet);
+
+  for (let i = 0; i < allIdsToSearch.length; i += 50) {
+    const chunk = allIdsToSearch.slice(i, i + 50);
+    // Format PostgREST in: in.("ID1","ID2",...) dengan URL encode
+    const formattedIn = chunk.map(id => `"${id.replace(/"/g, '')}"`).join(',');
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales`;
+
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          },
+          signal: AbortSignal.timeout(20000)
+        });
+        if (res.ok) {
+          const found = await res.json();
+          for (const f of found) {
+            if (f && f.id_pelanggan) {
+              const trimmed = String(f.id_pelanggan).trim();
+              map.set(trimmed, f);
+              map.set(trimmed.toUpperCase(), f);
+              map.set(trimmed.toLowerCase(), f);
+            }
           }
+          break; // Berhasil, keluar dari loop retry
+        } else {
+          const errTxt = await res.text();
+          console.error(`   ⚠️ Supabase check error status ${res.status}: ${errTxt}`);
+          retries--;
+          if (retries >= 0) await new Promise(r => setTimeout(r, 1000));
         }
+      } catch (e) {
+        console.error('   ⚠️ Error query Supabase chunk:', e.message);
+        retries--;
+        if (retries >= 0) await new Promise(r => setTimeout(r, 1000));
       }
-    } catch (e) {
-      console.error('   ⚠️ Error query Supabase chunk:', e.message);
     }
   }
 
   return map;
 }
 
-async function upsertToSupabase(rows) {
+async function upsertToSupabase(rows, preferResolution = 'resolution=merge-duplicates') {
   if (!rows || rows.length === 0) return true;
   const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
   try {
@@ -202,7 +229,7 @@ async function upsertToSupabase(rows) {
         'apikey': SUPABASE_KEY,
         'Authorization': `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates'
+        'Prefer': preferResolution
       },
       body: JSON.stringify(rows),
       signal: AbortSignal.timeout(25000)
@@ -375,7 +402,9 @@ async function main() {
       const { odp, portOdp } = extractOdpInfo(item);
       const namaSales = extractSalesName(item);
 
-      const existingData = existingSupabaseMap.get(idPelanggan) || existingSupabaseMap.get(idPelanggan.toUpperCase());
+      const existingData = existingSupabaseMap.get(idPelanggan) ||
+                           existingSupabaseMap.get(idPelanggan.toUpperCase()) ||
+                           existingSupabaseMap.get(idPelanggan.toLowerCase());
 
       if (existingData) {
         // [!] SUDAH ADA DI SUPABASE (PELANGGAN LAMA):
@@ -434,8 +463,8 @@ async function main() {
 
     // Push ke Supabase & Dual-Write ke Google Spreadsheet per stasiun
     if (rowsNew.length > 0) {
-      console.log(`   ✨ Menambahkan ${rowsNew.length} pelanggan baru ke Supabase...`);
-      await upsertToSupabase(rowsNew);
+      console.log(`   ✨ Menambahkan ${rowsNew.length} pelanggan baru ke Supabase (ignore duplicates agar status kendala aman)...`);
+      await upsertToSupabase(rowsNew, 'resolution=ignore-duplicates');
       totalNewInserted += rowsNew.length;
 
       console.log(`   📄 Melakukan dual-write ${rowsNew.length} pelanggan baru ke Google Spreadsheet...`);
@@ -446,7 +475,7 @@ async function main() {
 
     if (rowsExistingNoStatus.length > 0) {
       console.log(`   🔄 Memperbarui info/koordinat ${rowsExistingNoStatus.length} pelanggan existing (status aman)...`);
-      await upsertToSupabase(rowsExistingNoStatus);
+      await upsertToSupabase(rowsExistingNoStatus, 'resolution=merge-duplicates');
       totalExistingUpdated += rowsExistingNoStatus.length;
     }
   }
