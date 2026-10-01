@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toProperCase, getGlobalStatusStr } from '../utils';
 
-// Komponen Icon Vektor Lucide (Selaras dengan tema UI Starlite)
+// Komponen Icon Vektor Lucide
 const Icon = ({ name, size = 16, className = "" }) => {
   const containerRef = useRef(null);
   useEffect(() => {
@@ -13,43 +13,92 @@ const Icon = ({ name, size = 16, className = "" }) => {
   return <span ref={containerRef} style={{ display: 'contents' }} />;
 };
 
-const STATUS_COLORS = {
+// --- ICON DARI SUPABASE STORAGE (PUBLIC BUCKET: kmz-viewer/icons/) ---
+const ICON_BASE_URL = 'https://jtmferyskpbnacluyafs.supabase.co/storage/v1/object/public/kmz-viewer/icons/';
+
+const STATUS_ICONS = {
   AKTIF: {
-    bg: '#10b981',
-    border: '#059669',
+    iconUrl: `${ICON_BASE_URL}c_active.png`,
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    color: '#10b981',
     label: 'Aktif'
   },
   KENDALA: {
-    bg: '#f43f5e',
-    border: '#e11d48',
+    iconUrl: `${ICON_BASE_URL}c_kendala.png`,
     badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+    color: '#f43f5e',
     label: 'Kendala'
   },
   WAITING: {
-    bg: '#f59e0b',
-    border: '#d97706',
+    iconUrl: `${ICON_BASE_URL}c_waiting.png`,
     badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+    color: '#f59e0b',
     label: 'Waiting'
   },
   SUSPEND: {
-    bg: '#f97316',
-    border: '#ea580c',
+    iconUrl: `${ICON_BASE_URL}c_readytodismantle.png`,
     badgeClass: 'bg-orange-50 text-orange-700 border-orange-200',
+    color: '#f97316',
     label: 'Suspend'
   },
+  'READY TO DISMANTLE': {
+    iconUrl: `${ICON_BASE_URL}c_readytodismantle.png`,
+    badgeClass: 'bg-orange-50 text-orange-700 border-orange-200',
+    color: '#f97316',
+    label: 'Ready to Dismantle'
+  },
   DISMANTLE: {
-    bg: '#64748b',
-    border: '#475569',
+    iconUrl: `${ICON_BASE_URL}c_dismantled.png`,
     badgeClass: 'bg-slate-100 text-slate-600 border-slate-300',
+    color: '#64748b',
     label: 'Dismantle'
   },
   DISMANTLED: {
-    bg: '#64748b',
-    border: '#475569',
+    iconUrl: `${ICON_BASE_URL}c_dismantled.png`,
     badgeClass: 'bg-slate-100 text-slate-600 border-slate-300',
+    color: '#64748b',
     label: 'Dismantled'
   }
+};
+
+const ODP_ICON_URL = `${ICON_BASE_URL}iconODPFull.png`;
+
+// Cache Singleton Leaflet Icons agar hemat memory
+const leafletIconCache = new Map();
+
+const getCustomerLeafletIcon = (statusKey) => {
+  if (!window.L) return null;
+  const conf = STATUS_ICONS[statusKey] || (statusKey.includes('DISMANTLE') ? STATUS_ICONS.DISMANTLED : STATUS_ICONS.WAITING);
+  if (!leafletIconCache.has(conf.iconUrl)) {
+    leafletIconCache.set(
+      conf.iconUrl,
+      window.L.icon({
+        iconUrl: conf.iconUrl,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -12],
+        className: 'customer-map-icon'
+      })
+    );
+  }
+  return leafletIconCache.get(conf.iconUrl);
+};
+
+const getOdpLeafletIcon = () => {
+  if (!window.L) return null;
+  if (!leafletIconCache.has(ODP_ICON_URL)) {
+    leafletIconCache.set(
+      ODP_ICON_URL,
+      window.L.icon({
+        iconUrl: ODP_ICON_URL,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -11],
+        className: 'odp-map-icon'
+      })
+    );
+  }
+  return leafletIconCache.get(ODP_ICON_URL);
 };
 
 export default function CustomerMapView({ data }) {
@@ -182,7 +231,7 @@ export default function CustomerMapView({ data }) {
       const initialMap = window.L.map(mapRef.current, {
         preferCanvas: true,
         zoomControl: true
-      }).setView([-6.98, 110.42], 10); // Center default Jawa Tengah / Semarang
+      }).setView([-6.98, 110.42], 10);
 
       const googleStreets = window.L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         attribution: '&copy; Google Maps',
@@ -256,7 +305,7 @@ export default function CustomerMapView({ data }) {
       bounds.push([lat, lng]);
 
       const statusKey = getGlobalStatusStr(p);
-      const conf = STATUS_COLORS[statusKey] || (statusKey.includes('DISMANTLE') ? STATUS_COLORS.DISMANTLE : STATUS_COLORS.WAITING);
+      const conf = STATUS_ICONS[statusKey] || (statusKey.includes('DISMANTLE') ? STATUS_ICONS.DISMANTLED : STATUS_ICONS.WAITING);
 
       if (statusKey === 'AKTIF') stats.aktif++;
       else if (statusKey === 'KENDALA') stats.kendala++;
@@ -264,23 +313,13 @@ export default function CustomerMapView({ data }) {
       else if (statusKey === 'SUSPEND') stats.suspend++;
       else if (statusKey.includes('DISMANTLE')) stats.dismantle++;
 
-      const marker = window.L.circleMarker([lat, lng], {
-        radius: 5,
-        fillColor: conf.bg,
-        color: '#ffffff',
-        weight: 1,
-        opacity: 0.95,
-        fillOpacity: 0.85
+      const icon = getCustomerLeafletIcon(statusKey);
+      const marker = window.L.marker([lat, lng], {
+        icon: icon,
+        title: `${p.namaPelanggan || p.nama_pelanggan || ''} (${conf.label})`
       });
 
-      marker.on('mouseover', function () {
-        this.setStyle({ radius: 8, weight: 2, fillOpacity: 1 });
-      });
-      marker.on('mouseout', function () {
-        this.setStyle({ radius: 5, weight: 1, fillOpacity: 0.85 });
-      });
-
-      // Konten Popup Bersih & Rapi
+      // Konten Popup Bersih & Rapi dengan Icon Supabase Storage
       const idPel = p.idPelanggan || p.id_pelanggan || '-';
       const nama = p.namaPelanggan || p.nama_pelanggan || 'Tanpa Nama';
       const stasiun = toProperCase(p.stasiun || '-');
@@ -290,13 +329,16 @@ export default function CustomerMapView({ data }) {
       const gmapsLink = `https://maps.google.com/?q=${lat},${lng}`;
 
       const popupHtml = `
-        <div style="font-family: inherit; min-width: 220px; max-width: 280px; padding: 2px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px;">
-            <div>
-              <div style="font-weight: 700; font-size: 13px; color: #1e293b; line-height: 1.3;">${nama}</div>
-              <div style="font-family: monospace; font-size: 11px; font-weight: 600; color: #64748b;">${idPel}</div>
+        <div style="font-family: inherit; min-width: 230px; max-width: 290px; padding: 2px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="${conf.iconUrl}" style="width: 24px; height: 24px; object-fit: contain;" alt="${conf.label}" />
+              <div>
+                <div style="font-weight: 700; font-size: 13px; color: #1e293b; line-height: 1.2;">${nama}</div>
+                <div style="font-family: monospace; font-size: 11px; font-weight: 600; color: #64748b;">${idPel}</div>
+              </div>
             </div>
-            <span style="font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; background: ${conf.bg}15; color: ${conf.border}; border: 1px solid ${conf.border}40; white-space: nowrap;">
+            <span style="font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 2.5px 7px; border-radius: 6px; background: ${conf.color}18; color: ${conf.color}; border: 1px solid ${conf.color}40; white-space: nowrap;">
               ${conf.label}
             </span>
           </div>
@@ -356,7 +398,7 @@ export default function CustomerMapView({ data }) {
     setRenderedStats({ aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 });
   };
 
-  // Toggle Layer ODP
+  // Toggle Layer ODP Menggunakan iconODPFull.png dari Supabase
   useEffect(() => {
     if (!mapInstance.current || !window.L) return;
 
@@ -368,19 +410,18 @@ export default function CustomerMapView({ data }) {
           const lng = parseFloat(String(odp.longitude || '').trim().replace(',', '.'));
           if (isNaN(lat) || isNaN(lng)) return;
 
-          const odpMarker = window.L.circleMarker([lat, lng], {
-            radius: 4,
-            fillColor: '#6366f1',
-            color: '#ffffff',
-            weight: 1,
-            fillOpacity: 0.9
+          const odpMarker = window.L.marker([lat, lng], {
+            icon: getOdpLeafletIcon()
           });
 
           odpMarker.bindPopup(`
-            <div style="font-size: 11px;">
-              <strong style="color: #4f46e5;">ODP: ${odp.namaOdp || odp.idOdp || odp.label || '-'}</strong><br/>
-              Stasiun: ${toProperCase(odp.stasiun || '-')}<br/>
-              Kapasitas: ${odp.kapasitas || odp.totalPort || '-'} Port
+            <div style="font-size: 11px; padding: 2px;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                <img src="${ODP_ICON_URL}" style="width: 20px; height: 20px; object-fit: contain;" alt="ODP" />
+                <strong style="color: #4f46e5; font-size: 12px;">ODP: ${odp.namaOdp || odp.idOdp || odp.label || '-'}</strong>
+              </div>
+              <div style="color: #475569;">Stasiun: <strong>${toProperCase(odp.stasiun || '-')}</strong></div>
+              <div style="color: #475569;">Kapasitas: <strong>${odp.kapasitas || odp.totalPort || '-'} Port</strong></div>
             </div>
           `);
 
@@ -399,6 +440,28 @@ export default function CustomerMapView({ data }) {
   return (
     <div className="h-full flex flex-col relative bg-slate-50 overflow-hidden">
       
+      {/* STYLE CSS HOVER ICON AGAR SMOOTH DAN GPU-ACCELERATED */}
+      <style>{`
+        .customer-map-icon {
+          transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+          filter: drop-shadow(0 2px 3px rgba(0,0,0,0.22));
+          cursor: pointer;
+        }
+        .customer-map-icon:hover {
+          transform: scale(1.45);
+          z-index: 9999 !important;
+        }
+        .odp-map-icon {
+          transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+          filter: drop-shadow(0 2px 3px rgba(0,0,0,0.25));
+          cursor: pointer;
+        }
+        .odp-map-icon:hover {
+          transform: scale(1.45);
+          z-index: 9999 !important;
+        }
+      `}</style>
+
       {/* PANEL KONTROL & FILTER ATAS */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 m-3 mb-2 shrink-0 z-20">
         
@@ -414,26 +477,31 @@ export default function CustomerMapView({ data }) {
             <p className="text-[11px] text-slate-400 mt-0.5 ml-9">Pilih kriteria filter di bawah lalu klik &quot;Tampilkan di Peta&quot; untuk memuat data secara presisi.</p>
           </div>
 
-          {/* Indikator Status Data Tampil */}
+          {/* Indikator Status Data Tampil dengan Icon Asli Supabase */}
           {isLoaded && renderedCount > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
                 <Icon name="users" size={12} className="text-slate-500" />
                 Tampil: <strong>{renderedCount.toLocaleString('id-ID')}</strong>
               </span>
-              <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1.5">
+                <img src={STATUS_ICONS.AKTIF.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
                 Aktif: {renderedStats.aktif.toLocaleString('id-ID')}
               </span>
-              <span className="text-[10.5px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+              <span className="text-[10.5px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 inline-flex items-center gap-1.5">
+                <img src={STATUS_ICONS.KENDALA.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
                 Kendala: {renderedStats.kendala.toLocaleString('id-ID')}
               </span>
-              <span className="text-[10.5px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+              <span className="text-[10.5px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 inline-flex items-center gap-1.5">
+                <img src={STATUS_ICONS.WAITING.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
                 Waiting: {renderedStats.waiting.toLocaleString('id-ID')}
               </span>
-              <span className="text-[10.5px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+              <span className="text-[10.5px] font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded-lg border border-orange-200 inline-flex items-center gap-1.5">
+                <img src={STATUS_ICONS.SUSPEND.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
                 Suspend: {renderedStats.suspend.toLocaleString('id-ID')}
               </span>
-              <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+              <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
+                <img src={STATUS_ICONS.DISMANTLED.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
                 Dismantle: {renderedStats.dismantle.toLocaleString('id-ID')}
               </span>
             </div>
@@ -560,8 +628,8 @@ export default function CustomerMapView({ data }) {
               onChange={(e) => setShowOdpLayer(e.target.checked)}
               className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
             />
-            <span className="text-xs font-medium text-slate-600 flex items-center gap-1">
-              <Icon name="layers" size={12} className="text-indigo-500" />
+            <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+              <img src={ODP_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
               Tampilkan Titik ODP
             </span>
           </label>
