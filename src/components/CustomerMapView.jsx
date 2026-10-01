@@ -441,9 +441,9 @@ export default function CustomerMapView({ data }) {
         const isFull = statusStr === 'FULL' || (cap > 0 && used >= cap);
 
         const iconUrl = isFull ? ODP_FULL_ICON_URL : ODP_IDLE_ICON_URL;
-        const statusColor = isFull ? '#ea580c' : '#0284c7';
-        const statusBg = isFull ? '#fff7ed' : '#f0f9ff';
-        const statusBorder = isFull ? '#fdba74' : '#bae6fd';
+        const statusColor = isFull ? '#ea580c' : '#0000ff';
+        const statusBg = isFull ? '#fff7ed' : '#eff6ff';
+        const statusBorder = isFull ? '#fdba74' : '#bfdbfe';
         const statusText = isFull ? 'PORT FULL' : 'TERSEDIA / IDLE';
 
         const odpMarker = window.L.marker([lat, lng], {
@@ -462,7 +462,7 @@ export default function CustomerMapView({ data }) {
               </span>
             </div>
             <div style="color: #475569; margin-bottom: 2px;">Stasiun: <strong>${toProperCase(odp.stasiun || '-')}</strong></div>
-            <div style="color: #475569;">Port Terpakai: <strong style="color: ${isFull ? '#ea580c' : '#0284c7'};">${used} / ${cap} Port</strong></div>
+            <div style="color: #475569;">Port Terpakai: <strong style="color: ${isFull ? '#ea580c' : '#0000ff'};">${used} / ${cap} Port</strong></div>
           </div>
         `);
 
@@ -662,7 +662,7 @@ export default function CustomerMapView({ data }) {
             {/* Legend ODP Aktif */}
             {showOdpLayer && filterStation && (
               <div className="flex items-center gap-2 text-[10.5px] font-medium text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">
-                <span className="inline-flex items-center gap-1 text-sky-700 font-semibold">
+                <span className="inline-flex items-center gap-1 font-semibold" style={{ color: '#0000ff' }}>
                   <img src={ODP_IDLE_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
                   Idle/Tersedia
                 </span>
