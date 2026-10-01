@@ -6502,6 +6502,13 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
     const targetDateIntl = selectedDate;
 
+    // Lookup map cepat dari data.pelangganData untuk melengkapi namaSales
+    const pelangganMap = new Map();
+    (data.pelangganData || []).forEach(p => {
+      const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+      if (id) pelangganMap.set(id, p);
+    });
+
     return (data.dataRegistrasi || []).filter(reg => {
       const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
       const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
@@ -6512,8 +6519,16 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       const matchStation = regSt === selSt;
 
       return matchDate && matchStation;
+    }).map(reg => {
+      const idUpper = String(reg.idPelanggan || reg.id_pelanggan || '').trim().toUpperCase();
+      const matched = pelangganMap.get(idUpper);
+      const sales = reg.namaSales || reg.sales || matched?.namaSales || 'Daftar Mandiri';
+      return {
+        ...reg,
+        namaSales: sales
+      };
     });
-  }, [data.dataRegistrasi, selectedDate, selectedRegStation]);
+  }, [data.dataRegistrasi, data.pelangganData, selectedDate, selectedRegStation]);
 
   // --- LIST DAFTAR DETAIL PO UNTUK POP-UP PER STASIUN ---
   const detailPoList = useMemo(() => {
@@ -7536,35 +7551,47 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                 <>
                   {/* TAMPILAN MOBILE: KARTU LIST REGISTRASI KHUSUS MOBILE */}
                   <div className="sm:hidden space-y-2.5">
-                    {registrasiList.map((cust, idx) => (
-                      <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between gap-2.5">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                            <Icon name="user-plus" size={14} />
+                    {registrasiList.map((cust, idx) => {
+                      const sales = cust.namaSales || 'Daftar Mandiri';
+                      const isMandiri = !sales || sales === 'Daftar Mandiri' || sales === '-';
+                      return (
+                        <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between gap-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                              <Icon name="user-plus" size={14} />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-slate-800 truncate">{cust.namaPelanggan || 'Tanpa Nama'}</h4>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{cust.idPelanggan || '-'}</span>
+                                <span className="text-[8.5px] uppercase font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{toProperCase(cust.stasiun)}</span>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${
+                                  isMandiri
+                                    ? 'bg-slate-50 text-slate-500 border-slate-200 italic font-normal'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                                }`}>
+                                  <Icon name="user" size={9} className={isMandiri ? "text-slate-400" : "text-blue-500"} />
+                                  {sales}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold text-slate-800 truncate">{cust.namaPelanggan || 'Tanpa Nama'}</h4>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{cust.idPelanggan || '-'}</span>
-                              <span className="text-[8.5px] uppercase font-bold text-slate-400">{toProperCase(cust.stasiun)}</span>
+
+                          <div className="text-right shrink-0">
+                            <div className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 flex items-center gap-1">
+                              <Icon name="clock" size={10} className="text-blue-400" />
+                              {(() => {
+                                const t = String(cust.tanggal || '');
+                                const parts = t.split(/[T ]/);
+                                const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
+                                const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';
+                                return timeStr || dateStr;
+                              })()}
                             </div>
                           </div>
                         </div>
-
-                        <div className="text-right shrink-0">
-                          <div className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 flex items-center gap-1">
-                            <Icon name="clock" size={10} className="text-blue-400" />
-                            {(() => {
-                              const t = String(cust.tanggal || '');
-                              const parts = t.split(/[T ]/);
-                              const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
-                              const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';
-                              return timeStr || dateStr;
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* TAMPILAN DESKTOP: TABEL */}
@@ -7574,35 +7601,50 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                         <th className="px-6 py-3 w-16 text-center">No</th>
                         <th className="px-6 py-3">ID Pelanggan</th>
                         <th className="px-6 py-3">Nama Pelanggan</th>
+                        <th className="px-6 py-3">Nama Sales</th>
                         <th className="px-6 py-3">Stasiun</th>
                         <th className="px-6 py-3">Waktu Registrasi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {registrasiList.map((cust, idx) => (
-                        <tr key={idx} className="hover:bg-white transition-colors">
-                          <td className="px-6 py-3 text-center text-slate-400 font-medium">{idx + 1}</td>
-                          <td className="px-6 py-3 font-mono text-xs text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
-                          <td className="px-6 py-3 font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</td>
-                          <td className="px-6 py-3">
-                            <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-200">
-                              {cust.stasiun}
-                            </span>
-                          </td>
-                          <td className="px-6 py-3 text-xs font-medium text-slate-600">
-                            <div className="flex items-center gap-1.5 bg-blue-50/50 p-1.5 rounded-lg border border-blue-100 w-max text-blue-700">
-                              <Icon name="clock" size={12} className="text-blue-400" />
-                              {(() => {
-                                const t = String(cust.tanggal || '');
-                                const parts = t.split(/[T ]/);
-                                const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
-                                const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';
-                                return timeStr || dateStr;
-                              })()}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {registrasiList.map((cust, idx) => {
+                        const sales = cust.namaSales || 'Daftar Mandiri';
+                        const isMandiri = !sales || sales === 'Daftar Mandiri' || sales === '-';
+                        return (
+                          <tr key={idx} className="hover:bg-white transition-colors">
+                            <td className="px-6 py-3 text-center text-slate-400 font-medium">{idx + 1}</td>
+                            <td className="px-6 py-3 font-mono text-xs text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
+                            <td className="px-6 py-3 font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</td>
+                            <td className="px-6 py-3">
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+                                isMandiri
+                                  ? 'bg-slate-100 text-slate-500 border-slate-200 italic font-normal'
+                                  : 'bg-blue-50 text-blue-700 border-blue-200'
+                              }`}>
+                                <Icon name="user" size={12} className={isMandiri ? "text-slate-400" : "text-blue-500"} />
+                                {sales}
+                              </span>
+                            </td>
+                            <td className="px-6 py-3">
+                              <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-200">
+                                {cust.stasiun}
+                              </span>
+                            </td>
+                            <td className="px-6 py-3 text-xs font-medium text-slate-600">
+                              <div className="flex items-center gap-1.5 bg-blue-50/50 p-1.5 rounded-lg border border-blue-100 w-max text-blue-700">
+                                <Icon name="clock" size={12} className="text-blue-400" />
+                                {(() => {
+                                  const t = String(cust.tanggal || '');
+                                  const parts = t.split(/[T ]/);
+                                  const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
+                                  const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';
+                                  return timeStr || dateStr;
+                                })()}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </>

@@ -913,6 +913,12 @@ const MobileApp = () => {
     const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
     const targetDateIntl = todayStr;
 
+    const pelangganMap = new Map();
+    (data.pelangganData || []).forEach(p => {
+      const idKey = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+      if (idKey) pelangganMap.set(idKey, p);
+    });
+
     const items = (data.dataRegistrasi || []).filter(reg => {
       const valStr = String(reg.tanggal || '');
       const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
@@ -930,6 +936,14 @@ const MobileApp = () => {
       const matchStation = st1 === st2 || st1.includes(st2) || st2.includes(st1);
 
       return matchDate && matchStation;
+    }).map(reg => {
+      const idKey = String(reg.idPelanggan || reg.id_pelanggan || '').trim().toUpperCase();
+      const matched = idKey ? pelangganMap.get(idKey) : null;
+      const sales = reg.namaSales || reg.sales || matched?.namaSales || matched?.nama_sales || 'Daftar Mandiri';
+      return {
+        ...reg,
+        namaSales: sales
+      };
     });
 
     openListModal({ isOpen: true, title: `Pendaftar Baru - ${stasiun}`, type: 'registrasi', items });
@@ -5052,9 +5066,22 @@ const MobileApp = () => {
                           </div>
                         </>
                       ) : (
-                        <div className="flex items-center gap-1.5 text-[9px] text-slate-500 mt-1.5">
-                          <Icon name="clock" size={10} className="text-blue-400" />
-                          <span>Tanggal: <span className="font-semibold text-slate-700">{standardizeDate(item.tanggal || item.tanggalRegistrasi)}</span></span>
+                        <div className="flex flex-col gap-1 mt-1.5">
+                          <div className="flex items-center gap-1.5 text-[9px] text-slate-500">
+                            <Icon name="clock" size={10} className="text-blue-400" />
+                            <span>Tanggal: <span className="font-semibold text-slate-700">{standardizeDate(item.tanggal || item.tanggalRegistrasi)}</span></span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[9px]">
+                            <Icon name="user" size={10} className={item.namaSales && item.namaSales !== 'Daftar Mandiri' ? "text-blue-500" : "text-slate-400"} />
+                            <span className="text-slate-500">Sales:</span>
+                            <span className={`px-1.5 py-0.5 rounded border text-[8.5px] ${
+                              item.namaSales && item.namaSales !== 'Daftar Mandiri'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                                : 'bg-slate-50 text-slate-500 border-slate-200 italic'
+                            }`}>
+                              {item.namaSales || 'Daftar Mandiri'}
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
