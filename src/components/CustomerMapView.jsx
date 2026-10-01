@@ -61,7 +61,9 @@ const STATUS_ICONS = {
   }
 };
 
-const ODP_ICON_URL = `${ICON_BASE_URL}iconODPFull.png`;
+// --- ICON ODP: SUPABASE FULL (OREN) & VECTOR IDLE (BIRU) ---
+const ODP_FULL_ICON_URL = `${ICON_BASE_URL}iconODPFull.png`; // Icon oren dari Supabase untuk ODP Full
+const ODP_IDLE_ICON_URL = '/iconODPIdle.svg'; // Icon biru vektor untuk ODP Idle / Tersedia
 
 // Cache Singleton Leaflet Icons agar hemat memory
 const leafletIconCache = new Map();
@@ -84,13 +86,15 @@ const getCustomerLeafletIcon = (statusKey) => {
   return leafletIconCache.get(conf.iconUrl);
 };
 
-const getOdpLeafletIcon = () => {
+const getOdpLeafletIcon = (isFull = false) => {
   if (!window.L) return null;
-  if (!leafletIconCache.has(ODP_ICON_URL)) {
+  const key = isFull ? 'odp_full' : 'odp_idle';
+  const url = isFull ? ODP_FULL_ICON_URL : ODP_IDLE_ICON_URL;
+  if (!leafletIconCache.has(key)) {
     leafletIconCache.set(
-      ODP_ICON_URL,
+      key,
       window.L.icon({
-        iconUrl: ODP_ICON_URL,
+        iconUrl: url,
         iconSize: [22, 22],
         iconAnchor: [11, 11],
         popupAnchor: [0, -11],
@@ -98,7 +102,7 @@ const getOdpLeafletIcon = () => {
       })
     );
   }
-  return leafletIconCache.get(ODP_ICON_URL);
+  return leafletIconCache.get(key);
 };
 
 export default function CustomerMapView({ data }) {
@@ -174,6 +178,21 @@ export default function CustomerMapView({ data }) {
         return a.name.localeCompare(b.name);
       });
   }, [data?.pelangganData, filterStation]);
+
+  // Saring ODP agar hanya mengikuti Stasiun yang dipilih (mencegah lag / beban memori)
+  const filteredOdpList = useMemo(() => {
+    if (!filterStation) return [];
+    const stFilter = filterStation.toLowerCase().trim();
+
+    return (data?.odpData || []).filter(odp => {
+      const lat = parseFloat(String(odp.latitude || '').trim().replace(',', '.'));
+      const lng = parseFloat(String(odp.longitude || '').trim().replace(',', '.'));
+      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return false;
+
+      const odpSt = (odp.stasiun || '').toLowerCase().trim();
+      return odpSt === stFilter || odpSt.includes(stFilter) || stFilter.includes(odpSt);
+    });
+  }, [data?.odpData, filterStation]);
 
   // Hitung jumlah data yang cocok secara realtime sebelum tombol "Tampilkan di Peta" ditekan
   const matchingData = useMemo(() => {
@@ -398,44 +417,62 @@ export default function CustomerMapView({ data }) {
     setRenderedStats({ aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 });
   };
 
-  // Toggle Layer ODP Menggunakan iconODPFull.png dari Supabase
+  // Toggle Layer ODP Mengikuti Filter Stasiun & Status Kapasitas (Full = Oren, Idle = Biru)
   useEffect(() => {
     if (!mapInstance.current || !window.L) return;
 
-    if (showOdpLayer) {
-      if (!odpLayerRef.current) {
-        const odpGroup = window.L.featureGroup();
-        (data?.odpData || []).forEach(odp => {
-          const lat = parseFloat(String(odp.latitude || '').trim().replace(',', '.'));
-          const lng = parseFloat(String(odp.longitude || '').trim().replace(',', '.'));
-          if (isNaN(lat) || isNaN(lng)) return;
-
-          const odpMarker = window.L.marker([lat, lng], {
-            icon: getOdpLeafletIcon()
-          });
-
-          odpMarker.bindPopup(`
-            <div style="font-size: 11px; padding: 2px;">
-              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-                <img src="${ODP_ICON_URL}" style="width: 20px; height: 20px; object-fit: contain;" alt="ODP" />
-                <strong style="color: #4f46e5; font-size: 12px;">ODP: ${odp.namaOdp || odp.idOdp || odp.label || '-'}</strong>
-              </div>
-              <div style="color: #475569;">Stasiun: <strong>${toProperCase(odp.stasiun || '-')}</strong></div>
-              <div style="color: #475569;">Kapasitas: <strong>${odp.kapasitas || odp.totalPort || '-'} Port</strong></div>
-            </div>
-          `);
-
-          odpGroup.addLayer(odpMarker);
-        });
-        odpLayerRef.current = odpGroup;
-      }
-      odpLayerRef.current.addTo(mapInstance.current);
-    } else {
-      if (odpLayerRef.current && mapInstance.current) {
-        mapInstance.current.removeLayer(odpLayerRef.current);
-      }
+    // Bersihkan layer ODP sebelumnya saat filter stasiun atau toggle berubah
+    if (odpLayerRef.current) {
+      mapInstance.current.removeLayer(odpLayerRef.current);
+      odpLayerRef.current = null;
     }
-  }, [showOdpLayer, data?.odpData]);
+
+    if (showOdpLayer && filterStation && filteredOdpList.length > 0) {
+      const odpGroup = window.L.featureGroup();
+
+      filteredOdpList.forEach(odp => {
+        const lat = parseFloat(String(odp.latitude || '').trim().replace(',', '.'));
+        const lng = parseFloat(String(odp.longitude || '').trim().replace(',', '.'));
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        const cap = Number(odp.kapasitas || odp.totalPort || 8) || 8;
+        const used = Number(odp.portTerpakai ?? odp.port_terpakai ?? odp['Port Terpakai'] ?? 0) || 0;
+        const statusStr = String(odp.status || '').toUpperCase();
+        const isFull = statusStr === 'FULL' || (cap > 0 && used >= cap);
+
+        const iconUrl = isFull ? ODP_FULL_ICON_URL : ODP_IDLE_ICON_URL;
+        const statusColor = isFull ? '#ea580c' : '#0284c7';
+        const statusBg = isFull ? '#fff7ed' : '#f0f9ff';
+        const statusBorder = isFull ? '#fdba74' : '#bae6fd';
+        const statusText = isFull ? 'PORT FULL' : 'TERSEDIA / IDLE';
+
+        const odpMarker = window.L.marker([lat, lng], {
+          icon: getOdpLeafletIcon(isFull)
+        });
+
+        odpMarker.bindPopup(`
+          <div style="font-size: 11px; padding: 4px; min-width: 175px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <img src="${iconUrl}" style="width: 20px; height: 20px; object-fit: contain;" alt="ODP" />
+                <strong style="color: #0f172a; font-size: 12px;">${odp.namaOdp || odp.idOdp || odp.label || '-'}</strong>
+              </div>
+              <span style="font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; white-space: nowrap;">
+                ${statusText}
+              </span>
+            </div>
+            <div style="color: #475569; margin-bottom: 2px;">Stasiun: <strong>${toProperCase(odp.stasiun || '-')}</strong></div>
+            <div style="color: #475569;">Port Terpakai: <strong style="color: ${isFull ? '#ea580c' : '#0284c7'};">${used} / ${cap} Port</strong></div>
+          </div>
+        `);
+
+        odpGroup.addLayer(odpMarker);
+      });
+
+      odpLayerRef.current = odpGroup;
+      odpGroup.addTo(mapInstance.current);
+    }
+  }, [showOdpLayer, filterStation, filteredOdpList]);
 
   return (
     <div className="h-full flex flex-col relative bg-slate-50 overflow-hidden">
@@ -613,7 +650,7 @@ export default function CustomerMapView({ data }) {
         </div>
 
         {/* Baris 3: Status Ringan & Toggle ODP */}
-        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2.5 mt-2 border-t border-slate-50">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 pt-2.5 mt-2 border-t border-slate-50">
           <div className="flex items-center gap-1.5">
             <Icon name="info" size={13} className="text-blue-500" />
             <span>
@@ -621,18 +658,45 @@ export default function CustomerMapView({ data }) {
             </span>
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showOdpLayer}
-              onChange={(e) => setShowOdpLayer(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
-            />
-            <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-              <img src={ODP_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
-              Tampilkan Titik ODP
-            </span>
-          </label>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Legend ODP Aktif */}
+            {showOdpLayer && filterStation && (
+              <div className="flex items-center gap-2 text-[10.5px] font-medium text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">
+                <span className="inline-flex items-center gap-1 text-sky-700 font-semibold">
+                  <img src={ODP_IDLE_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Idle/Tersedia
+                </span>
+                <span className="inline-flex items-center gap-1 text-orange-700 font-semibold">
+                  <img src={ODP_FULL_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Full
+                </span>
+              </div>
+            )}
+
+            <label className={`flex items-center gap-2 select-none px-2.5 py-1 rounded-lg border transition-all ${
+              !filterStation
+                ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed opacity-75'
+                : showOdpLayer
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-semibold cursor-pointer'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
+            }`}>
+              <input
+                type="checkbox"
+                disabled={!filterStation}
+                checked={showOdpLayer && !!filterStation}
+                onChange={(e) => setShowOdpLayer(e.target.checked)}
+                className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="text-xs font-medium flex items-center gap-1.5">
+                <img src={ODP_IDLE_ICON_URL} className="w-3.5 h-3.5 object-contain" alt="" />
+                {filterStation ? (
+                  <>Titik ODP ({filteredOdpList.length})</>
+                ) : (
+                  <span title="Pilih stasiun di filter atas terlebih dahulu">Titik ODP (Pilih Stasiun Dahulu)</span>
+                )}
+              </span>
+            </label>
+          </div>
         </div>
 
       </div>
