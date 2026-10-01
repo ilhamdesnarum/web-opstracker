@@ -21,6 +21,7 @@ import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
 import { isPercepatanCustomer, getCustomerDismantleDate } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
+import CustomerMapView from './components/CustomerMapView';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
@@ -1262,6 +1263,7 @@ function App({ onLogout }) {
     'performansi': '/performansi',
     'overview': '/overview',
     'database': '/data-pelanggan',
+    'peta-pelanggan': '/peta-pelanggan',
     'okupansi': '/data-okupansi',
     'gangguan': '/data-gangguan',
     'gamas': '/monitoring-gamas',
@@ -2044,6 +2046,7 @@ function App({ onLogout }) {
             { id: 'performansi', icon: 'bar-chart-2', label: 'Performansi' },
             { id: 'overview', icon: 'line-chart', label: 'Overview' },
             { id: 'database', icon: 'database', label: 'Data Pelanggan' }, // Icon diganti 'database'
+            { id: 'peta-pelanggan', icon: 'map-pin', label: 'Peta Pelanggan' },
             { id: 'okupansi', icon: 'server', label: 'Data Okupansi' },
             { id: 'gangguan', icon: 'headset', label: 'Data Gangguan' },
             { id: 'gamas', icon: 'activity', label: 'Monitoring Gamas' },
@@ -2097,6 +2100,7 @@ function App({ onLogout }) {
                 {activeTab === 'performansi' && 'Performansi & Aktivasi Homeconnect'}
                 {activeTab === 'overview' && 'Analisis Tren & Pipeline'}
                 {activeTab === 'database' && 'Database & Manajemen Pelanggan'}
+                {activeTab === 'peta-pelanggan' && 'Visualisasi Sebaran Pelanggan'}
                 {activeTab === 'okupansi' && 'Data Okupansi ODC & ODP'}
                 {activeTab === 'gangguan' && 'Data Gangguan & Tiket Visit'}
                 {activeTab === 'gamas' && 'Monitoring Gangguan Massal'}
@@ -2191,6 +2195,7 @@ function App({ onLogout }) {
             )}
             {activeTab === 'overview' && <OverviewView data={data} onGoToDatabase={(statusFilter, stationFilter = '') => { setInitialDatabaseStatusFilter(statusFilter); setInitialDatabaseStationFilter(stationFilter); setActiveTab('database'); }} />}
             {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
+            {activeTab === 'peta-pelanggan' && <CustomerMapView data={data} />}
             {activeTab === 'okupansi' && <OkupansiView data={data} setData={setData} />}
             {activeTab === 'gangguan' && <DataGangguanView visitData={data.visitData} pelangganData={data.pelangganData} petugasList={data.teknisiData} onRefresh={() => fetchData(true)} onLocalVisitUpdate={handleLocalVisitAction} />}
             {activeTab === 'gamas' && <MonitoringGamasView />}
