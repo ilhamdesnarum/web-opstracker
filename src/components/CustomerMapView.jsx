@@ -71,9 +71,8 @@ export default function CustomerMapView({ data }) {
   const [showOdpLayer, setShowOdpLayer] = useState(false);
 
   // Ambil daftar stasiun yang ada beserta hitungan pelanggan berkoordinat
-  const { stationOptions, salesOptions, totalWithCoords } = useMemo(() => {
+  const { stationOptions, totalWithCoords } = useMemo(() => {
     const stCount = new Map();
-    const slSet = new Set();
     let withCoords = 0;
 
     (data?.pelangganData || []).forEach(p => {
@@ -85,23 +84,47 @@ export default function CustomerMapView({ data }) {
 
       const st = toProperCase(p.stasiun || 'Tanpa Stasiun');
       stCount.set(st, (stCount.get(st) || 0) + 1);
-
-      const sales = (p.namaSales || p.nama_sales || p.sales || '').trim();
-      if (sales) slSet.add(sales);
     });
 
     const stations = Array.from(stCount.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const salesList = Array.from(slSet).sort((a, b) => a.localeCompare(b));
-
     return {
       stationOptions: stations,
-      salesOptions: salesList,
       totalWithCoords: withCoords
     };
   }, [data?.pelangganData]);
+
+  // Filter Sales Mengerucut: Hanya menampilkan sales yang memiliki pelanggan di stasiun terpilih
+  const salesOptions = useMemo(() => {
+    const slCount = new Map();
+    const stFilter = filterStation.toLowerCase().trim();
+
+    (data?.pelangganData || []).forEach(p => {
+      const lat = parseFloat(String(p.latitude || '').trim().replace(',', '.'));
+      const lng = parseFloat(String(p.longitude || '').trim().replace(',', '.'));
+      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+      // Saring berdasarkan stasiun yang sedang dipilih
+      if (stFilter) {
+        const pSt = (p.stasiun || '').toLowerCase().trim();
+        if (pSt !== stFilter && !pSt.includes(stFilter)) return;
+      }
+
+      const sales = (p.namaSales || p.nama_sales || p.sales || '').trim();
+      const salesLabel = sales || 'Daftar Mandiri';
+      slCount.set(salesLabel, (slCount.get(salesLabel) || 0) + 1);
+    });
+
+    return Array.from(slCount.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => {
+        if (a.name === 'Daftar Mandiri') return 1;
+        if (b.name === 'Daftar Mandiri') return -1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [data?.pelangganData, filterStation]);
 
   // Hitung jumlah data yang cocok secara realtime sebelum tombol "Tampilkan di Peta" ditekan
   const matchingData = useMemo(() => {
@@ -134,7 +157,11 @@ export default function CustomerMapView({ data }) {
       // Filter Sales
       if (slFilter) {
         const pSales = (p.namaSales || p.nama_sales || p.sales || '').toLowerCase().trim();
-        if (pSales !== slFilter) return false;
+        if (slFilter === 'daftar mandiri') {
+          if (pSales && pSales !== '-' && pSales !== 'daftar mandiri') return false;
+        } else {
+          if (pSales !== slFilter) return false;
+        }
       }
 
       // Filter Pencarian (ID Pelanggan, Nama, Alamat)
@@ -215,19 +242,8 @@ export default function CustomerMapView({ data }) {
       return;
     }
 
-    // Inisialisasi MarkerClusterGroup jika tersedia di window, fallback ke FeatureGroup
-    let groupLayer;
-    if (typeof window.L.markerClusterGroup === 'function') {
-      groupLayer = window.L.markerClusterGroup({
-        maxClusterRadius: 40,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false,
-        disableClusteringAtZoom: 16,
-        chunkedLoading: true
-      });
-    } else {
-      groupLayer = window.L.featureGroup();
-    }
+    // Gunakan FeatureGroup langsung tanpa clusterisasi (Helicopter / Scatter View murni)
+    const groupLayer = window.L.featureGroup();
 
     const stats = { aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 };
     const bounds = [];
@@ -249,12 +265,19 @@ export default function CustomerMapView({ data }) {
       else if (statusKey.includes('DISMANTLE')) stats.dismantle++;
 
       const marker = window.L.circleMarker([lat, lng], {
-        radius: 6.5,
+        radius: 5,
         fillColor: conf.bg,
         color: '#ffffff',
-        weight: 1.5,
-        opacity: 1,
-        fillOpacity: 0.95
+        weight: 1,
+        opacity: 0.95,
+        fillOpacity: 0.85
+      });
+
+      marker.on('mouseover', function () {
+        this.setStyle({ radius: 8, weight: 2, fillOpacity: 1 });
+      });
+      marker.on('mouseout', function () {
+        this.setStyle({ radius: 5, weight: 1, fillOpacity: 0.85 });
       });
 
       // Konten Popup Bersih & Rapi
@@ -427,7 +450,10 @@ export default function CustomerMapView({ data }) {
             </div>
             <select
               value={filterStation}
-              onChange={(e) => setFilterStation(e.target.value)}
+              onChange={(e) => {
+                setFilterStation(e.target.value);
+                setFilterSales(''); // Mengerucutkan: reset sales saat stasiun berubah
+              }}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
             >
               <option value="">Semua Stasiun ({stationOptions.reduce((a, c) => a + c.count, 0)})</option>
@@ -458,7 +484,7 @@ export default function CustomerMapView({ data }) {
             </select>
           </div>
 
-          {/* Dropdown Sales */}
+          {/* Dropdown Sales (Mengerucut berdasarkan Stasiun Terpilih) */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
               <Icon name="user" size={13} />
@@ -468,9 +494,13 @@ export default function CustomerMapView({ data }) {
               onChange={(e) => setFilterSales(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
             >
-              <option value="">Semua Sales</option>
+              <option value="">
+                {filterStation ? `Semua Sales (${filterStation})` : 'Semua Sales'} ({salesOptions.reduce((a, c) => a + c.count, 0)})
+              </option>
               {salesOptions.map(s => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s.name} value={s.name}>
+                  {s.name} ({s.count})
+                </option>
               ))}
             </select>
           </div>
