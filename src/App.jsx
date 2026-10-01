@@ -6507,11 +6507,14 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
     const targetDateIntl = selectedDate;
 
-    // Lookup map cepat dari data.pelangganData untuk melengkapi namaSales
+    // Lookup map cepat dari data.pelangganData untuk melengkapi namaSales (by ID dan Nama)
     const pelangganMap = new Map();
+    const pelangganNameMap = new Map();
     (data.pelangganData || []).forEach(p => {
       const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
       if (id) pelangganMap.set(id, p);
+      const name = String(p.namaPelanggan || p.nama_pelanggan || '').trim().toLowerCase();
+      if (name) pelangganNameMap.set(name, p);
     });
 
     return (data.dataRegistrasi || []).filter(reg => {
@@ -6526,7 +6529,8 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       return matchDate && matchStation;
     }).map(reg => {
       const idUpper = String(reg.idPelanggan || reg.id_pelanggan || '').trim().toUpperCase();
-      const matched = pelangganMap.get(idUpper);
+      const nameLower = String(reg.namaPelanggan || reg.nama_pelanggan || reg.nama || '').trim().toLowerCase();
+      const matched = pelangganMap.get(idUpper) || pelangganNameMap.get(nameLower);
       const sales = reg.namaSales || reg.sales || matched?.namaSales || 'Daftar Mandiri';
       return {
         ...reg,
