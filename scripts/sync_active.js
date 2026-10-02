@@ -58,6 +58,63 @@ function formatKeWIB(isoString) {
 }
 
 
+async function checkExistingInSupabase(customerIds) {
+  const map = new Map();
+  if (!customerIds || customerIds.length === 0) return map;
+
+  const rawCleanIds = customerIds
+    .map(id => String(id || '').trim().replace(/['"(),]/g, ''))
+    .filter(Boolean);
+  if (rawCleanIds.length === 0) return map;
+
+  const idSet = new Set();
+  rawCleanIds.forEach(id => {
+    idSet.add(id);
+    idSet.add(id.toUpperCase());
+    idSet.add(id.toLowerCase());
+  });
+  const allIdsToSearch = Array.from(idSet);
+
+  for (let i = 0; i < allIdsToSearch.length; i += 50) {
+    const chunk = allIdsToSearch.slice(i, i + 50);
+    const formattedIn = chunk.map(id => `"${id.replace(/"/g, '')}"`).join(',');
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,nama_sales,tanggal_registrasi`;
+
+    let retries = 2;
+    while (retries >= 0) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          },
+          signal: AbortSignal.timeout(20000)
+        });
+        if (res.ok) {
+          const found = await res.json();
+          for (const f of found) {
+            if (f && f.id_pelanggan) {
+              const trimmed = String(f.id_pelanggan).trim();
+              map.set(trimmed, f);
+              map.set(trimmed.toUpperCase(), f);
+              map.set(trimmed.toLowerCase(), f);
+            }
+          }
+          break;
+        } else {
+          retries--;
+          if (retries >= 0) await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch (e) {
+        retries--;
+        if (retries >= 0) await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+  }
+
+  return map;
+}
+
 async function upsertToSupabase(rows) {
   if (!rows || rows.length === 0) return true;
   const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
@@ -84,6 +141,7 @@ async function upsertToSupabase(rows) {
     return false;
   }
 }
+
 
 async function main() {
   const t0 = Date.now();
@@ -205,8 +263,30 @@ async function main() {
           if (!portOdp) portOdp = customer.port_odp || customer.port || customer.fat_port || customer.odp_port || (customer.customer_id && typeof customer.customer_id === "object" ? (customer.customer_id.port_odp || customer.customer_id.port) : "") || "";
 
           let tglRegistrasi = "";
-          if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
-          else if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
+          if (customer.request_ikr_id && customer.request_ikr_id.registration_date) {
+            tglRegistrasi = formatKeWIB(customer.request_ikr_id.registration_date);
+          } else if (customer.registration_date) {
+            tglRegistrasi = formatKeWIB(customer.registration_date);
+          } else if (customer.visit_date) {
+            tglRegistrasi = formatKeWIB(customer.visit_date);
+          } else if (customer.sales_visit_id && customer.sales_visit_id.visit_date) {
+            tglRegistrasi = formatKeWIB(customer.sales_visit_id.visit_date);
+          } else if (customer.created_ats) {
+            tglRegistrasi = formatKeWIB(customer.created_ats);
+          }
+
+          let extractedSales = "";
+          if (customer.sales_id && typeof customer.sales_id === 'object' && customer.sales_id.name) {
+            extractedSales = String(customer.sales_id.name).trim();
+          } else if (typeof customer.sales_id === 'string' && customer.sales_id.trim()) {
+            extractedSales = customer.sales_id.trim();
+          } else if (customer.sales_visit_id && customer.sales_visit_id.sales_id) {
+            if (typeof customer.sales_visit_id.sales_id === 'object' && customer.sales_visit_id.sales_id.name) {
+              extractedSales = String(customer.sales_visit_id.sales_id.name).trim();
+            } else if (typeof customer.sales_visit_id.sales_id === 'string') {
+              extractedSales = customer.sales_visit_id.sales_id.trim();
+            }
+          }
 
           let tanggalBerakhir = "";
           const telatBayarHari = (customer.count_late_payment_days !== undefined && customer.count_late_payment_days !== null && customer.count_late_payment_days !== "") ? Number(customer.count_late_payment_days) : null;
@@ -232,12 +312,13 @@ async function main() {
             catatan: patokan,
             status_ikr: "Sudah",
             status_aktivasi: "Sudah",
-            tanggal_registrasi: tglRegistrasi,
+            tanggal_registrasi: tglRegistrasi || null,
             tanggal_berakhir: tanggalBerakhir || null,
             telat_bayar_hari: telatBayarHari,
             stasiun: stationName,
             odp: odp,
             port_odp: portOdp,
+            nama_sales: extractedSales || null,
             updated_at: new Date().toISOString()
           };
 
@@ -272,6 +353,18 @@ async function main() {
 
       for (let i = 0; i < dedupedRows.length; i += CHUNK_SIZE) {
         const chunk = dedupedRows.slice(i, i + CHUNK_SIZE);
+        const existingMap = await checkExistingInSupabase(chunk.map(r => r.id_pelanggan));
+
+        for (const row of chunk) {
+          const ex = existingMap.get(row.id_pelanggan) ||
+                     existingMap.get(row.id_pelanggan.toUpperCase()) ||
+                     existingMap.get(row.id_pelanggan.toLowerCase());
+          if (ex) {
+            if (!row.nama_sales && ex.nama_sales) row.nama_sales = ex.nama_sales;
+            if (!row.tanggal_registrasi && ex.tanggal_registrasi) row.tanggal_registrasi = ex.tanggal_registrasi;
+          }
+        }
+
         const ok = await upsertToSupabase(chunk);
         if (ok) {
           upsertedCount += chunk.length;
