@@ -379,6 +379,7 @@ export default function CustomerMapView({ data }) {
 
   // Fungsi Eksekusi: Muat & Tampilkan Data Terpilih di Peta
   const handleLoadData = () => {
+    if (!filterStation) return;
     if (!mapInstance.current || !window.L) return;
 
     // Bersihkan layer sebelumnya
@@ -729,12 +730,16 @@ export default function CustomerMapView({ data }) {
             <select
               value={filterStation}
               onChange={(e) => {
-                setFilterStation(e.target.value);
+                const val = e.target.value;
+                setFilterStation(val);
                 setFilterSales(''); // Mengerucutkan: reset sales saat stasiun berubah
+                if (!val) {
+                  handleClearMap();
+                }
               }}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
             >
-              <option value="">Semua Stasiun ({stationOptions.reduce((a, c) => a + c.count, 0)})</option>
+              <option value="">-- Pilih Stasiun Dahulu --</option>
               {stationOptions.map(st => (
                 <option key={st.name} value={st.name}>
                   {st.name} ({st.count})
@@ -799,14 +804,26 @@ export default function CustomerMapView({ data }) {
 
           {/* Tombol Aksi: Tampilkan di Peta & Bersihkan */}
           <div className="flex items-center gap-2 lg:col-span-2">
-            <button
-              onClick={handleLoadData}
-              disabled={matchingData.length === 0}
-              className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
-            >
-              <Icon name="eye" size={14} />
-              <span>Tampilkan di Peta ({matchingData.length})</span>
-            </button>
+            {!filterStation ? (
+              <button
+                type="button"
+                disabled
+                title="Pilih Stasiun terlebih dahulu untuk mencegah browser hang"
+                className="flex-1 py-2 px-3 bg-slate-100 border border-slate-200 text-slate-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80 select-none"
+              >
+                <Icon name="alert-circle" size={14} className="text-amber-500" />
+                <span>Pilih Stasiun Dahulu</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleLoadData}
+                disabled={matchingData.length === 0}
+                className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
+              >
+                <Icon name="eye" size={14} />
+                <span>Tampilkan di Peta ({matchingData.length.toLocaleString('id-ID')})</span>
+              </button>
+            )}
 
             {isLoaded && (
               <button
@@ -825,9 +842,13 @@ export default function CustomerMapView({ data }) {
         {/* Baris 3: Status Ringan & Toggle ODP */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 pt-2.5 mt-2 border-t border-slate-50">
           <div className="flex items-center gap-1.5">
-            <Icon name="info" size={13} className="text-blue-500" />
+            <Icon name="info" size={13} className={!filterStation ? "text-amber-500" : "text-blue-500"} />
             <span>
-              Estimasi data terpilih: <strong className="text-slate-800">{matchingData.length.toLocaleString('id-ID')}</strong> dari total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat.
+              {!filterStation ? (
+                <>Wajib pilih stasiun terlebih dahulu untuk memuat data (total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat).</>
+              ) : (
+                <>Estimasi data terpilih: <strong className="text-slate-800">{matchingData.length.toLocaleString('id-ID')}</strong> dari total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat.</>
+              )}
             </span>
           </div>
 
@@ -882,21 +903,41 @@ export default function CustomerMapView({ data }) {
         {!isLoaded && (
           <div className="absolute inset-0 z-[400] pointer-events-none flex items-center justify-center p-4">
             <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-xl rounded-2xl p-6 max-w-md text-center pointer-events-auto animate-fade">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
-                <Icon name="map-pin" size={24} />
+              <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-3 ${
+                !filterStation ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'
+              }`}>
+                <Icon name={!filterStation ? "alert-circle" : "map-pin"} size={24} />
               </div>
-              <h3 className="font-bold text-slate-800 text-sm sm:text-base mb-1">Peta Pelanggan Siap Dimuat</h3>
+              <h3 className="font-bold text-slate-800 text-sm sm:text-base mb-1">
+                {!filterStation ? 'Pilih Stasiun Terlebih Dahulu' : 'Peta Pelanggan Siap Dimuat'}
+              </h3>
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                Tentukan kriteria Stasiun, Status, atau Sales pada panel di atas, lalu klik tombol <strong>&quot;Tampilkan di Peta&quot;</strong> untuk merender titik pelanggan secara ringan dan anti-lag.
+                {!filterStation ? (
+                  <>
+                    Untuk menjaga kestabilan dan mencegah laptop <em>hang</em>, tombol tampilkan semua pelanggan dinonaktifkan. Silakan <strong>pilih Stasiun</strong> pada panel filter di atas terlebih dahulu.
+                  </>
+                ) : (
+                  <>
+                    Stasiun <strong>{filterStation}</strong> terpilih ({matchingData.length.toLocaleString('id-ID')} pelanggan). Klik tombol di bawah untuk menampilkan titik pelanggan di peta secara ringan.
+                  </>
+                )}
               </p>
-              <button
-                onClick={handleLoadData}
-                disabled={matchingData.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
-              >
-                <Icon name="eye" size={14} />
-                <span>Tampilkan di Peta ({matchingData.length.toLocaleString('id-ID')} Pelanggan)</span>
-              </button>
+
+              {filterStation ? (
+                <button
+                  onClick={handleLoadData}
+                  disabled={matchingData.length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  <Icon name="eye" size={14} />
+                  <span>Tampilkan di Peta ({matchingData.length.toLocaleString('id-ID')} Pelanggan)</span>
+                </button>
+              ) : (
+                <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold">
+                  <Icon name="alert-triangle" size={14} className="text-amber-600" />
+                  <span>Pilih Stasiun di filter atas untuk memuat peta</span>
+                </div>
+              )}
             </div>
           </div>
         )}
