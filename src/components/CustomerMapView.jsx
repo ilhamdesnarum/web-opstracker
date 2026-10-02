@@ -808,10 +808,10 @@ export default function CustomerMapView({ data }) {
               <button
                 type="button"
                 disabled
-                title="Pilih Stasiun terlebih dahulu untuk mencegah browser hang"
-                className="flex-1 py-2 px-3 bg-slate-100 border border-slate-200 text-slate-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80 select-none"
+                title="Pilih Stasiun terlebih dahulu"
+                className="flex-1 py-2 px-3 bg-slate-100 border border-slate-200 text-slate-400 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80 select-none"
               >
-                <Icon name="alert-circle" size={14} className="text-amber-500" />
+                <Icon name="navigation" size={13} className="text-slate-400" />
                 <span>Pilih Stasiun Dahulu</span>
               </button>
             ) : (
@@ -842,10 +842,10 @@ export default function CustomerMapView({ data }) {
         {/* Baris 3: Status Ringan & Toggle ODP */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 pt-2.5 mt-2 border-t border-slate-50">
           <div className="flex items-center gap-1.5">
-            <Icon name="info" size={13} className={!filterStation ? "text-amber-500" : "text-blue-500"} />
+            <Icon name="info" size={13} className="text-blue-500" />
             <span>
               {!filterStation ? (
-                <>Wajib pilih stasiun terlebih dahulu untuk memuat data (total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat).</>
+                <>Silakan pilih stasiun pada filter di atas (total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat).</>
               ) : (
                 <>Estimasi data terpilih: <strong className="text-slate-800">{matchingData.length.toLocaleString('id-ID')}</strong> dari total {totalWithCoords.toLocaleString('id-ID')} pelanggan berkoordinat.</>
               )}
@@ -903,22 +903,20 @@ export default function CustomerMapView({ data }) {
         {!isLoaded && (
           <div className="absolute inset-0 z-[400] pointer-events-none flex items-center justify-center p-4">
             <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-xl rounded-2xl p-6 max-w-md text-center pointer-events-auto animate-fade">
-              <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-3 ${
-                !filterStation ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'
-              }`}>
-                <Icon name={!filterStation ? "alert-circle" : "map-pin"} size={24} />
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
+                <Icon name="map-pin" size={24} />
               </div>
               <h3 className="font-bold text-slate-800 text-sm sm:text-base mb-1">
-                {!filterStation ? 'Pilih Stasiun Terlebih Dahulu' : 'Peta Pelanggan Siap Dimuat'}
+                {!filterStation ? 'Pilih Stasiun untuk Memulai' : 'Peta Pelanggan Siap Dimuat'}
               </h3>
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                 {!filterStation ? (
                   <>
-                    Untuk menjaga kestabilan dan mencegah laptop <em>hang</em>, tombol tampilkan semua pelanggan dinonaktifkan. Silakan <strong>pilih Stasiun</strong> pada panel filter di atas terlebih dahulu.
+                    Silakan <strong>pilih Stasiun</strong> pada panel filter di atas untuk menampilkan titik sebaran pelanggan pada area operasional yang diinginkan.
                   </>
                 ) : (
                   <>
-                    Stasiun <strong>{filterStation}</strong> terpilih ({matchingData.length.toLocaleString('id-ID')} pelanggan). Klik tombol di bawah untuk menampilkan titik pelanggan di peta secara ringan.
+                    Stasiun <strong>{filterStation}</strong> terpilih ({matchingData.length.toLocaleString('id-ID')} pelanggan). Klik tombol di bawah untuk memuat titik pelanggan di peta.
                   </>
                 )}
               </p>
@@ -933,9 +931,9 @@ export default function CustomerMapView({ data }) {
                   <span>Tampilkan di Peta ({matchingData.length.toLocaleString('id-ID')} Pelanggan)</span>
                 </button>
               ) : (
-                <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold">
-                  <Icon name="alert-triangle" size={14} className="text-amber-600" />
-                  <span>Pilih Stasiun di filter atas untuk memuat peta</span>
+                <div className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-50 border border-slate-200 text-slate-600 rounded-xl text-xs font-medium">
+                  <Icon name="navigation" size={13} className="text-blue-500" />
+                  <span>Pilih Stasiun pada filter di atas untuk memuat peta</span>
                 </div>
               )}
             </div>
