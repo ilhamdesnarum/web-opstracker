@@ -1106,19 +1106,19 @@ const MobileApp = () => {
         );
       }
 
-      // 3. Log Visit Data dari Supabase
-      if (!cachedVisit) {
-        fetchPromises.push(
-          fetchAllSupabaseData('log_visit', '*', 'id')
-            .then((sbData) => {
-              finalVisit = (sbData || []).map(parseSupabaseVisitDocument);
-              finalVisit = deduplicateVisitData(finalVisit);
+      // 3. Log Visit Data dari Supabase (Selalu ambil data fresh)
+      fetchPromises.push(
+        fetchAllSupabaseData('log_visit', '*', 'id')
+          .then((sbData) => {
+            if (sbData && sbData.length > 0) {
+              finalVisit = deduplicateVisitData(sbData.map(parseSupabaseVisitDocument));
               setCachedData('otas_cache_visit', finalVisit);
-            }).catch(e => {
-              console.error("Gagal memuat log_visit dari Supabase:", e);
-            })
-        );
-      }
+              setData(prev => ({ ...prev, visitData: finalVisit }));
+            }
+          }).catch(e => {
+            console.error("Gagal memuat log_visit dari Supabase:", e);
+          })
+      );
 
       // 4. PO Release Data dari Supabase
       let cachedPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
@@ -1410,12 +1410,26 @@ const MobileApp = () => {
       )
       .subscribe();
 
+    // Setup interval sinkronisasi log_visit setiap 30 detik di mobile
+    const visitInterval = setInterval(() => {
+      fetchAllSupabaseData('log_visit', '*', 'id')
+        .then(sbData => {
+          if (sbData && sbData.length > 0) {
+            const fresh = deduplicateVisitData(sbData.map(parseSupabaseVisitDocument));
+            setCachedData('otas_cache_visit', fresh);
+            setData(prev => ({ ...prev, visitData: fresh }));
+          }
+        })
+        .catch(err => console.warn('Mobile silent visit sync fail:', err));
+    }, 30000);
+
     return () => {
       supabase.removeChannel(pelangganChannel);
       supabase.removeChannel(visitChannel);
       supabase.removeChannel(odpChannel);
       supabase.removeChannel(poChannel);
       supabase.removeChannel(petugasChannel);
+      clearInterval(visitInterval);
     };
   }, []);
 

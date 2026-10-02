@@ -1636,7 +1636,7 @@ function App({ onLogout }) {
         const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas] = await Promise.all([
           parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
-          cachedVisit ? Promise.resolve(null) : fetchAllSupabaseData('log_visit', '*', 'id'),
+          fetchAllSupabaseData('log_visit', '*', 'id').catch(() => null),
           cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
           cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null)
         ]);
@@ -1655,8 +1655,8 @@ function App({ onLogout }) {
           parsedOdp = Array.from(uniq.values());
           setCachedData('otas_odp_cache_v4', parsedOdp);
         }
-        if (supabaseVisit) {
-          cachedVisit = supabaseVisit.map(parseSupabaseVisitDocument);
+        if (supabaseVisit && supabaseVisit.length > 0) {
+          cachedVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
           setCachedData('otas_visit_cache', cachedVisit);
         }
         if (supabasePo && supabasePo.length > 0) {
@@ -1678,6 +1678,18 @@ function App({ onLogout }) {
           teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData
         }));
       }
+
+      // Selalu tarik data visit terbaru dari Supabase di latar belakang agar tidak terkunci cache 24 jam
+      fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
+        if (supabaseVisit && supabaseVisit.length > 0) {
+          const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
+          setCachedData('otas_visit_cache', freshVisit);
+          setData(prev => ({
+            ...prev,
+            visitData: freshVisit
+          }));
+        }
+      }).catch(err => console.warn('Background Supabase Visit fetch fail:', err));
 
       // 2. Ambil data tambahan dashboard/petugas dari GAS secara bersamaan di latar belakang
       api.run('getFastDashboardData')
@@ -1751,6 +1763,17 @@ function App({ onLogout }) {
           }));
         }
       }).catch(err => console.warn('Silent Supabase Petugas fail:', err));
+
+      fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
+        if (supabaseVisit && supabaseVisit.length > 0) {
+          const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
+          setCachedData('otas_visit_cache', freshVisit);
+          setData(prev => ({
+            ...prev,
+            visitData: freshVisit
+          }));
+        }
+      }).catch(err => console.warn('Silent Supabase Visit fail:', err));
 
       // 2. Ambil data GAS (bisa memakan waktu 5-7 detik)
       api.run('getFastDashboardData').then(fastResult => {
