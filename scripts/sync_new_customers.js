@@ -47,8 +47,27 @@ const PARTNER_STATION_IDS = {
 
 function formatKeWIB(isoString) {
   if (!isoString) return "";
-  return isoString.substring(0, 19).replace("T", " ");
+  try {
+    const str = String(isoString).trim();
+    if (str.endsWith("Z") || str.includes("+") || (str.includes("T") && !str.includes(" "))) {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const wibTime = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+        const y = wibTime.getUTCFullYear();
+        const m = String(wibTime.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(wibTime.getUTCDate()).padStart(2, "0");
+        const h = String(wibTime.getUTCHours()).padStart(2, "0");
+        const min = String(wibTime.getUTCMinutes()).padStart(2, "0");
+        const s = String(wibTime.getUTCSeconds()).padStart(2, "0");
+        return `${y}-${m}-${day} ${h}:${min}:${s}`;
+      }
+    }
+    return str.substring(0, 19).replace("T", " ");
+  } catch (e) {
+    return String(isoString).substring(0, 19).replace("T", " ");
+  }
 }
+
 
 function extractCoordinates(c) {
   let lat = "";

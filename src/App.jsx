@@ -6443,14 +6443,11 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       if (s) stats[s] = 0;
     });
 
-    const parts = selectedDate.split('-');
-    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    const targetDateIntl = selectedDate;
-
-    (data.dataRegistrasi || []).forEach(reg => {
-      const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
-      if (valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl)) {
-        let st = String(reg.stasiun || '').trim().toLowerCase();
+    // Sumber tunggal: pelangganData dari Supabase (bukan dataRegistrasi dari GAS/Sheet)
+    (data.pelangganData || []).forEach(p => {
+      const regDate = standardizeDate(p.tanggalRegistrasi);
+      if (regDate === selectedDate) {
+        let st = String(p.stasiun || '').trim().toLowerCase();
         if (st === 'tawang') st = 'semarang tawang';
         if (stats[st] !== undefined) {
           stats[st] += 1;
@@ -6464,7 +6461,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       stasiun: key,
       total: stats[key]
     }));
-  }, [data.dataRegistrasi, safeStationData, selectedDate]);
+  }, [data.pelangganData, safeStationData, selectedDate]);
 
   const totalRegistrasiHarian = registrasiPerStasiun.reduce((acc, curr) => acc + curr.total, 0);
 
@@ -6500,44 +6497,21 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   }, [activeDismantledList, dismantledSearchTerm]);
 
   // --- LIST DAFTAR REGISTRASI UNTUK POP-UP (DIFILTER BERDASARKAN STASIUN YANG DIKLIK) ---
+  // Sumber tunggal: pelangganData dari Supabase (bukan dataRegistrasi dari GAS/Sheet)
   const registrasiList = useMemo(() => {
     if (!selectedRegStation) return []; // Jangan proses jika modal tidak terbuka
 
-    const parts = selectedDate.split('-');
-    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    const targetDateIntl = selectedDate;
+    return (data.pelangganData || []).filter(p => {
+      const regDate = standardizeDate(p.tanggalRegistrasi);
+      if (regDate !== selectedDate) return false;
 
-    // Lookup map cepat dari data.pelangganData untuk melengkapi namaSales (by ID dan Nama)
-    const pelangganMap = new Map();
-    const pelangganNameMap = new Map();
-    (data.pelangganData || []).forEach(p => {
-      const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-      if (id) pelangganMap.set(id, p);
-      const name = String(p.namaPelanggan || p.nama_pelanggan || '').trim().toLowerCase();
-      if (name) pelangganNameMap.set(name, p);
-    });
-
-    return (data.dataRegistrasi || []).filter(reg => {
-      const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
-      const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
-      let regSt = String(reg.stasiun || '').trim().toLowerCase();
-      if (regSt === 'tawang') regSt = 'semarang tawang';
+      let pSt = String(p.stasiun || '').trim().toLowerCase();
+      if (pSt === 'tawang') pSt = 'semarang tawang';
       let selSt = String(selectedRegStation || '').trim().toLowerCase();
       if (selSt === 'tawang') selSt = 'semarang tawang';
-      const matchStation = regSt === selSt;
-
-      return matchDate && matchStation;
-    }).map(reg => {
-      const idUpper = String(reg.idPelanggan || reg.id_pelanggan || '').trim().toUpperCase();
-      const nameLower = String(reg.namaPelanggan || reg.nama_pelanggan || reg.nama || '').trim().toLowerCase();
-      const matched = pelangganMap.get(idUpper) || pelangganNameMap.get(nameLower);
-      const sales = reg.namaSales || reg.sales || matched?.namaSales || 'Daftar Mandiri';
-      return {
-        ...reg,
-        namaSales: sales
-      };
+      return pSt === selSt;
     });
-  }, [data.dataRegistrasi, data.pelangganData, selectedDate, selectedRegStation]);
+  }, [data.pelangganData, selectedDate, selectedRegStation]);
 
   // --- LIST DAFTAR DETAIL PO UNTUK POP-UP PER STASIUN ---
   const detailPoList = useMemo(() => {
@@ -7590,7 +7564,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                             <div className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 flex items-center gap-1">
                               <Icon name="clock" size={10} className="text-blue-400" />
                               {(() => {
-                                const t = String(cust.tanggal || '');
+                                const t = String(cust.tanggalRegistrasi || '');
                                 const parts = t.split(/[T ]/);
                                 const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
                                 const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';
@@ -7643,7 +7617,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                               <div className="flex items-center gap-1.5 bg-blue-50/50 p-1.5 rounded-lg border border-blue-100 w-max text-blue-700">
                                 <Icon name="clock" size={12} className="text-blue-400" />
                                 {(() => {
-                                  const t = String(cust.tanggal || '');
+                                  const t = String(cust.tanggalRegistrasi || '');
                                   const parts = t.split(/[T ]/);
                                   const dateStr = parts[0] ? standardizeDate(parts[0]) : '-';
                                   const timeStr = parts[1] ? parts[1].substring(0, 5) + ' WIB' : '';

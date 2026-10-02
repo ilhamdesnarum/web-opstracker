@@ -105,11 +105,38 @@ const getOdpLeafletIcon = (isFull = false) => {
   return leafletIconCache.get(key);
 };
 
+// Helper hitung jarak garis lurus (Haversine formula dalam meter)
+const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dp = ((lat2 - lat1) * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+};
+
+// Helper normalisasi nama ODP untuk pencocokan toleran
+const cleanOdpStr = (str) => {
+  if (!str) return '';
+  let clean = String(str)
+    .replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '')
+    .trim()
+    .toUpperCase();
+  clean = clean.replace(/_\s*(\d{1,2})\s*(_L\d+|_P\d+|_|$)/gi, (match, num, suffix) => {
+    return '_' + num.padStart(3, '0') + suffix;
+  });
+  return clean;
+};
+
 export default function CustomerMapView({ data }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const clusterGroupRef = useRef(null);
   const odpLayerRef = useRef(null);
+  const dropcoreLineRef = useRef(null);
+
 
   // Status visualisasi: Default KOSONG (hemat memori & anti-lag)
   const [isLoaded, setIsLoaded] = useState(false);
@@ -193,6 +220,64 @@ export default function CustomerMapView({ data }) {
       return odpSt === stFilter || odpSt.includes(stFilter) || stFilter.includes(odpSt);
     });
   }, [data?.odpData, filterStation]);
+
+  // Map lookup data ODP untuk pencarian cepat (O(1)) saat render titik pelanggan
+  const odpLookupMap = useMemo(() => {
+    const map = new Map();
+    (data?.odpData || []).forEach(o => {
+      const keys = [
+        o.kodeOdp,
+        o.kode_odp,
+        o.label,
+        o.namaOdp
+      ].filter(Boolean);
+
+      keys.forEach(k => {
+        const clean = cleanOdpStr(k);
+        if (clean && !map.has(clean)) {
+          map.set(clean, o);
+        }
+        const superClean = String(k).replace(/[_\.\-\s]/g, '').toUpperCase();
+        if (superClean && !map.has(superClean)) {
+          map.set(superClean, o);
+        }
+      });
+    });
+    return map;
+  }, [data?.odpData]);
+
+  // Handler interaksi global dari popup Leaflet
+  useEffect(() => {
+    window.focusOdpFromCustomerMap = (cLat, cLng, oLat, oLng, odpName) => {
+      if (!mapInstance.current || !oLat || !oLng) return;
+
+      // Nyalakan checkbox / layer ODP jika belum aktif
+      setShowOdpLayer(true);
+
+      // Gambar garis pandu dropcore (dashed line hijau) dari rumah pelanggan ke ODP
+      if (dropcoreLineRef.current && mapInstance.current) {
+        mapInstance.current.removeLayer(dropcoreLineRef.current);
+        dropcoreLineRef.current = null;
+      }
+
+      if (cLat && cLng && !isNaN(cLat) && !isNaN(cLng) && window.L) {
+        dropcoreLineRef.current = window.L.polyline([[cLat, cLng], [oLat, oLng]], {
+          color: '#16a34a',
+          weight: 3,
+          dashArray: '6, 6',
+          opacity: 0.9
+        }).addTo(mapInstance.current);
+      }
+
+      // Fokuskan peta ke posisi ODP
+      mapInstance.current.flyTo([oLat, oLng], 18, { duration: 1 });
+    };
+
+    return () => {
+      delete window.focusOdpFromCustomerMap;
+    };
+  }, []);
+
 
   // Hitung jumlah data yang cocok secara realtime sebelum tombol "Tampilkan di Peta" ditekan
   const matchingData = useMemo(() => {
@@ -338,7 +423,7 @@ export default function CustomerMapView({ data }) {
         title: `${p.namaPelanggan || p.nama_pelanggan || ''} (${conf.label})`
       });
 
-      // Konten Popup Bersih & Rapi dengan Icon Supabase Storage
+      // Konten Popup Bersih & Rapi dengan Icon Supabase Storage & Detail ODP
       const idPel = p.idPelanggan || p.id_pelanggan || '-';
       const nama = p.namaPelanggan || p.nama_pelanggan || 'Tanpa Nama';
       const stasiun = toProperCase(p.stasiun || '-');
@@ -347,8 +432,39 @@ export default function CustomerMapView({ data }) {
       const waLink = p.nomorHp ? `https://wa.me/62${String(p.nomorHp).replace(/^0+|^62/, '')}` : null;
       const gmapsLink = `https://maps.google.com/?q=${lat},${lng}`;
 
+      // Ambil data ODP pelanggan
+      const rawOdp = String(p.odpAktual || p.odp || p.kodeOdp || p.kode_odp || '').trim();
+      const portOdp = String(p.portOdp || p.port_odp || '').trim();
+      const precon = String(p.kabelPrecon || p.kabel_precon || '').trim();
+
+      // Cari ODP induk di master odpData
+      let matchedOdp = null;
+      let distMeters = null;
+      let oLat = null;
+      let oLng = null;
+
+      if (rawOdp) {
+        matchedOdp = odpLookupMap.get(cleanOdpStr(rawOdp)) || 
+                     odpLookupMap.get(rawOdp.toUpperCase()) ||
+                     odpLookupMap.get(rawOdp.replace(/[_\.\-\s]/g, '').toUpperCase()) ||
+                     null;
+
+        if (matchedOdp) {
+          const latParsed = parseFloat(String(matchedOdp.latitude || '').trim().replace(',', '.'));
+          const lngParsed = parseFloat(String(matchedOdp.longitude || '').trim().replace(',', '.'));
+          if (!isNaN(latParsed) && !isNaN(lngParsed) && latParsed !== 0 && lngParsed !== 0) {
+            oLat = latParsed;
+            oLng = lngParsed;
+            distMeters = calculateDistanceMeters(lat, lng, oLat, oLng);
+          }
+        }
+      }
+
+      const odcKode = matchedOdp?.kodeOdc || matchedOdp?.kode_odc || p.odc || '';
+
       const popupHtml = `
-        <div style="font-family: inherit; min-width: 230px; max-width: 290px; padding: 2px;">
+        <div style="font-family: inherit; min-width: 240px; max-width: 300px; padding: 2px;">
+          <!-- Header Status & Pelanggan -->
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <img src="${conf.iconUrl}" style="width: 24px; height: 24px; object-fit: contain;" alt="${conf.label}" />
@@ -362,16 +478,68 @@ export default function CustomerMapView({ data }) {
             </span>
           </div>
 
-          <div style="font-size: 11px; color: #475569; margin-bottom: 8px; line-height: 1.35; background: #f8fafc; padding: 6px 8px; border-radius: 6px; border: 1px solid #f1f5f9;">
-            <div style="color: #64748b; font-size: 9.5px; text-transform: uppercase; font-weight: 600; margin-bottom: 1px;">Alamat</div>
+          <!-- Alamat -->
+          <div style="font-size: 11px; color: #475569; margin-bottom: 6px; line-height: 1.35; background: #f8fafc; padding: 6px 8px; border-radius: 6px; border: 1px solid #f1f5f9;">
+            <div style="color: #64748b; font-size: 9px; text-transform: uppercase; font-weight: 600; margin-bottom: 1px;">Alamat</div>
             <div>${alamat}</div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 10px;">
+          <!-- Detail ODP -->
+          ${rawOdp ? `
+            <div style="font-size: 11px; margin-bottom: 6px; line-height: 1.35; background: #f0fdf4; padding: 6px 8px; border-radius: 6px; border: 1px solid #bbf7d0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <div style="display: flex; align-items: center; gap: 4px; color: #166534; font-weight: 700; font-size: 9.5px; text-transform: uppercase;">
+                  <svg style="width: 12px; height: 12px; color: #16a34a; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/>
+                    <rect width="20" height="8" x="2" y="14" rx="2" ry="2"/>
+                    <line x1="6" x2="6.01" y1="6" y2="6"/>
+                    <line x1="6" x2="6.01" y1="18" y2="18"/>
+                  </svg>
+                  <span>ODP</span>
+                </div>
+                ${portOdp ? `
+                  <span style="background: #16a34a; color: #ffffff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px;">
+                    PORT ${portOdp}
+                  </span>
+                ` : `
+                  <span style="background: #dcfce7; color: #15803d; font-size: 8.5px; font-weight: 600; padding: 1px 4px; border-radius: 4px; border: 1px solid #86efac;">
+                    Port -
+                  </span>
+                `}
+              </div>
+
+              <div style="font-weight: 700; font-size: 11px; color: #15803d; font-family: monospace; word-break: break-all;">
+                ${rawOdp}
+              </div>
+
+              ${(odcKode || precon || distMeters !== null) ? `
+                <div style="display: flex; flex-wrap: wrap; gap: 3px 8px; font-size: 9.5px; color: #166534; margin-top: 3px; border-top: 1px dashed #bbf7d0; padding-top: 3px;">
+                  ${odcKode ? `<span>ODC: <strong>${odcKode}</strong></span>` : ''}
+                  ${precon ? `<span>Precon: <strong>${precon}</strong></span>` : ''}
+                  ${distMeters !== null ? `<span>Jarak: <strong>~${distMeters} m</strong></span>` : ''}
+                </div>
+              ` : ''}
+
+              ${(oLat && oLng) ? `
+                <button onclick="window.focusOdpFromCustomerMap(${lat}, ${lng}, ${oLat}, ${oLng}, '${rawOdp}')" style="margin-top: 5px; width: 100%; border: 1px solid #86efac; background: #ffffff; color: #15803d; border-radius: 4px; padding: 3px 6px; font-size: 9.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="Tampilkan ODP dan garis tarikan ke ODP">
+                  <span>📍 Sorot ODP di Peta</span>
+                </button>
+              ` : ''}
+            </div>
+          ` : `
+            <div style="font-size: 10px; color: #64748b; margin-bottom: 6px; background: #f8fafc; padding: 5px 8px; border-radius: 6px; border: 1px dashed #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; color: #64748b;">ODP:</span>
+              <span style="color: #94a3b8; font-style: italic;">Belum Terpasang / Belum Ada Data</span>
+            </div>
+          `}
+
+          <!-- Stasiun & Sales -->
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 8px;">
             <div>Stasiun: <strong style="color: #334155;">${stasiun}</strong></div>
             <div>Sales: <strong style="color: #334155;">${sales}</strong></div>
           </div>
 
+          <!-- Tombol Aksi -->
           <div style="display: flex; gap: 6px; border-top: 1px solid #e2e8f0; padding-top: 8px;">
             ${waLink ? `
               <a href="${waLink}" target="_blank" rel="noreferrer" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; background: #10b981; color: white; border-radius: 6px; text-decoration: none; font-size: 10.5px; font-weight: 600;">
@@ -385,7 +553,7 @@ export default function CustomerMapView({ data }) {
         </div>
       `;
 
-      marker.bindPopup(popupHtml, { maxWidth: 300 });
+      marker.bindPopup(popupHtml, { maxWidth: 310 });
       groupLayer.addLayer(marker);
     });
 
@@ -409,6 +577,10 @@ export default function CustomerMapView({ data }) {
       clusterGroupRef.current.clearLayers();
       clusterGroupRef.current = null;
     }
+    if (dropcoreLineRef.current && mapInstance.current) {
+      mapInstance.current.removeLayer(dropcoreLineRef.current);
+      dropcoreLineRef.current = null;
+    }
     if (mapInstance.current) {
       mapInstance.current.setView([-6.98, 110.42], 10);
     }
@@ -416,6 +588,7 @@ export default function CustomerMapView({ data }) {
     setRenderedCount(0);
     setRenderedStats({ aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 });
   };
+
 
   // Toggle Layer ODP Mengikuti Filter Stasiun & Status Kapasitas (Full = Oren, Idle = Biru)
   useEffect(() => {

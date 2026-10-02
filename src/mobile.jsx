@@ -909,41 +909,17 @@ const MobileApp = () => {
 
   const openRegistrasiModal = (stasiun) => {
     if (isGlobalLoading) return;
-    const parts = todayStr.split('-');
-    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    const targetDateIntl = todayStr;
 
-    const pelangganMap = new Map();
-    (data.pelangganData || []).forEach(p => {
-      const idKey = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-      if (idKey) pelangganMap.set(idKey, p);
-    });
+    // Sumber tunggal: pelangganData dari Supabase (bukan dataRegistrasi dari GAS/Sheet)
+    const items = (data.pelangganData || []).filter(p => {
+      const regDate = standardizeDate(p.tanggalRegistrasi);
+      if (regDate !== todayStr) return false;
 
-    const items = (data.dataRegistrasi || []).filter(reg => {
-      const valStr = String(reg.tanggal || '');
-      const matchDate = valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl);
-
-      let st = String(reg.stasiun || '').toUpperCase().trim();
+      let st = String(p.stasiun || '').toUpperCase().trim();
       if (st === 'TAWANG') st = 'SEMARANG TAWANG';
-      const ALL_STATIONS_LOCAL = ['ALASTUA', 'BRUMBUNG', 'KALIBODRI', 'KALIWUNGU', 'KRADENAN', 'KRENGSENG', 'RANDUBLATUNG', 'SEMARANG TAWANG', 'SULUR', 'WADU', 'WELERI'];
-      const matched = ALL_STATIONS_LOCAL.find(s => st.includes(s));
-      if (matched) st = matched;
-
-      let st1 = st.toLowerCase();
-      let st2 = String(stasiun).toLowerCase().trim();
-      if (st1 === 'tawang') st1 = 'semarang tawang';
-      if (st2 === 'tawang') st2 = 'semarang tawang';
-      const matchStation = st1 === st2 || st1.includes(st2) || st2.includes(st1);
-
-      return matchDate && matchStation;
-    }).map(reg => {
-      const idKey = String(reg.idPelanggan || reg.id_pelanggan || '').trim().toUpperCase();
-      const matched = idKey ? pelangganMap.get(idKey) : null;
-      const sales = reg.namaSales || reg.sales || matched?.namaSales || matched?.nama_sales || 'Daftar Mandiri';
-      return {
-        ...reg,
-        namaSales: sales
-      };
+      let st2 = String(stasiun).toUpperCase().trim();
+      if (st2 === 'TAWANG') st2 = 'SEMARANG TAWANG';
+      return st === st2;
     });
 
     openListModal({ isOpen: true, title: `Pendaftar Baru - ${stasiun}`, type: 'registrasi', items });
@@ -1562,18 +1538,14 @@ const MobileApp = () => {
       if (standardizeDate(v.timestamp) === todayStr) visitHarian++;
     });
 
-    // 3. Registrasi Harian dihitung dari dataRegistrasi (mengikuti web)
+    // 3. Registrasi Harian dihitung dari pelangganData (sumber tunggal Supabase)
     const stasiunRegCounts = {};
     ALL_STATIONS.forEach(s => stasiunRegCounts[s] = 0);
 
-    const parts = todayStr.split('-');
-    const targetDateIndo = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    const targetDateIntl = todayStr;
-
-    (data.dataRegistrasi || []).forEach(reg => {
-      const valStr = String(reg.tanggal || reg.tanggalRegistrasi || '');
-      if (valStr.includes(targetDateIndo) || valStr.includes(targetDateIntl)) {
-        let st = String(reg.stasiun || '').toUpperCase().trim();
+    (data.pelangganData || []).forEach(p => {
+      const regDate = standardizeDate(p.tanggalRegistrasi);
+      if (regDate === todayStr) {
+        let st = String(p.stasiun || '').toUpperCase().trim();
         if (st === 'TAWANG') st = 'SEMARANG TAWANG';
         const matched = ALL_STATIONS.find(s => st.includes(s));
         if (matched) st = matched;
@@ -1606,7 +1578,7 @@ const MobileApp = () => {
     const leadMaxKendala = Math.max(...leaderboardKendala.map(l => l.value), 1);
 
     return { totalAktivasi, aktivasiHarian, kendalaHarian, visitHarian, dismantledHarian, totalRegToday, regArray, maxVal, aktHarianArray, aktMaxVal, ikrHarian, leaderboardAktivasi, leadMaxAktivasi, leaderboardIkr, leadMaxIkr, leaderboardKendala, leadMaxKendala };
-  }, [data.pelangganData, data.visitData, data.dataRegistrasi, data.fastKpi, data.stationData, todayStr]);
+  }, [data.pelangganData, data.visitData, data.fastKpi, data.stationData, todayStr]);
 
   const discrepancyList = useMemo(() => {
     return (data.pelangganData || [])
