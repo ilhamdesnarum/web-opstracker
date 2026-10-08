@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toProperCase, getGlobalStatusStr } from '../utils';
+import MasterKmlModal from './MasterKmlModal';
 
 // Komponen Icon Vektor Lucide
 const Icon = ({ name, size = 16, className = "" }) => {
@@ -130,18 +131,70 @@ const cleanOdpStr = (str) => {
   return clean;
 };
 
+// Komponen Checkbox Khusus Hierarki Folder (Mendukung state Indeterminate seperti Google Earth)
+function FolderCheckbox({ state, onChange }) {
+  const checkboxRef = useRef(null);
+
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = state === 'partial';
+    }
+  }, [state]);
+
+  return (
+    <input
+      ref={checkboxRef}
+      type="checkbox"
+      checked={state === 'all'}
+      onChange={onChange}
+      className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer shrink-0 accent-blue-600"
+    />
+  );
+}
+
+// Helper penentu ikon representatif per folder berdasarkan nama atau fitur
+const getFolderIconInfo = (folder) => {
+  const name = (folder.name || '').toLowerCase();
+  if (name.includes('tiang') || name.includes('pole')) {
+    return { icon: 'map-pin', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Tiang' };
+  }
+  if (name.includes('odp')) {
+    return { icon: 'box', color: 'text-emerald-600', bg: 'bg-emerald-50', label: 'ODP' };
+  }
+  if (name.includes('odc')) {
+    return { icon: 'database', color: 'text-blue-600', bg: 'bg-blue-50', label: 'ODC' };
+  }
+  if (name.includes('closure') || name.includes('joint') || name.includes('cj')) {
+    return { icon: 'disc', color: 'text-purple-600', bg: 'bg-purple-50', label: 'Closure' };
+  }
+  if (name.includes('line') || name.includes('kabel') || name.includes('cable') || name.includes('feeder') || name.includes('distribusi') || folder.hasLine) {
+    return { icon: 'git-commit', color: 'text-rose-500', bg: 'bg-rose-50', label: 'Kabel/Jalur' };
+  }
+  if (name.includes('boundary') || name.includes('area') || name.includes('cluster') || name.includes('polygon') || folder.hasPolygon) {
+    return { icon: 'square', color: 'text-teal-600', bg: 'bg-teal-50', label: 'Area/Batas' };
+  }
+  return { icon: folder.childIds?.length > 0 ? 'folder' : 'layers', color: 'text-blue-500', bg: 'bg-blue-50', label: 'Folder' };
+};
+
 export default function CustomerMapView({ data }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const clusterGroupRef = useRef(null);
   const odpLayerRef = useRef(null);
   const dropcoreLineRef = useRef(null);
-
+  const kmlLayerRef = useRef(null);
 
   // Status visualisasi: Default KOSONG (hemat memori & anti-lag)
   const [isLoaded, setIsLoaded] = useState(false);
   const [renderedCount, setRenderedCount] = useState(0);
   const [renderedStats, setRenderedStats] = useState({ aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 });
+  const [activeKmlInfo, setActiveKmlInfo] = useState(null); // { fileName, count }
+  const kmlFolderLayersMapRef = useRef(new Map());
+  const [kmlFolders, setKmlFolders] = useState([]);
+  const [hiddenFolderIds, setHiddenFolderIds] = useState(new Set());
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState(new Set());
+  const [showKmlFolderPanel, setShowKmlFolderPanel] = useState(false);
+  const [folderSearchQuery, setFolderSearchQuery] = useState('');
 
   // State Filter
   const [filterStation, setFilterStation] = useState('');
@@ -149,6 +202,7 @@ export default function CustomerMapView({ data }) {
   const [filterSales, setFilterSales] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showOdpLayer, setShowOdpLayer] = useState(false);
+  const [showMasterKmlModal, setShowMasterKmlModal] = useState(false);
 
   // Ambil daftar stasiun yang ada beserta hitungan pelanggan berkoordinat
   const { stationOptions, totalWithCoords } = useMemo(() => {
@@ -582,13 +636,376 @@ export default function CustomerMapView({ data }) {
       mapInstance.current.removeLayer(dropcoreLineRef.current);
       dropcoreLineRef.current = null;
     }
+    if (kmlFolderLayersMapRef.current && mapInstance.current) {
+      kmlFolderLayersMapRef.current.forEach(group => {
+        if (mapInstance.current.hasLayer(group)) {
+          mapInstance.current.removeLayer(group);
+        }
+        group.clearLayers();
+      });
+      kmlFolderLayersMapRef.current.clear();
+    }
     if (mapInstance.current) {
       mapInstance.current.setView([-6.98, 110.42], 10);
     }
     setIsLoaded(false);
     setRenderedCount(0);
     setRenderedStats({ aktif: 0, kendala: 0, waiting: 0, suspend: 0, dismantle: 0 });
+    setActiveKmlInfo(null);
+    setKmlFolders([]);
+    setHiddenFolderIds(new Set());
+    setShowKmlFolderPanel(false);
   };
+
+  // Helper: Ambil ID folder beserta seluruh anak-anaknya secara rekursif
+  const getDescendantFolderIds = (folderId, folders) => {
+    const result = [folderId];
+    const foldersMap = new Map(folders.map(f => [f.id, f]));
+    const queue = [folderId];
+
+    while (queue.length > 0) {
+      const curId = queue.shift();
+      const folder = foldersMap.get(curId);
+      if (folder && Array.isArray(folder.childIds)) {
+        folder.childIds.forEach(childId => {
+          result.push(childId);
+          queue.push(childId);
+        });
+      }
+    }
+    return result;
+  };
+
+  // Handler: Gambar layer KML / KMZ ke atas Leaflet Map dengan pemisahan per Folder
+  const handlePlotKmlToMap = ({ fileName, geojson, folders = [] }) => {
+    if (!mapInstance.current || !window.L) return;
+
+    // Bersihkan semua layer KML sebelumnya dari map
+    if (kmlFolderLayersMapRef.current) {
+      kmlFolderLayersMapRef.current.forEach(group => {
+        if (mapInstance.current.hasLayer(group)) {
+          mapInstance.current.removeLayer(group);
+        }
+        group.clearLayers();
+      });
+      kmlFolderLayersMapRef.current.clear();
+    }
+
+    try {
+      // Inisialisasi featureGroup untuk setiap folder
+      const layersMap = new Map();
+      folders.forEach(f => {
+        layersMap.set(f.id, window.L.featureGroup());
+      });
+      const fallbackGroup = window.L.featureGroup();
+      layersMap.set('fallback', fallbackGroup);
+
+      const allBounds = [];
+
+      // Render setiap fitur ke dalam group foldernya masing-masing
+      geojson.features.forEach(feature => {
+        const folderId = feature.properties?._folderId || 'fallback';
+        const targetGroup = layersMap.get(folderId) || fallbackGroup;
+
+        const singleLayer = window.L.geoJSON(feature, {
+          style: (feat) => {
+            const props = feat.properties || {};
+            const fillColor = props.fill || '#3b82f6';
+            const strokeColor = props.stroke || props.fill || '#1d4ed8';
+            const fillOpacity = props['fill-opacity'] !== undefined ? Number(props['fill-opacity']) : 0.25;
+            const strokeWidth = props['stroke-width'] !== undefined ? Number(props['stroke-width']) : 2.5;
+
+            return {
+              color: strokeColor,
+              weight: strokeWidth,
+              opacity: 0.85,
+              fillColor: fillColor,
+              fillOpacity: fillOpacity
+            };
+          },
+          pointToLayer: (feat, latlng) => {
+            const props = feat.properties || {};
+            let iconUrl = props.icon;
+
+            if (iconUrl) {
+              if (typeof iconUrl === 'string' && iconUrl.startsWith('http://maps.google.com/')) {
+                iconUrl = iconUrl.replace('http://maps.google.com/', 'https://maps.google.com/');
+              }
+
+              const scale = Number(props['icon-scale']) || 1;
+              const size = Math.round(18 * Math.max(0.6, Math.min(scale, 1.8)));
+              const iconColor = props['icon-color'];
+              const cacheKey = `kml_${iconUrl}_${size}_${iconColor || ''}`;
+
+              const isGoogleShape = typeof iconUrl === 'string' && iconUrl.includes('/shapes/');
+              const isPushpin = typeof iconUrl === 'string' && iconUrl.includes('pushpin');
+              const iconAnchor = isPushpin ? [Math.round(size / 3), size] : [size / 2, size / 2];
+              const popupAnchor = isPushpin ? [0, -size] : [0, -size / 2];
+
+              if (!leafletIconCache.has(cacheKey)) {
+                if (isGoogleShape && iconColor) {
+                  leafletIconCache.set(
+                    cacheKey,
+                    window.L.divIcon({
+                      className: '',
+                      html: `<div style="width:${size}px;height:${size}px;background-color:${iconColor};-webkit-mask:url('${iconUrl}') no-repeat center / contain;mask:url('${iconUrl}') no-repeat center / contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6));"></div>`,
+                      iconSize: [size, size],
+                      iconAnchor: iconAnchor,
+                      popupAnchor: popupAnchor
+                    })
+                  );
+                } else {
+                  leafletIconCache.set(
+                    cacheKey,
+                    window.L.icon({
+                      iconUrl: iconUrl,
+                      iconSize: [size, size],
+                      iconAnchor: iconAnchor,
+                      popupAnchor: popupAnchor,
+                      className: 'kml-native-icon'
+                    })
+                  );
+                }
+              }
+
+              return window.L.marker(latlng, {
+                icon: leafletIconCache.get(cacheKey),
+                title: props.name || ''
+              });
+            }
+
+            return window.L.circleMarker(latlng, {
+              radius: 5,
+              fillColor: props.fill || '#2563eb',
+              color: '#ffffff',
+              weight: 1.5,
+              opacity: 1,
+              fillOpacity: 0.85
+            });
+          },
+          onEachFeature: (feat, layer) => {
+            const props = feat.properties || {};
+            const name = props.name || props.Name || 'Fitur KML';
+            const desc = props.description || '';
+            const folderPath = props._folderPath || '';
+
+            layer.bindPopup(`
+              <div style="font-family: 'Inter', sans-serif; font-size: 11px; max-width: 270px; line-height: 1.4;">
+                <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px;">
+                  ${name}
+                </div>
+                ${folderPath ? `<div style="font-size: 9.5px; color: #3b82f6; margin-bottom: 4px;">📁 ${folderPath}</div>` : ''}
+                ${desc ? `<div style="color: #475569; font-size: 10.5px; max-height: 140px; overflow-y: auto; word-break: break-word;">${desc}</div>` : ''}
+              </div>
+            `);
+          }
+        });
+
+        targetGroup.addLayer(singleLayer);
+      });
+
+      // Tambahkan semua group folder ke peta & kumpulkan bounds
+      layersMap.forEach(group => {
+        if (group.getLayers().length > 0) {
+          group.addTo(mapInstance.current);
+          const b = group.getBounds();
+          if (b && b.isValid()) {
+            allBounds.push(b);
+          }
+        }
+      });
+
+      kmlFolderLayersMapRef.current = layersMap;
+
+      // Auto fit kamera peta ke seluruh area KML
+      if (allBounds.length > 0) {
+        let unitedBounds = allBounds[0];
+        for (let i = 1; i < allBounds.length; i++) {
+          unitedBounds = unitedBounds.extend(allBounds[i]);
+        }
+        mapInstance.current.fitBounds(unitedBounds, { padding: [40, 40], maxZoom: 16 });
+      }
+
+      setActiveKmlInfo({
+        fileName,
+        count: geojson.features.length
+      });
+      setKmlFolders(folders);
+      setHiddenFolderIds(new Set());
+      setCollapsedFolderIds(new Set());
+      // Buka panel struktur folder otomatis agar user langsung melihat daftar lapisannya
+      setShowKmlFolderPanel(true);
+    } catch (e) {
+      console.error('Gagal mem-plot GeoJSON KML ke Leaflet:', e);
+    }
+  };
+
+  // Handler: Hapus layer KML sepenuhnya dari peta
+  const handleRemoveKmlLayer = () => {
+    if (kmlFolderLayersMapRef.current && mapInstance.current) {
+      kmlFolderLayersMapRef.current.forEach(group => {
+        if (mapInstance.current.hasLayer(group)) {
+          mapInstance.current.removeLayer(group);
+        }
+        group.clearLayers();
+      });
+      kmlFolderLayersMapRef.current.clear();
+    }
+    setActiveKmlInfo(null);
+    setKmlFolders([]);
+    setHiddenFolderIds(new Set());
+    setCollapsedFolderIds(new Set());
+    setShowKmlFolderPanel(false);
+  };
+
+  // Hitung status checkbox untuk setiap folder: 'all' (semua terlihat), 'none' (semua tersembunyi), 'partial' (sebagian)
+  const getFolderCheckState = (folderId) => {
+    const targetIds = getDescendantFolderIds(folderId, kmlFolders);
+    const activeLeafIds = targetIds.filter(id => {
+      const f = kmlFolders.find(x => x.id === id);
+      return f && f.selfCount > 0;
+    });
+
+    const idsToCheck = activeLeafIds.length > 0 ? activeLeafIds : targetIds;
+    const hiddenCount = idsToCheck.filter(id => hiddenFolderIds.has(id)).length;
+
+    if (hiddenCount === 0) return 'all';
+    if (hiddenCount === idsToCheck.length) return 'none';
+    return 'partial';
+  };
+
+  // Handler: Toggle Hide/Unhide Folder spesifik beserta semua turunannya
+  const handleToggleFolder = (folderId) => {
+    if (!mapInstance.current || !kmlFolderLayersMapRef.current) return;
+
+    const currentState = getFolderCheckState(folderId);
+    const targetIds = getDescendantFolderIds(folderId, kmlFolders);
+
+    setHiddenFolderIds(prev => {
+      const next = new Set(prev);
+      if (currentState === 'all' || currentState === 'partial') {
+        // HIDE semua item di bawah folder ini
+        targetIds.forEach(id => {
+          next.add(id);
+          const group = kmlFolderLayersMapRef.current?.get(id);
+          if (group && mapInstance.current.hasLayer(group)) {
+            mapInstance.current.removeLayer(group);
+          }
+        });
+      } else {
+        // UNHIDE / SHOW semua item di bawah folder ini
+        targetIds.forEach(id => {
+          next.delete(id);
+          const group = kmlFolderLayersMapRef.current?.get(id);
+          if (group && !mapInstance.current.hasLayer(group)) {
+            group.addTo(mapInstance.current);
+          }
+        });
+      }
+      return next;
+    });
+  };
+
+  // Handler: Centang Semua Folder (Show All)
+  const handleShowAllFolders = () => {
+    if (!mapInstance.current || !kmlFolderLayersMapRef.current) return;
+    setHiddenFolderIds(new Set());
+    kmlFolderLayersMapRef.current.forEach(group => {
+      if (!mapInstance.current.hasLayer(group)) {
+        group.addTo(mapInstance.current);
+      }
+    });
+  };
+
+  // Handler: Hapus Semua Centang Folder (Hide All)
+  const handleHideAllFolders = () => {
+    if (!mapInstance.current || !kmlFolderLayersMapRef.current) return;
+    setHiddenFolderIds(new Set(kmlFolders.map(f => f.id)));
+    kmlFolderLayersMapRef.current.forEach(group => {
+      if (mapInstance.current.hasLayer(group)) {
+        mapInstance.current.removeLayer(group);
+      }
+    });
+  };
+
+  // Handler: Buka/Tutup Subfolder (Expand/Collapse)
+  const handleToggleCollapse = (folderId) => {
+    setCollapsedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => setCollapsedFolderIds(new Set());
+  const handleCollapseAll = () => {
+    const parentIds = kmlFolders.filter(f => f.childIds?.length > 0).map(f => f.id);
+    setCollapsedFolderIds(new Set(parentIds));
+  };
+
+  // Handler: Zoom & Fokuskan Kamera Peta ke batas area suatu folder
+  const handleFocusFolder = (folderId) => {
+    if (!mapInstance.current || !kmlFolderLayersMapRef.current || !window.L) return;
+    const targetIds = getDescendantFolderIds(folderId, kmlFolders);
+    let unitedBounds = null;
+
+    targetIds.forEach(id => {
+      const group = kmlFolderLayersMapRef.current?.get(id);
+      if (group && group.getLayers().length > 0) {
+        const b = group.getBounds();
+        if (b && b.isValid()) {
+          if (!unitedBounds) unitedBounds = window.L.latLngBounds(b.getSouthWest(), b.getNorthEast());
+          else unitedBounds.extend(b);
+        }
+      }
+    });
+
+    if (unitedBounds && unitedBounds.isValid()) {
+      mapInstance.current.fitBounds(unitedBounds, { padding: [50, 50], maxZoom: 18 });
+    }
+  };
+
+  // Daftar folder yang ditampilkan pada Tree (mendukung collapse & search)
+  const visibleFolderTree = useMemo(() => {
+    if (folderSearchQuery.trim()) {
+      const q = folderSearchQuery.toLowerCase().trim();
+      return kmlFolders.filter(f => f.totalCount > 0 && (f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)));
+    }
+
+    const result = [];
+    const hiddenDescendantIds = new Set();
+
+    kmlFolders.forEach(folder => {
+      if (folder.totalCount === 0 && folder.childIds.length === 0) return;
+      if (hiddenDescendantIds.has(folder.id)) return;
+
+      result.push(folder);
+
+      if (collapsedFolderIds.has(folder.id)) {
+        const descendants = getDescendantFolderIds(folder.id, kmlFolders);
+        descendants.forEach(dId => {
+          if (dId !== folder.id) hiddenDescendantIds.add(dId);
+        });
+      }
+    });
+
+    return result;
+  }, [kmlFolders, folderSearchQuery, collapsedFolderIds]);
+
+  // Hitung jumlah fitur KML yang saat ini sedang aktif / tampil
+  const activeKmlFeatureCount = useMemo(() => {
+    if (!kmlFolders.length) return 0;
+    return kmlFolders.reduce((sum, f) => {
+      if (!hiddenFolderIds.has(f.id)) {
+        return sum + (f.selfCount || 0);
+      }
+      return sum;
+    }, 0);
+  }, [kmlFolders, hiddenFolderIds]);
 
 
   // Toggle Layer ODP Mengikuti Filter Stasiun & Status Kapasitas (Full = Oren, Idle = Biru)
@@ -688,35 +1105,47 @@ export default function CustomerMapView({ data }) {
             <p className="text-[11px] text-slate-400 mt-0.5 ml-9">Pilih kriteria filter di bawah lalu klik &quot;Tampilkan di Peta&quot; untuk memuat data secara presisi.</p>
           </div>
 
-          {/* Indikator Status Data Tampil dengan Icon Asli Supabase */}
-          {isLoaded && renderedCount > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
-                <Icon name="users" size={12} className="text-slate-500" />
-                Tampil: <strong>{renderedCount.toLocaleString('id-ID')}</strong>
-              </span>
-              <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1.5">
-                <img src={STATUS_ICONS.AKTIF.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
-                Aktif: {renderedStats.aktif.toLocaleString('id-ID')}
-              </span>
-              <span className="text-[10.5px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 inline-flex items-center gap-1.5">
-                <img src={STATUS_ICONS.KENDALA.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
-                Kendala: {renderedStats.kendala.toLocaleString('id-ID')}
-              </span>
-              <span className="text-[10.5px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 inline-flex items-center gap-1.5">
-                <img src={STATUS_ICONS.WAITING.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
-                Waiting: {renderedStats.waiting.toLocaleString('id-ID')}
-              </span>
-              <span className="text-[10.5px] font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded-lg border border-orange-200 inline-flex items-center gap-1.5">
-                <img src={STATUS_ICONS.SUSPEND.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
-                Suspend: {renderedStats.suspend.toLocaleString('id-ID')}
-              </span>
-              <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
-                <img src={STATUS_ICONS.DISMANTLED.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
-                Dismantle: {renderedStats.dismantle.toLocaleString('id-ID')}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Tombol Pop-up Master KML */}
+            <button
+              onClick={() => setShowMasterKmlModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-blue-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
+              title="Kelola data & update file Master KML / KMZ"
+            >
+              <Icon name="layers" size={14} />
+              <span>Master KML</span>
+            </button>
+
+            {/* Indikator Status Data Tampil dengan Icon Asli Supabase */}
+            {isLoaded && renderedCount > 0 && (
+              <>
+                <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
+                  <Icon name="users" size={12} className="text-slate-500" />
+                  Tampil: <strong>{renderedCount.toLocaleString('id-ID')}</strong>
+                </span>
+                <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1.5">
+                  <img src={STATUS_ICONS.AKTIF.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Aktif: {renderedStats.aktif.toLocaleString('id-ID')}
+                </span>
+                <span className="text-[10.5px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 inline-flex items-center gap-1.5">
+                  <img src={STATUS_ICONS.KENDALA.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Kendala: {renderedStats.kendala.toLocaleString('id-ID')}
+                </span>
+                <span className="text-[10.5px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 inline-flex items-center gap-1.5">
+                  <img src={STATUS_ICONS.WAITING.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Waiting: {renderedStats.waiting.toLocaleString('id-ID')}
+                </span>
+                <span className="text-[10.5px] font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded-lg border border-orange-200 inline-flex items-center gap-1.5">
+                  <img src={STATUS_ICONS.SUSPEND.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Suspend: {renderedStats.suspend.toLocaleString('id-ID')}
+                </span>
+                <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
+                  <img src={STATUS_ICONS.DISMANTLED.iconUrl} className="w-3.5 h-3.5 object-contain" alt="" />
+                  Dismantle: {renderedStats.dismantle.toLocaleString('id-ID')}
+                </span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Baris 2: Kontrol Filter & Tombol Eksekusi */}
@@ -890,6 +1319,24 @@ export default function CustomerMapView({ data }) {
                 )}
               </span>
             </label>
+
+            {/* Tombol Buka Panel Folder KML (Google Earth Places Style) */}
+            {activeKmlInfo && (
+              <button
+                onClick={() => setShowKmlFolderPanel(prev => !prev)}
+                className={`flex items-center gap-2 select-none px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                  showKmlFolderPanel
+                    ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-sm'
+                    : 'bg-blue-50 border-blue-200 text-blue-700 font-semibold hover:bg-blue-100'
+                }`}
+                title="Buka / tutup panel struktur folder KML seperti Google Earth"
+              >
+                <Icon name="folder" size={13} className={showKmlFolderPanel ? "text-white" : "text-blue-600"} />
+                <span className="text-xs">
+                  Folder KML ({kmlFolders.length - hiddenFolderIds.size}/{kmlFolders.length})
+                </span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -899,8 +1346,232 @@ export default function CustomerMapView({ data }) {
       <div className="flex-1 relative mx-3 mb-3 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
         <div ref={mapRef} className="w-full h-full" />
 
-        {/* OVERLAY EMPTY STATE (KETIKA BELUM ADA DATA DITAMPILKAN) */}
-        {!isLoaded && (
+        {/* WIDGET FLOATING LAYER KML AKTIF */}
+        {activeKmlInfo && (
+          <div className="absolute top-3 left-14 z-[450] bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl shadow-lg border border-blue-200 flex items-center gap-3 animate-fade max-w-[calc(100%-80px)]">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-blue-500/20">
+              <Icon name="map" size={16} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-blue-600">
+                  Layer KML Aktif
+                </span>
+              </div>
+              <div className="text-xs font-black text-slate-800 truncate max-w-[180px] sm:max-w-[260px]" title={activeKmlInfo.fileName}>
+                {activeKmlInfo.fileName}
+              </div>
+            </div>
+
+            {/* Tombol Buka Panel Folder KML */}
+            {kmlFolders.length > 0 && (
+              <button
+                onClick={() => setShowKmlFolderPanel(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0 border ${
+                  showKmlFolderPanel
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/30'
+                    : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
+                }`}
+                title="Buka / tutup panel struktur layer folder KML seperti Google Earth"
+              >
+                <Icon name="folder" size={14} />
+                <span>Folder Layer ({kmlFolders.filter(f => f.selfCount > 0 && !hiddenFolderIds.has(f.id)).length}/{kmlFolders.filter(f => f.selfCount > 0).length || kmlFolders.length})</span>
+              </button>
+            )}
+
+            {/* Tombol Tutup / Hapus Layer KML */}
+            <button
+              onClick={handleRemoveKmlLayer}
+              className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all cursor-pointer shrink-0"
+              title="Tutup & Hapus Layer KML dari Peta"
+            >
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+        )}
+
+        {/* PANEL FOLDER KML (GOOGLE EARTH PLACES STYLE DRAWER) */}
+        {activeKmlInfo && showKmlFolderPanel && (
+          <div className="absolute top-3 right-3 bottom-3 z-[600] w-84 sm:w-96 max-w-[calc(100%-24px)] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-blue-200 flex flex-col overflow-hidden animate-modal">
+            {/* Header Panel */}
+            <div className="p-3.5 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-blue-500/20">
+                  <Icon name="folder" size={16} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="text-xs font-black text-slate-800 truncate">Tempat & Lapisan KML</h4>
+                    <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-md">
+                      Google Earth
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 truncate mt-0.5" title={activeKmlInfo.fileName}>
+                    {activeKmlInfo.fileName}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowKmlFolderPanel(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                title="Tutup Panel Layer"
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+
+            {/* Search & Quick Controls */}
+            <div className="p-2.5 border-b border-slate-100 bg-slate-50/60 space-y-2 shrink-0">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={folderSearchQuery}
+                  onChange={(e) => setFolderSearchQuery(e.target.value)}
+                  placeholder="Cari folder (Tiang, ODP, Line, dll)..."
+                  className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                />
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                  <Icon name="search" size={13} />
+                </div>
+                {folderSearchQuery && (
+                  <button 
+                    onClick={() => setFolderSearchQuery('')} 
+                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Status Ringkasan & Tombol Aksi */}
+              <div className="flex items-center justify-between gap-1 text-[10.5px]">
+                <div className="text-slate-600 font-semibold truncate">
+                  <span className="text-blue-600 font-bold">{activeKmlFeatureCount}</span> / {activeKmlInfo.count} fitur aktif
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handleShowAllFolders}
+                    className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold transition-all cursor-pointer text-[10px]"
+                    title="Centang semua folder"
+                  >
+                    Semua
+                  </button>
+                  <button
+                    onClick={handleHideAllFolders}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 font-bold transition-all cursor-pointer text-[10px]"
+                    title="Hapus centang semua folder"
+                  >
+                    Kosongkan
+                  </button>
+                  <button
+                    onClick={handleExpandAll}
+                    className="p-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
+                    title="Buka semua folder (Expand All)"
+                  >
+                    <Icon name="maximize-2" size={11} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tree View Folder List (Hierarki Folders seperti Google Earth) */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 text-xs">
+              {visibleFolderTree.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  Tidak ditemukan folder yang cocok.
+                </div>
+              ) : (
+                visibleFolderTree.map(folder => {
+                  const checkState = getFolderCheckState(folder.id);
+                  const isCollapsed = collapsedFolderIds.has(folder.id);
+                  const hasChildren = folder.childIds?.length > 0;
+                  const indent = Math.min(folder.level, 5) * 14;
+                  const iconInfo = getFolderIconInfo(folder);
+
+                  return (
+                    <div
+                      key={folder.id}
+                      className={`group flex items-center justify-between p-1.5 rounded-xl transition-all select-none hover:bg-blue-50/60 ${
+                        checkState !== 'none' ? 'text-slate-800' : 'text-slate-400 opacity-60 bg-slate-50/40'
+                      }`}
+                      style={{ paddingLeft: `${indent + 6}px` }}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {/* Tombol Chevron Expand/Collapse */}
+                        {hasChildren ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCollapse(folder.id)}
+                            className="p-0.5 hover:bg-slate-200 rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer shrink-0"
+                            title={isCollapsed ? 'Buka folder' : 'Tutup folder'}
+                          >
+                            <Icon name={isCollapsed ? "chevron-right" : "chevron-down"} size={13} />
+                          </button>
+                        ) : (
+                          <span className="w-3.5 shrink-0" />
+                        )}
+
+                        {/* Checkbox Foldering Google Earth */}
+                        <FolderCheckbox
+                          state={checkState}
+                          onChange={() => handleToggleFolder(folder.id)}
+                        />
+
+                        {/* Icon Folder / Tipe Layer */}
+                        <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${iconInfo.bg} ${iconInfo.color}`}>
+                          <Icon name={hasChildren ? (isCollapsed ? "folder" : "folder-open") : iconInfo.icon} size={12} />
+                        </div>
+
+                        {/* Nama Folder */}
+                        <span 
+                          onClick={() => handleToggleFolder(folder.id)}
+                          className="font-semibold text-xs truncate cursor-pointer hover:text-blue-600 transition-colors" 
+                          title={`${folder.path} (${folder.totalCount} item)`}
+                        >
+                          {folder.name}
+                        </span>
+                      </div>
+
+                      {/* Info Jumlah & Tombol Fokus Zoom */}
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded-md">
+                          {folder.totalCount}
+                        </span>
+
+                        {/* Tombol Zoom / Fokus ke Bounds Folder */}
+                        <button
+                          type="button"
+                          onClick={() => handleFocusFolder(folder.id)}
+                          className="p-1 hover:bg-blue-100 text-slate-400 hover:text-blue-600 rounded-lg transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                          title="Fokuskan & zoom peta ke area folder ini"
+                        >
+                          <Icon name="crosshair" size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Panel */}
+            <div className="p-2 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-[11px] shrink-0">
+              <span className="text-slate-400 text-[10px] ml-1">
+                Tip: Centang/hapus centang untuk show/hide
+              </span>
+              <button
+                onClick={() => setShowKmlFolderPanel(false)}
+                className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* OVERLAY EMPTY STATE (KETIKA BELUM ADA DATA DITAMPILKAN & TIDAK ADA KML AKTIF) */}
+        {!isLoaded && !activeKmlInfo && (
           <div className="absolute inset-0 z-[400] pointer-events-none flex items-center justify-center p-4">
             <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-xl rounded-2xl p-6 max-w-md text-center pointer-events-auto animate-fade">
               <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
@@ -963,6 +1634,13 @@ export default function CustomerMapView({ data }) {
         )}
 
       </div>
+
+      {/* MODAL MASTER KML */}
+      <MasterKmlModal 
+        isOpen={showMasterKmlModal} 
+        onClose={() => setShowMasterKmlModal(false)} 
+        onPlotToMap={handlePlotKmlToMap}
+      />
 
     </div>
   );

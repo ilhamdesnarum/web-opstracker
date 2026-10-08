@@ -1,0 +1,52 @@
+name: 5. Sync Nama Sales Partner (On-Demand & Terjadwal)
+
+on:
+  schedule:
+    # Berjalan 2 kali sehari (jam 06:00 dan jam 18:00 WIB / 23:00 dan 11:00 UTC)
+    - cron: '0 23,11 * * *'
+
+  # Bisa dipicu manual kapan saja dari tab GitHub Actions
+  workflow_dispatch:
+    inputs:
+      stations:
+        description: 'Pilih Stasiun (Pilih ALL untuk seluruh 11 stasiun)'
+        required: true
+        default: 'ALL'
+        type: choice
+        options:
+          - 'ALL'
+          - 'Wadu'
+          - 'Randublatung'
+          - 'Sulur'
+          - 'Kradenan'
+          - 'Brumbung'
+          - 'Alastua'
+          - 'Tawang'
+          - 'Kaliwungu'
+          - 'Kalibodri'
+          - 'Weleri'
+          - 'Krengseng'
+
+jobs:
+  sync-sales:
+    name: Sync Nama Sales (${{ inputs.stations || 'ALL' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Jalankan Sinkronisasi Nama Sales
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STARLITE_PARTNER_TOKEN: ${{ secrets.STARLITE_PARTNER_TOKEN }}
+          STARLITE_PARTNER_COOKIE: ${{ secrets.STARLITE_PARTNER_COOKIE }}
+          SYNC_STATIONS: ${{ inputs.stations || 'ALL' }}
+        run: node scripts/sync_sales_all_statuses.js

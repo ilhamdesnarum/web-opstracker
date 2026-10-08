@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
 import { PoReleaseModal } from './components/PoReleaseModal';
+import BastPartnerModal from './components/BastPartnerModal';
+import { fetchPartnerBastToday, getTodayWibDateString } from './services/partnerBastService.js';
+import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 import { isPercepatanCustomer } from './utils';
 import './index.css';
 
@@ -644,6 +647,23 @@ const MobileApp = () => {
   const cropContainerRef = useRef(null);
   const [barsMounted, setBarsMounted] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [bastPartnerData, setBastPartnerData] = useState([]);
+  const [isBastLoading, setIsBastLoading] = useState(false);
+  const [showMobileBastModal, setShowMobileBastModal] = useState(false);
+  const [mobileBastInitialFilter, setMobileBastInitialFilter] = useState('ALL');
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsBastLoading(true);
+    fetchPartnerBastToday().then(res => {
+      if (isMounted && res && res.success && res.data) {
+        setBastPartnerData(res.data);
+      }
+    }).catch(e => console.warn(e)).finally(() => {
+      if (isMounted) setIsBastLoading(false);
+    });
+    return () => { isMounted = false; };
+  }, []);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1167,6 +1187,59 @@ const MobileApp = () => {
         teknisiData: finalPetugas || prev.teknisiData
       }));
 
+      // Background sync nama sales dari Partner API jika force sync
+      if (force) {
+        syncSalesFromPartnerApi({
+          pelangganList: finalPelanggan || data.pelangganData,
+          maxPages: 4
+        }).then(res => {
+          if (res && res.success && (res.updatedCount > 0 || (res.salesMap && Object.keys(res.salesMap).length > 0))) {
+            const updatedMap = new Map();
+            if (res.updatedList && res.updatedList.length > 0) {
+              res.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
+            }
+            if (res.salesMap) {
+              Object.entries(res.salesMap).forEach(([id, s]) => {
+                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedMap.set(String(id).trim().toUpperCase(), s);
+              });
+            }
+
+            setData(prev => {
+              let hasChanges = false;
+              const nextList = (prev.pelangganData || []).map(p => {
+                const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+                if (updatedMap.has(id)) {
+                  const s = updatedMap.get(id);
+                  const cur = String(p.namaSales || p.nama_sales || '').trim();
+                  if (!cur || cur === '-' || cur.toLowerCase() === 'daftar mandiri' || cur !== s) {
+                    hasChanges = true;
+                    return { ...p, namaSales: s, nama_sales: s, sales: s };
+                  }
+                }
+                return p;
+              });
+
+              if (hasChanges) {
+                setCachedData('otas_pelanggan_cache_v6', nextList);
+                if (finalPelanggan) {
+                  finalPelanggan.forEach(p => {
+                    const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+                    if (updatedMap.has(id)) {
+                      const s = updatedMap.get(id);
+                      p.namaSales = s;
+                      p.nama_sales = s;
+                      p.sales = s;
+                    }
+                  });
+                }
+                return { ...prev, pelangganData: nextList };
+              }
+              return prev;
+            });
+          }
+        }).catch(err => console.warn('[MOBILE SALES SYNC FAIL]:', err));
+      }
+
       // 5. Auxiliary Data dari Google Apps Script (Fast Dashboard)
       api.run('getFastDashboardData')
         .then(fastResult => {
@@ -1612,6 +1685,64 @@ const MobileApp = () => {
       })
       .filter(row => row !== null);
   }, [data.pelangganData, todayStr]);
+
+  // --- KOMPARASI BAST PARTNER VS REPORT PETUGAS LAPANGAN MOBILE ---
+  const mobileBastComparison = useMemo(() => {
+    const reportedIdSet = new Set();
+    const reportedCustomers = [];
+    (data.pelangganData || []).forEach(p => {
+      const isAktivasiHarian = String(p.statusAktivasi || p.status_aktivasi || p.aktivasi || '').toLowerCase().includes('sudah') ||
+                               String(p.statusAktivasi || p.status_aktivasi || p.aktivasi || '').toLowerCase() === 'aktif';
+      const tglAktivasi = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
+      if (isAktivasiHarian && tglAktivasi === todayStr) {
+        const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+        if (id) {
+          reportedIdSet.add(id);
+          reportedCustomers.push(p);
+        }
+      }
+    });
+
+    const activeBast = bastPartnerData || [];
+    const bastIdSet = new Set(activeBast.map(b => String(b.idPelanggan || '').trim().toUpperCase()));
+    const totalBast = activeBast.length > 0 ? activeBast.length : homeStats.aktivasiHarian;
+    const totalReported = reportedIdSet.size || homeStats.aktivasiHarian || 0;
+
+    let unreportedList = [];
+    if (activeBast.length > 0) {
+      unreportedList = activeBast.filter(b => {
+        const bId = String(b.idPelanggan || '').trim().toUpperCase();
+        return !reportedIdSet.has(bId);
+      });
+    }
+
+    let unbastList = [];
+    if (activeBast.length > 0) {
+      unbastList = reportedCustomers.filter(p => {
+        const pId = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+        return !bastIdSet.has(pId);
+      });
+    }
+
+    const unreportedCount = unreportedList.length;
+    const unbastCount = unbastList.length;
+    const hasDiscrepancy = activeBast.length > 0 
+      ? (unreportedCount > 0 || unbastCount > 0 || totalBast !== totalReported)
+      : (totalBast !== totalReported && totalBast > 0 && totalReported > 0);
+    const diff = Math.abs(totalBast - totalReported);
+
+    return {
+      hasBastData: activeBast.length > 0,
+      totalBast,
+      totalReported,
+      unreportedList,
+      unreportedCount,
+      unbastList,
+      unbastCount,
+      hasDiscrepancy,
+      diff
+    };
+  }, [data.pelangganData, bastPartnerData, homeStats.aktivasiHarian, todayStr]);
 
   const overviewStats = useMemo(() => {
     let aktivasiSelesai = 0;
@@ -2561,11 +2692,8 @@ const MobileApp = () => {
     // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
     sendTelegramVisitDM(payload, listTeknisi);
 
-    // Sinkronisasi ke Google Sheet di background
-    api.run('insertVisitLog', payload).catch(e => console.warn("GAS insertVisitLog error:", e));
-
     try {
-      await supabase.from('log_visit').insert({
+      const { error: sbErr } = await supabase.from('log_visit').insert({
         timestamp: localTimestamp,
         id_pelanggan: payload.idPelanggan,
         nama_pelanggan: payload.namaPelanggan,
@@ -2581,6 +2709,7 @@ const MobileApp = () => {
         longitude: payload.longitude,
         petugas: payload.petugas
       });
+      if (sbErr) throw sbErr;
       finalize();
     } catch (err) {
       console.warn("Gagal simpan ke Supabase, fallback:", err);
@@ -2647,38 +2776,6 @@ const MobileApp = () => {
         aktivasi: finalAktivasi,
         ikr: finalIkr
       };
-
-      // Teruskan ke Webhook / Google Script agar Google Sheets ikut terupdate sebagai salinan
-      if (typeof api !== 'undefined' && api.run) {
-        const payloadWebhook = {
-          idPelanggan: idPelanggan,
-          namaPelanggan: updated.namaPelanggan || updated.nama || '',
-          stasiun: updated.stasiun || '',
-          nomorHp: updated.nomorHp,
-          alamat: updated.alamat,
-          latitude: updated.latitude,
-          longitude: updated.longitude,
-          odpAktual: updated.odpAktual,
-          portOdp: updated.portOdp,
-          snOnt: updated.snOnt,
-          kabelPrecon: updated.kabelPrecon,
-          aktivasi: finalAktivasi,
-          ikr: finalIkr,
-          tglAktivasi: formatTgl(updateData.tglAktivasi),
-          tglIkr: formatTgl(updateData.tglIkr),
-          petugasAktivasi: updated.petugasAktivasi,
-          petugasIkr: updated.petugasIkr,
-          catatan: updated.catatan,
-          issueKendala: updateData.issueKendala,
-          reporterKendala: updated.reporterKendala || updated.reporter_kendala,
-          tanggalKendala: updated.tanggalKendala || updated.tanggal_kendala
-        };
-        try {
-          await api.run('updatePelangganData', payloadWebhook);
-        } catch (webhookErr) {
-          console.warn("Gagal sinkronisasi salinan ke webhook:", webhookErr);
-        }
-      }
 
       setSelectedPelanggan(updated);
       setIsEditingPelanggan(false);
@@ -3177,8 +3274,71 @@ const MobileApp = () => {
 
               {/* Report Petugas Lapangan */}
               <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
-                <h3 className="font-bold text-slate-800 text-[15px] mb-0.5">Report Petugas Lapangan</h3>
-                <p className="text-[10px] text-slate-400 mb-4">Data pekerjaan pada {todayDateString}</p>
+                <div className="flex justify-between items-start mb-3 gap-2">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-[15px] mb-0.5">Report Petugas Lapangan</h3>
+                    <p className="text-[10px] text-slate-400">Data pekerjaan pada {todayDateString}</p>
+                  </div>
+                  {/* BAST Pill */}
+                  <div
+                    onClick={() => {
+                      setMobileBastInitialFilter(
+                        mobileBastComparison.unbastCount > 0
+                          ? 'UNBAST'
+                          : (mobileBastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                      );
+                      setShowMobileBastModal(true);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shadow-xs cursor-pointer active:scale-95 shrink-0 relative ${
+                      mobileBastComparison.hasDiscrepancy
+                        ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-300 text-amber-900 ring-2 ring-amber-400/20'
+                        : 'bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200 text-emerald-800'
+                    }`}
+                    title={
+                      mobileBastComparison.hasDiscrepancy
+                        ? `Ada selisih data (${
+                            mobileBastComparison.unbastCount > 0
+                              ? `${mobileBastComparison.unbastCount} belum BAST`
+                              : (mobileBastComparison.unreportedCount > 0 ? `${mobileBastComparison.unreportedCount} belum lapor` : 'data berbeda')
+                          }). Klik untuk melihat BAST!`
+                        : "Klik untuk melihat BAST Web Partner"
+                    }
+                  >
+                    {/* Ping alert dot jika selisih */}
+                    {mobileBastComparison.hasDiscrepancy && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3 z-10">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500 text-[8px] font-black text-white items-center justify-center">
+                          !
+                        </span>
+                      </span>
+                    )}
+
+                    <div className="flex flex-col text-right">
+                      <span className={`text-[9px] font-black uppercase leading-none ${
+                        mobileBastComparison.hasDiscrepancy ? 'text-amber-800' : 'text-emerald-700'
+                      }`}>
+                        BAST
+                      </span>
+                      <span className={`text-[7.5px] font-semibold mt-0.5 ${
+                        mobileBastComparison.hasDiscrepancy ? 'text-amber-600' : 'text-emerald-600'
+                      }`}>
+                        {mobileBastComparison.hasDiscrepancy 
+                          ? (mobileBastComparison.unbastCount > 0 
+                              ? `${mobileBastComparison.unbastCount} Blm BAST` 
+                              : (mobileBastComparison.unreportedCount > 0 ? `${mobileBastComparison.unreportedCount} Lapor` : 'Selisih')) 
+                          : 'Partner'}
+                      </span>
+                    </div>
+                    <span className={`text-sm font-black font-mono pl-1.5 border-l ${
+                      mobileBastComparison.hasDiscrepancy 
+                        ? 'text-amber-950 border-amber-300' 
+                        : 'text-emerald-950 border-emerald-200'
+                    }`}>
+                      {isBastLoading ? '...' : (bastPartnerData.length > 0 ? bastPartnerData.length : homeStats.aktivasiHarian)}
+                    </span>
+                  </div>
+                </div>
 
                 {/* Chips/Filters */}
                 <div className="flex flex-wrap gap-2 mb-3">
@@ -3210,28 +3370,63 @@ const MobileApp = () => {
                     );
                   }
 
-                  const isSinkron = homeStats.aktivasiHarian === homeStats.ikrHarian;
-                  const selisih = Math.abs(homeStats.aktivasiHarian - homeStats.ikrHarian);
-
-                  if (isSinkron) {
-                    return (
-                      <div className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1 mb-5">
-                        <Icon name="check-circle" size={10} className="text-emerald-500" />
-                        <span className="text-[9px] font-bold text-emerald-600">Semua Data Laporan Sinkron</span>
-                      </div>
-                    );
-                  }
+                  const isIkrSinkron = homeStats.aktivasiHarian === homeStats.ikrHarian;
+                  const hasBastSelisih = mobileBastComparison.hasDiscrepancy;
 
                   return (
-                    <div
-                      onClick={() => setShowDiscrepancyModal(true)}
-                      className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mb-5 cursor-pointer hover:bg-amber-100 active:scale-95 transition-all"
-                    >
-                      <Icon name="alert-triangle" size={10} className="text-amber-500" />
-                      <span className="text-[9px] font-bold text-amber-700">
-                        Ada Selisih Data (Aktivasi {homeStats.aktivasiHarian} vs IKR {homeStats.ikrHarian})
-                      </span>
-                      <Icon name="chevron-right" size={10} className="text-amber-500 ml-1" />
+                    <div className="flex flex-col gap-1.5 mb-4">
+                      {/* Alert Selisih BAST */}
+                      {hasBastSelisih && (
+                        <div
+                          onClick={() => {
+                            setMobileBastInitialFilter(
+                              mobileBastComparison.unbastCount > 0
+                                ? 'UNBAST'
+                                : (mobileBastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                            );
+                            setShowMobileBastModal(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-lg px-2.5 py-1.5 cursor-pointer hover:bg-amber-100 active:scale-95 transition-all text-amber-900 shadow-xs w-max"
+                        >
+                          <span className="relative flex h-2 w-2 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                          </span>
+                          <Icon name="alert-triangle" size={11} className="text-amber-600 shrink-0" />
+                          <span className="text-[9.5px] font-bold">
+                            Selisih BAST:{' '}
+                            <span className="font-black underline decoration-amber-400">
+                              {mobileBastComparison.unbastCount > 0 
+                                ? `${mobileBastComparison.unbastCount} Belum BAST` 
+                                : (mobileBastComparison.unreportedCount > 0 ? `${mobileBastComparison.unreportedCount} Belum Lapor` : `${mobileBastComparison.diff} Berbeda`)}
+                            </span>{' '}
+                            (BAST {mobileBastComparison.totalBast} vs Report {mobileBastComparison.totalReported})
+                          </span>
+                          <Icon name="chevron-right" size={10} className="text-amber-600 opacity-70 ml-0.5" />
+                        </div>
+                      )}
+
+                      {/* Alert Selisih IKR vs Aktivasi */}
+                      {!isIkrSinkron && (
+                        <div
+                          onClick={() => setShowDiscrepancyModal(true)}
+                          className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 cursor-pointer hover:bg-amber-100 active:scale-95 transition-all w-max"
+                        >
+                          <Icon name="alert-circle" size={10} className="text-amber-500" />
+                          <span className="text-[9px] font-bold text-amber-700">
+                            Ada Selisih Data (Aktivasi {homeStats.aktivasiHarian} vs IKR {homeStats.ikrHarian})
+                          </span>
+                          <Icon name="chevron-right" size={10} className="text-amber-500 ml-1" />
+                        </div>
+                      )}
+
+                      {/* Semua Sinkron */}
+                      {isIkrSinkron && !hasBastSelisih && (
+                        <div className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1 w-max">
+                          <Icon name="check-circle" size={10} className="text-emerald-500" />
+                          <span className="text-[9px] font-bold text-emerald-600">Semua Data Laporan &amp; BAST Sinkron</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -5539,6 +5734,31 @@ const MobileApp = () => {
           </div>
         );
       })(), document.body)}
+
+      {/* Modal BAST Partner Mobile */}
+      <BastPartnerModal
+        isOpen={showMobileBastModal}
+        onClose={() => setShowMobileBastModal(false)}
+        bastData={bastPartnerData.length > 0 ? bastPartnerData : (data.pelangganData || []).filter(p => standardizeDate(p.tglAktivasi) === todayStr).map(p => ({
+          idPelanggan: p.idPelanggan || p.id_pelanggan,
+          namaPelanggan: p.namaPelanggan || p.nama_pelanggan,
+          stasiun: p.stasiun,
+          jam: p.tglAktivasi && p.tglAktivasi.includes(' ') ? p.tglAktivasi.split(' ')[1] : '-'
+        }))}
+        pelangganData={data.pelangganData}
+        selectedDate={todayStr}
+        formattedDate={todayDateString}
+        isLoading={isBastLoading}
+        isLive={bastPartnerData.length > 0}
+        onRefresh={() => {
+          setIsBastLoading(true);
+          fetchPartnerBastToday(null, true).then(res => {
+            if (res && res.success && res.data) setBastPartnerData(res.data);
+          }).finally(() => setIsBastLoading(false));
+        }}
+        initialFilterStatus={mobileBastInitialFilter}
+      />
+
       {/* Toast Notification */}
       {toastConfig.show && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[10000] animate-slide-up">

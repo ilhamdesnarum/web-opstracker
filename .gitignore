@@ -33,3 +33,6 @@ scratch*
 test_*.js
 *.txt
 response_test.json
+supabase/.temp/
+scripts/custom_dns.cjs
+

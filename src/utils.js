@@ -153,3 +153,31 @@ export const getCustomerDismantleDate = (item) => {
   return '';
 };
 
+// --- Helper Function: Standardize date to YYYY-MM-DD ---
+export const standardizeDate = (dateStr) => {
+  if (!dateStr) return '';
+  let cleaned = String(dateStr).trim().split(/[T ]/)[0];
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  const dmyMatch = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const ymdMatch = cleaned.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2].padStart(2, '0');
+    const day = ymdMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return cleaned;
+};
+

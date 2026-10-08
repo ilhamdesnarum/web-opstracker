@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "desnarum-opstracker",
     "public": "dist",
     "ignore": [
       "firebase.json",

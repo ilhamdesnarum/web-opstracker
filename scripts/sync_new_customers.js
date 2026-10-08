@@ -162,18 +162,34 @@ function extractOdpInfo(c) {
 }
 
 function extractSalesName(c) {
+  if (!c) return "Daftar Mandiri";
+  let s = null;
+
   if (c.sales_id && typeof c.sales_id === 'object' && c.sales_id.name) {
-    return String(c.sales_id.name).trim();
+    s = c.sales_id.name;
+  } else if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
+    s = c.sales_id;
   }
-  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.sales_id) {
-    const s = c.customer_id.sales_id;
-    if (typeof s === 'object' && s.name) return String(s.name).trim();
-    if (typeof s === 'string' && s.trim()) return s.trim();
+
+  if (!s && c.customer_id && typeof c.customer_id === 'object') {
+    if (c.customer_id.sales_id && typeof c.customer_id.sales_id === 'object' && c.customer_id.sales_id.name) {
+      s = c.customer_id.sales_id.name;
+    } else if (typeof c.customer_id.sales_id === 'string' && c.customer_id.sales_id.trim()) {
+      s = c.customer_id.sales_id;
+    } else if (c.customer_id.sales_visit_id && typeof c.customer_id.sales_visit_id === 'object') {
+      const cvs = c.customer_id.sales_visit_id.sales_id;
+      s = typeof cvs === 'object' ? cvs?.name : cvs;
+    }
   }
-  if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
-    return c.sales_id.trim();
+
+  if (!s && c.sales_visit_id && typeof c.sales_visit_id === 'object') {
+    const vs = c.sales_visit_id.sales_id;
+    s = typeof vs === 'object' ? vs?.name : vs;
   }
-  return "Daftar Mandiri";
+
+  if (!s) return "Daftar Mandiri";
+  const cleaned = String(s).trim();
+  return (!cleaned || cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') ? "Daftar Mandiri" : cleaned;
 }
 
 async function checkExistingInSupabase(customerIds) {
@@ -323,8 +339,10 @@ async function main() {
   }
   console.log(`📍 Stasiun Target: ${targetStations.join(', ')}`);
 
-  // Status pelanggan baru di API Partner (tanpa status cancel)
+  // Status pelanggan baru di API Partner:
+  // Masukkan "" (tanpa filter ikr_status) agar mencakup seluruh registrasi baru dari awal (termasuk waiting-first-payment / menunggu pembayaran)
   const newStatuses = [
+    "", 
     "waiting-for-installation",
     "process-installation",
     "process-activate-internet"
@@ -346,7 +364,9 @@ async function main() {
       let hasMore = true;
 
       while (hasMore && page <= 50) {
-        const url = `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&ikr_status=${ikrStatus}&sales_partner_id=${partnerId}`;
+        const url = ikrStatus
+          ? `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&ikr_status=${ikrStatus}&sales_partner_id=${partnerId}`
+          : `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
         try {
           const res = await fetch(url, {
             headers: {

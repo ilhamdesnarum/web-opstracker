@@ -3,13 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
 import * as fflate from 'fflate';
-import { createClient } from '@supabase/supabase-js';
-
-// Konfigurasi Supabase
-const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+import { supabase, SUPABASE_URL, SUPABASE_KEY } from './supabaseClient';
 
 import * as LucideIcons from 'lucide-react';
 
@@ -22,6 +16,9 @@ import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
 import { isPercepatanCustomer, getCustomerDismantleDate } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import CustomerMapView from './components/CustomerMapView';
+import BastPartnerModal from './components/BastPartnerModal';
+import { fetchPartnerBastToday, getTodayWibDateString } from './services/partnerBastService.js';
+import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
@@ -902,7 +899,7 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
   const botQueue = localTeknisiList.filter(t => !t.stasiun || t.stasiun === "");
   const totalHadir = assigned.filter(t => String(t.status).toLowerCase().includes('masuk')).length;
 
-  const handleSave = (finalData) => {
+  const handleSave = async (finalData) => {
     const isEditing = modal.type === 'edit';
     setModal({ isOpen: false });
 
@@ -924,14 +921,13 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
       }
     });
 
-    // Jalankan sinkronisasi di latar belakang!
     setSyncToast({
       show: true,
       type: 'syncing',
-      message: isEditing ? 'Menyimpan perubahan petugas di latar belakang...' : 'Menambahkan petugas baru di latar belakang...'
+      message: isEditing ? 'Menyimpan perubahan petugas...' : 'Menambahkan petugas baru...'
     });
 
-    // Sinkronisasi ke Supabase
+    // Simpan langsung ke Supabase
     try {
       const sbPayload = {
         chat_id: finalData.chatId || null,
@@ -941,44 +937,39 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
         jabatan: finalData.jabatan || 'Teknisi',
         status: finalData.status || 'Active'
       };
-      supabase.from('petugas').select('id').eq('nama', finalData.nama).limit(1).then(({ data: existList }) => {
-        if (existList && existList.length > 0) {
-          supabase.from('petugas').update(sbPayload).eq('id', existList[0].id).then();
-        } else {
-          supabase.from('petugas').insert([sbPayload]).then();
-        }
-      }).catch(e => console.warn("Supabase sync petugas:", e));
-    } catch (e) {
-      console.warn("Supabase petugas warning:", e);
-    }
+      const { data: existList, error: queryErr } = await supabase.from('petugas').select('id').eq('nama', finalData.nama).limit(1);
+      if (queryErr) throw queryErr;
 
-    api.run('updatePetugasData', finalData)
-      .then((res) => {
-        setSyncToast({
-          show: true,
-          type: 'success',
-          message: isEditing ? 'Perubahan petugas berhasil disimpan!' : 'Petugas baru berhasil ditambahkan!'
-        });
-        setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
+      if (existList && existList.length > 0) {
+        const { error: updErr } = await supabase.from('petugas').update(sbPayload).eq('id', existList[0].id);
+        if (updErr) throw updErr;
+      } else {
+        const { error: insErr } = await supabase.from('petugas').insert([sbPayload]);
+        if (insErr) throw insErr;
+      }
 
-        // Silent refresh untuk update data utama di background
-        if (onRefreshSilent) onRefreshSilent();
-      })
-      .catch((err) => {
-        console.error("Gagal menyimpan data petugas:", err);
-        setSyncToast({
-          show: true,
-          type: 'error',
-          message: isEditing ? 'Gagal menyimpan perubahan petugas.' : 'Gagal menambahkan petugas baru.'
-        });
-
-        // Revert data lokal jika gagal
-        setLocalTeknisiList(prevTeknisiList);
+      setSyncToast({
+        show: true,
+        type: 'success',
+        message: isEditing ? 'Perubahan petugas berhasil disimpan!' : 'Petugas baru berhasil ditambahkan!'
       });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
+
+      // Silent refresh untuk update data utama di background
+      if (onRefreshSilent) onRefreshSilent();
+    } catch (err) {
+      console.error("Gagal menyimpan data petugas ke Supabase:", err);
+      setSyncToast({
+        show: true,
+        type: 'error',
+        message: (isEditing ? 'Gagal menyimpan perubahan: ' : 'Gagal menambahkan petugas: ') + (err.message || 'Database error')
+      });
+      setLocalTeknisiList(prevTeknisiList);
+    }
   };
 
   // FUNGSI KONFIRMASI HAPUS
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteTarget) {
       const target = { ...deleteTarget, stasiun: "" };
       const prevTeknisiList = [...localTeknisiList];
@@ -987,29 +978,22 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
       setLocalTeknisiList(prev => prev.filter(t => t.id !== target.id));
       setDeleteTarget(null);
 
-      // Jalankan sinkronisasi di latar belakang!
-      setSyncToast({ show: true, type: 'syncing', message: 'Menghapus penempatan petugas di latar belakang...' });
+      setSyncToast({ show: true, type: 'syncing', message: 'Menghapus penempatan petugas...' });
 
-      // Update juga di Supabase
+      // Update langsung di Supabase
       try {
-        supabase.from('petugas').update({ stasiun: '' }).eq('nama', target.nama).then().catch(e => console.warn(e));
-      } catch (e) {}
+        const { error } = await supabase.from('petugas').update({ stasiun: '' }).eq('nama', target.nama);
+        if (error) throw error;
 
-      api.run('updatePetugasData', target)
-        .then((res) => {
-          setSyncToast({ show: true, type: 'success', message: 'Penempatan petugas berhasil dihapus!' });
-          setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
+        setSyncToast({ show: true, type: 'success', message: 'Penempatan petugas berhasil dihapus!' });
+        setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
 
-          // Silent refresh untuk update data utama di background
-          if (onRefreshSilent) onRefreshSilent();
-        })
-        .catch((err) => {
-          console.error("Gagal menghapus penempatan petugas:", err);
-          setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus penempatan petugas di server.' });
-
-          // Revert data lokal jika gagal
-          setLocalTeknisiList(prevTeknisiList);
-        });
+        if (onRefreshSilent) onRefreshSilent();
+      } catch (err) {
+        console.error("Gagal menghapus penempatan petugas di Supabase:", err);
+        setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus penempatan petugas: ' + (err.message || 'Error') });
+        setLocalTeknisiList(prevTeknisiList);
+      }
     }
   };
 
@@ -1311,7 +1295,7 @@ function App({ onLogout }) {
   const [initialDatabaseStationFilter, setInitialDatabaseStationFilter] = useState('');
 
   // SISTEM INFORMASI FITUR BARU (WHAT'S NEW)
-  const CURRENT_APP_VERSION = 'v2.5.0';
+  const CURRENT_APP_VERSION = 'v2.6.0';
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [hasUnseenFeatures, setHasUnseenFeatures] = useState(false);
 
@@ -1341,19 +1325,22 @@ function App({ onLogout }) {
     }
   };
 
-  const handleTryFeatureFromWhatsNew = (targetTab = 'gangguan', dontShowAgain = true) => {
+  const handleTryFeatureFromWhatsNew = (targetTab = 'peta-pelanggan', dontShowAgain = true) => {
     handleCloseWhatsNew(dontShowAgain);
-    if (targetTab === 'gangguan') {
+    if (targetTab === 'peta-pelanggan') {
+      setActiveTab('peta-pelanggan');
+    } else if (targetTab === 'dashboard') {
+      setActiveTab('dashboard');
+    } else if (targetTab === 'database') {
+      setActiveTab('database');
+    } else if (targetTab === 'gangguan') {
       setActiveTab('gangguan');
     } else if (targetTab === 'overview') {
       setActiveTab('overview');
     } else if (targetTab === 'okupansi') {
       setActiveTab('okupansi');
-    } else if (targetTab === 'database') {
-      setActiveTab('database');
     } else {
-      setInitialDatabaseStatusFilter('WAITING');
-      setActiveTab('database');
+      setActiveTab('peta-pelanggan');
     }
   };
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
@@ -1370,6 +1357,7 @@ function App({ onLogout }) {
   });
 
   const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
+  const [salesSyncToast, setSalesSyncToast] = useState({ show: false, message: '', type: 'success' });
 
   const [coverageTarget, setCoverageTarget] = useState(null);
 
@@ -1679,6 +1667,91 @@ function App({ onLogout }) {
         }));
       }
 
+      // ── TRIGGER SINKRONISASI NAMA SALES DARI API PARTNER STARLITE (Dijalankan saat Sinkronkan Data) ──
+      if (isForce) {
+        setSalesSyncToast({ show: true, type: 'syncing', message: 'Menyinkronkan data & mengecek nama sales dari Partner API...' });
+        syncSalesFromPartnerApi({
+          pelangganList: parsedPelanggan || data.pelangganData,
+          maxPages: 6
+        }).then(res => {
+          if (res && res.success && (res.updatedCount > 0 || (res.salesMap && Object.keys(res.salesMap).length > 0))) {
+            const updatedMap = new Map();
+            if (res.updatedList && res.updatedList.length > 0) {
+              res.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
+            }
+            if (res.salesMap) {
+              Object.entries(res.salesMap).forEach(([id, s]) => {
+                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedMap.set(String(id).trim().toUpperCase(), s);
+              });
+            }
+
+            setData(prev => {
+              let hasChanges = false;
+              const nextList = (prev.pelangganData || []).map(p => {
+                const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+                if (updatedMap.has(id)) {
+                  const s = updatedMap.get(id);
+                  const cur = String(p.namaSales || p.nama_sales || '').trim();
+                  if (!cur || cur === '-' || cur.toLowerCase() === 'daftar mandiri' || cur !== s) {
+                    hasChanges = true;
+                    return { ...p, namaSales: s, nama_sales: s, sales: s };
+                  }
+                }
+                return p;
+              });
+
+              if (hasChanges) {
+                setCachedData('otas_pelanggan_cache_v6', nextList);
+                if (parsedPelanggan) {
+                  parsedPelanggan.forEach(p => {
+                    const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+                    if (updatedMap.has(id)) {
+                      const s = updatedMap.get(id);
+                      p.namaSales = s;
+                      p.nama_sales = s;
+                      p.sales = s;
+                    }
+                  });
+                }
+                return { ...prev, pelangganData: nextList };
+              }
+              return prev;
+            });
+
+            if (res.updatedCount > 0) {
+              setSalesSyncToast({
+                show: true,
+                type: 'success',
+                message: `Sinkronisasi Selesai! ${res.updatedCount} nama sales berhasil diperbarui dari Web Partner.`
+              });
+              setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 4500);
+            } else {
+              setSalesSyncToast({
+                show: true,
+                type: 'success',
+                message: 'Sinkronisasi data selesai! Seluruh data & nama sales sudah up-to-date.'
+              });
+              setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
+            }
+          } else {
+            setSalesSyncToast({
+              show: true,
+              type: 'success',
+              message: 'Sinkronisasi data selesai! Seluruh data & nama sales sudah up-to-date.'
+            });
+            setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
+          }
+        }).catch(err => {
+          console.warn('[SALES SYNC FAIL]:', err);
+          setSalesSyncToast({
+            show: true,
+            type: 'error',
+            message: `Sinkronisasi data selesai (Gagal cek sales partner: ${err.message})`
+          });
+          setTimeout(() => setSalesSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 3500);
+        });
+      }
+
       // Selalu tarik data visit terbaru dari Supabase di latar belakang agar tidak terkunci cache 24 jam
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
@@ -1727,7 +1800,7 @@ function App({ onLogout }) {
 
     } catch (err) {
       console.error(err);
-      setFetchError(err.message || "Terjadi kesalahan saat menghubungi Supabase.");
+      setFetchError(err.message || "Terjadi kesalahan saat menghubungi database.");
       setIsLoading(false);
       setIsBackgroundSyncing(false);
     }
@@ -2151,7 +2224,7 @@ function App({ onLogout }) {
                 type="button"
                 onClick={() => setIsWhatsNewOpen(true)}
                 className="flex items-center h-8 sm:h-9 gap-1.5 text-xs px-2.5 sm:px-3 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs transition-all relative cursor-pointer"
-                title="Lihat Pembaruan Fitur Baru (v2.5)"
+                title="Lihat Pembaruan Fitur Baru (v2.6)"
               >
                 <Icon name="sparkles" size={14} className="text-indigo-600 shrink-0" />
                 <span className="hidden md:inline whitespace-nowrap">Apa yang Baru?</span>
@@ -2237,6 +2310,26 @@ function App({ onLogout }) {
           />
         )}
       </main>
+
+      {/* TOAST POP-UP STATUS SINKRONISASI DATA & SALES PARTNER */}
+      {salesSyncToast.show && ReactDOM.createPortal(
+        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-[9999] bg-white border rounded-full shadow-2xl px-5 py-3 flex items-center gap-3 animate-dropdown transition-all ${
+          salesSyncToast.type === 'syncing' ? 'border-blue-200' :
+          salesSyncToast.type === 'success' ? 'border-emerald-200' : 'border-rose-200'
+        }`}>
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+            salesSyncToast.type === 'syncing' ? 'bg-blue-500' :
+            salesSyncToast.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'
+          }`}>
+            <Icon name={
+              salesSyncToast.type === 'syncing' ? "refresh-cw" :
+              salesSyncToast.type === 'success' ? "check" : "alert-circle"
+            } className={`text-white ${salesSyncToast.type === 'syncing' ? 'animate-spin' : ''}`} size={14} />
+          </div>
+          <span className="text-sm font-bold text-slate-700">{salesSyncToast.message}</span>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -2789,33 +2882,31 @@ export function OkupansiView({ data, setData }) {
     if (!payloadToSend || payloadToSend.length === 0) return;
     setIsUploading(true);
     try {
-      // Direct update ke Supabase untuk sinkronisasi cepat
-      try {
-        await supabase.from('odp').upsert(payloadToSend.map(o => ({
-          id: o.id,
-          label: o.label || o.kode_odp,
-          kode_odp: o.kode_odp || o.label,
-          kode_odc: o.kode_odc,
-          kapasitas: Number(o.kapasitas) || 8,
-          port_terpakai: Number(o.port_terpakai) || 0,
-          latitude: String(o.latitude),
-          longitude: String(o.longitude),
-          stasiun: o.stasiun,
-          tahap_pembangunan: o.tahap_pembangunan
-        })), { onConflict: 'id' });
-      } catch (sbErr) {
-        console.warn("Supabase direct upsert fallback to GAS:", sbErr);
+      const records = payloadToSend.map(o => ({
+        id: o.id,
+        label: o.label || o.kode_odp,
+        kode_odp: o.kode_odp || o.label,
+        kode_odc: o.kode_odc,
+        kapasitas: Number(o.kapasitas) || 8,
+        port_terpakai: Number(o.port_terpakai) || 0,
+        latitude: String(o.latitude),
+        longitude: String(o.longitude),
+        stasiun: o.stasiun,
+        tahap_pembangunan: o.tahap_pembangunan
+      }));
+
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < records.length; i += BATCH_SIZE) {
+        const batch = records.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('odp').upsert(batch, { onConflict: 'id' });
+        if (error) throw error;
       }
 
-      const res = await api.run('uploadMassalOdp', payloadToSend);
-      if (!res || res.success === false || res.error) {
-        throw new Error(res?.error || res?.message || 'Gagal mengupload data.');
-      }
       setIsUploadSuccess(true);
       setSyncToast({
         show: true,
         type: 'success',
-        message: res.message || `Berhasil menyimpan ${payloadToSend.length} data ODP!`
+        message: `Berhasil menyimpan ${payloadToSend.length} data ODP ke Supabase!`
       });
       setTimeout(() => {
         setIsUploadSuccess(false);
@@ -6094,6 +6185,52 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   }, [selectedDate]);
 
+  // --- LIVE BAST PARTNER STARLITE (AKTIVASI WEB PARTNER) ---
+  const [partnerBastData, setPartnerBastData] = useState([]);
+  const [isBastLoading, setIsBastLoading] = useState(false);
+  const [bastLastSync, setBastLastSync] = useState(null);
+  const [showBastModal, setShowBastModal] = useState(false);
+  const [bastInitialFilter, setBastInitialFilter] = useState('ALL');
+
+  const todayWib = useMemo(() => getTodayWibDateString(), []);
+  const isSelectedToday = selectedDate === todayWib;
+
+  const loadPartnerBast = async (force = false) => {
+    if (!isSelectedToday) return;
+    setIsBastLoading(true);
+    try {
+      const res = await fetchPartnerBastToday(todayWib, force);
+      if (res && res.success && res.data) {
+        setPartnerBastData(res.data);
+        setBastLastSync(res.lastSync || new Date());
+      }
+    } catch (err) {
+      console.warn("Gagal load BAST partner:", err);
+    } finally {
+      setIsBastLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isSelectedToday) {
+      loadPartnerBast(false);
+    }
+  }, [selectedDate, isSelectedToday]);
+
+  // Total BAST: jika hari ini dan data partner tersedia, gunakan data partner API.
+  // Jika hari lain atau API belum siap, gunakan fallback dari pelangganData Supabase.
+  const bastDisplayCount = useMemo(() => {
+    if (isSelectedToday && partnerBastData.length > 0) {
+      return partnerBastData.length;
+    }
+    return (data.pelangganData || []).filter(p => {
+      const tAkt = standardizeDate(p.tglAktivasi);
+      const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                    String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+      return tAkt === selectedDate && isAkt;
+    }).length;
+  }, [isSelectedToday, partnerBastData, data.pelangganData, selectedDate]);
+
   // --- TOTAL PELANGGAN AKTIF ---
   const totalPelangganAktif = useMemo(() => {
     return (data.pelangganData || []).filter(p => {
@@ -6162,8 +6299,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     let ikr = 0;
 
     (data.pelangganData || []).forEach(row => {
-      const tAkt = standardizeDate(row.tglAktivasi);
-      if (tAkt === selectedDate && String(row.aktivasi || '').toLowerCase().includes('sudah')) aktivasi++;
+      const tAkt = standardizeDate(row.tglAktivasi || row.timestampAktivasi);
+      const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                    String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+      if (tAkt === selectedDate && isAkt) aktivasi++;
 
       const tIkr = standardizeDate(row.tglIkr);
       if (tIkr === selectedDate) ikr++;
@@ -6171,6 +6310,71 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
     return { aktivasi, ikr };
   }, [data.pelangganData, selectedDate]);
+
+  // --- KOMPARASI BAST PARTNER VS REPORT PETUGAS LAPANGAN ---
+  const bastComparison = useMemo(() => {
+    // Kumpulkan ID pelanggan yang dilaporkan aktif pada tanggal ini
+    const reportedIdSet = new Set();
+    const reportedCustomers = [];
+    (data.pelangganData || []).forEach(p => {
+      const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
+      const pAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toLowerCase();
+      const isAktif = pAkt.includes('sudah') || pAkt === 'aktif';
+
+      if (tAkt === selectedDate && isAktif) {
+        const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+        if (id) {
+          reportedIdSet.add(id);
+          reportedCustomers.push(p);
+        }
+      }
+    });
+
+    const totalReported = reportedIdSet.size || dailyStats.aktivasi || 0;
+    const totalBast = bastDisplayCount;
+
+    // Data BAST aktif (live dari API partner untuk hari ini)
+    const activeBastList = isSelectedToday && partnerBastData.length > 0 ? partnerBastData : [];
+    const bastIdSet = new Set(activeBastList.map(b => String(b.idPelanggan || '').trim().toUpperCase()));
+    
+    let unreportedList = [];
+    if (activeBastList.length > 0) {
+      unreportedList = activeBastList.filter(b => {
+        const bId = String(b.idPelanggan || '').trim().toUpperCase();
+        return !reportedIdSet.has(bId);
+      });
+    }
+
+    // Pelanggan di Report Petugas yang belum terbit BAST di Web Partner
+    let unbastList = [];
+    if (activeBastList.length > 0) {
+      unbastList = reportedCustomers.filter(p => {
+        const pId = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
+        return !bastIdSet.has(pId);
+      });
+    }
+
+    const unreportedCount = unreportedList.length;
+    const unbastCount = unbastList.length;
+    // Discrepancy terjadi jika ada pelanggan BAST yang belum dilaporkan atau ada pelanggan dilaporkan yang belum BAST atau totalnya berbeda
+    const hasDiscrepancy = activeBastList.length > 0 
+      ? (unreportedCount > 0 || unbastCount > 0 || totalBast !== totalReported)
+      : (totalBast !== totalReported && totalBast > 0 && totalReported > 0);
+
+    const diff = Math.abs(totalBast - totalReported);
+
+    return {
+      hasBastData: activeBastList.length > 0,
+      totalBast,
+      totalReported,
+      unreportedList,
+      unreportedCount,
+      unbastList,
+      unbastCount,
+      hasDiscrepancy,
+      diff
+    };
+  }, [data.pelangganData, selectedDate, dailyStats.aktivasi, bastDisplayCount, isSelectedToday, partnerBastData]);
 
   // --- STASIUN DINAMIS ---
   const dynamicStationData = useMemo(() => {
@@ -6500,10 +6704,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
   useEffect(() => {
     // Kunci scroll layar ketika salah satu modal terbuka
-    if (showDiscrepancyModal || showKendalaModal || showVisitModal || showDismantledModal || selectedRegStation || selectedPoStation) document.body.style.overflow = 'hidden';
+    if (showDiscrepancyModal || showKendalaModal || showVisitModal || showDismantledModal || selectedRegStation || selectedPoStation || showBastModal) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = 'auto';
     return () => { document.body.style.overflow = 'auto'; };
-  }, [showDiscrepancyModal, showKendalaModal, showVisitModal, showDismantledModal, selectedRegStation, selectedPoStation]);
+  }, [showDiscrepancyModal, showKendalaModal, showVisitModal, showDismantledModal, selectedRegStation, selectedPoStation, showBastModal]);
 
   const activeDismantledList = dismantledDailyList;
 
@@ -6848,10 +7052,92 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm flex flex-col h-full relative">
           {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 rounded-xl flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
 
-          <div className="flex justify-between items-start mb-2.5 sm:mb-4">
+          <div className="flex justify-between items-start mb-2.5 sm:mb-4 gap-2">
             <div>
               <h2 className="text-[13px] sm:text-base lg:text-lg font-bold text-slate-800">Report Petugas Lapangan</h2>
               <p className="text-slate-400 text-[9.5px] sm:text-xs mt-0.5">Data pekerjaan pada <span className="font-semibold">{formattedDate}</span></p>
+            </div>
+
+            {/* BAST PARTNER BADGE (POJOK KANAN KARTU) */}
+            <div className="flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setBastInitialFilter(
+                    bastComparison.unbastCount > 0
+                      ? 'UNBAST'
+                      : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                  );
+                  setShowBastModal(true);
+                }}
+                className={`group relative flex items-center gap-2 sm:gap-2.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border transition-all duration-200 text-left cursor-pointer active:scale-95 ${
+                  bastComparison.hasDiscrepancy
+                    ? 'bg-gradient-to-r from-amber-50 via-orange-50 to-amber-100/80 border-amber-300 shadow-xs hover:shadow-md hover:border-amber-400 hover:from-amber-100/70 hover:to-orange-100/90 ring-2 ring-amber-400/25'
+                    : 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border-emerald-200/90 shadow-xs hover:shadow-md hover:border-emerald-300 hover:from-emerald-100/60 hover:to-teal-100/80'
+                }`}
+                title={
+                  bastComparison.hasDiscrepancy
+                    ? `Perhatian: Terdapat selisih data (${
+                        bastComparison.unbastCount > 0
+                          ? `${bastComparison.unbastCount} belum BAST`
+                          : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} belum dilaporkan` : `${bastComparison.diff} data berbeda`)
+                      }). Klik untuk melihat komparasi BAST!`
+                    : "Klik untuk melihat komparasi dan daftar BAST (Aktivasi Web Partner) hari ini"
+                }
+              >
+                {/* Notif Ping Badge Dot saat ada selisih */}
+                {bastComparison.hasDiscrepancy && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 z-10" title="Ada selisih laporan!">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 text-[9px] font-black text-white items-center justify-center shadow-xs">
+                      !
+                    </span>
+                  </span>
+                )}
+
+                <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0 ${
+                  bastComparison.hasDiscrepancy ? 'bg-amber-600' : 'bg-emerald-600'
+                }`}>
+                  <Icon name={bastComparison.hasDiscrepancy ? 'alert-triangle' : 'check-check'} size={14} className="text-white" />
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-none ${
+                      bastComparison.hasDiscrepancy ? 'text-amber-900' : 'text-emerald-800'
+                    }`}>
+                      BAST
+                    </span>
+                    {isSelectedToday && !bastComparison.hasDiscrepancy && (
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                      </span>
+                    )}
+                  </div>
+                  <span className={`text-[8.5px] sm:text-[9.5px] font-semibold mt-0.5 ${
+                    bastComparison.hasDiscrepancy ? 'text-amber-700' : 'text-emerald-600/90'
+                  }`}>
+                    {bastComparison.hasDiscrepancy
+                      ? (bastComparison.unbastCount > 0 ? `${bastComparison.unbastCount} Blm BAST` : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : 'Ada Selisih'))
+                      : (isSelectedToday ? 'Web Partner' : 'Aktivasi')}
+                  </span>
+                </div>
+                <div className={`ml-0.5 pl-2 sm:pl-2.5 border-l flex items-baseline ${
+                  bastComparison.hasDiscrepancy ? 'border-amber-300/90' : 'border-emerald-200/90'
+                }`}>
+                  <span className={`text-sm sm:text-base lg:text-lg font-black font-mono tracking-tight ${
+                    bastComparison.hasDiscrepancy ? 'text-amber-950' : 'text-emerald-950'
+                  }`}>
+                    {isBastLoading ? (
+                      <span className={`inline-block w-4 h-4 border-2 border-t-transparent rounded-full animate-spin ${
+                        bastComparison.hasDiscrepancy ? 'border-amber-600' : 'border-emerald-600'
+                      }`}></span>
+                    ) : (
+                      bastDisplayCount
+                    )}
+                  </span>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -6911,21 +7197,60 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
               </button>
             </div>
 
-            {/* Sync Badge */}
-            <div className="flex items-center">
-              {discrepancyList.length > 0 ? (
+            {/* Status / Notifikasi Sinkronisasi & Selisih BAST */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 1. NOTIFIKASI SELISIH BAST VS REPORT PETUGAS */}
+              {bastComparison.hasDiscrepancy && (
                 <button
-                  onClick={() => setShowDiscrepancyModal(true)}
-                  className="text-[9px] font-bold bg-[#fffbeb] text-[#b45309] px-2 py-1 rounded-md border border-[#fcd34d] inline-flex items-center shadow-sm cursor-pointer hover:bg-[#fef3c7] transition-colors group w-max"
+                  type="button"
+                  onClick={() => {
+                    setBastInitialFilter(
+                      bastComparison.unbastCount > 0
+                        ? 'UNBAST'
+                        : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                    );
+                    setShowBastModal(true);
+                  }}
+                  className="text-[10px] sm:text-xs font-bold bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900 px-2.5 py-1.5 rounded-lg border border-amber-300 inline-flex items-center shadow-xs cursor-pointer hover:bg-amber-100 hover:border-amber-400 hover:shadow-sm transition-all group w-max active:scale-95"
+                  title="Klik untuk melihat komparasi dan daftar pelanggan selisih BAST"
                 >
-                  <Icon name="alert-circle" size={11} className="mr-1 text-[#f59e0b]" />
-                  Selisih: {discrepancyList.length} data
-                  <Icon name="chevron-right" size={10} className="ml-1 opacity-70 group-hover:translate-x-0.5 transition-transform" />
+                  <span className="relative flex h-2 w-2 mr-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                  <Icon name="alert-triangle" size={12} className="mr-1.5 text-amber-600 shrink-0" />
+                  <span>
+                    Selisih BAST:{' '}
+                    <span className="font-black text-amber-950 underline decoration-amber-400 underline-offset-2">
+                      {bastComparison.unbastCount > 0
+                        ? `${bastComparison.unbastCount} Belum BAST`
+                        : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : `${bastComparison.diff} Data Berbeda`)}
+                    </span>{' '}
+                    ({bastComparison.totalBast} BAST vs {bastComparison.totalReported} Report)
+                  </span>
+                  <Icon name="chevron-right" size={11} className="ml-1.5 text-amber-600 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
                 </button>
-              ) : (
-                <div className="text-[9px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-md border border-emerald-200 inline-flex items-center shadow-sm w-max">
-                  <Icon name="check-circle" size={11} className="mr-1 text-emerald-500" />
-                  Semua Data Laporan Sinkron
+              )}
+
+              {/* 2. NOTIFIKASI SELISIH IKR VS AKTIVASI (JIKA ADA) */}
+              {discrepancyList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDiscrepancyModal(true)}
+                  className="text-[10px] sm:text-xs font-bold bg-[#fffbeb] text-[#b45309] px-2.5 py-1.5 rounded-lg border border-[#fcd34d] inline-flex items-center shadow-xs cursor-pointer hover:bg-[#fef3c7] hover:border-amber-400 transition-all group w-max active:scale-95"
+                  title="Klik untuk melihat selisih IKR vs Aktivasi"
+                >
+                  <Icon name="alert-circle" size={12} className="mr-1.5 text-[#f59e0b] shrink-0" />
+                  <span>Selisih IKR vs Aktivasi: {discrepancyList.length} data</span>
+                  <Icon name="chevron-right" size={11} className="ml-1 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                </button>
+              )}
+
+              {/* 3. JIKA SEMUA SINKRON (TIDAK ADA SELISIH BAST DAN TIDAK ADA SELISIH IKR) */}
+              {!bastComparison.hasDiscrepancy && discrepancyList.length === 0 && (
+                <div className="text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1.5 rounded-lg border border-emerald-200 inline-flex items-center shadow-xs w-max">
+                  <Icon name="check-circle" size={12} className="mr-1.5 text-emerald-500 shrink-0" />
+                  Semua Data Laporan &amp; BAST Sinkron ({bastComparison.totalReported}/{bastComparison.totalBast})
                 </div>
               )}
             </div>
@@ -7826,6 +8151,26 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         pelangganData={data.pelangganData}
         odpData={data.odpData}
         onRefresh={onRefreshSilent || onRefresh}
+      />
+
+      {/* --- MODAL BAST PARTNER & KOMPARASI LAPORAN --- */}
+      <BastPartnerModal
+        isOpen={showBastModal}
+        onClose={() => setShowBastModal(false)}
+        bastData={partnerBastData.length > 0 ? partnerBastData : (data.pelangganData || []).filter(p => standardizeDate(p.tglAktivasi) === selectedDate).map(p => ({
+          idPelanggan: p.idPelanggan || p.id_pelanggan,
+          namaPelanggan: p.namaPelanggan || p.nama_pelanggan,
+          stasiun: p.stasiun,
+          jam: p.tglAktivasi && p.tglAktivasi.includes(' ') ? p.tglAktivasi.split(' ')[1] : '-'
+        }))}
+        pelangganData={data.pelangganData}
+        selectedDate={selectedDate}
+        formattedDate={formattedDate}
+        isLoading={isBastLoading}
+        isLive={isSelectedToday && partnerBastData.length > 0}
+        lastSync={bastLastSync}
+        onRefresh={() => loadPartnerBast(true)}
+        initialFilterStatus={bastInitialFilter}
       />
 
     </div>
@@ -9339,7 +9684,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             <div className="flex items-center justify-between mb-1">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/15 backdrop-blur-md border border-white/20 text-white tracking-wide shadow-xs">
                 <Icon name="sparkles" size={11} className="text-amber-300" />
-                <span>Pembaruan v2.5</span>
+                <span>Pembaruan v2.6</span>
               </span>
               <button
                 type="button"
@@ -9362,79 +9707,79 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 
         {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Penambahan tabel Rekap Aktivasi Harian per Stasiun di halaman Overview */}
+          {/* FITUR 1: Penambahan Peta Pelanggan (GIS) */}
           <div
-            onClick={() => onTryFeature('overview', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Overview Rekap Aktivasi"
-          >
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="calendar" size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Rekap Aktivasi Harian per Stasiun
-                  </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
-                    Halaman Overview
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-snug">
-                  Penambahan tabel Rekap Aktivasi Harian per Stasiun untuk memantau pencapaian dan progres aktivasi harian secara visual dan terstruktur.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* FITUR 2: Penambahan detail nama sales dan filter sales dihalaman data pelanggan */}
-          <div
-            onClick={() => onTryFeature('database', dontShowAgain)}
+            onClick={() => onTryFeature('peta-pelanggan', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Data Pelanggan"
+            title="Klik untuk buka Visualisasi Peta Pelanggan"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="users" size={16} />
+                <Icon name="map-pin" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-                    Detail & Filter Nama Sales
+                    Peta Sebaran Pelanggan (GIS)
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
-                    Data Pelanggan
+                    Menu Peta Pelanggan
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Penambahan detail nama sales pada data pelanggan serta filter cerdas sales untuk mempermudah monitoring performa tim lapangan.
+                  Visualisasi sebaran pelanggan interaktif berbasis koordinat GPS, filter stasiun & status aktivasi, serta integrasi titik ODP aktual untuk memudahkan analisis jangkauan jaringan.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* FITUR 3: Pembaruan tampilan halaman data gangguan */}
+          {/* FITUR 2: Badge BAST dari Web Partner Starlite di Tabel Report Petugas */}
           <div
-            onClick={() => onTryFeature('gangguan', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-purple-50/50 via-white to-white border border-purple-100/80 hover:border-purple-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Halaman Data Gangguan"
+            onClick={() => onTryFeature('dashboard', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Dashboard Report Petugas"
           >
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="activity" size={16} />
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="check-circle" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-purple-600 transition-colors">
-                    Pembaruan Halaman Data Gangguan
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
+                    Badge BAST Web Partner Starlite
                   </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-purple-100/80 text-purple-700">
-                    Data Gangguan
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
+                    Report Petugas Lapangan
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Meliputi Card KPI data gangguan, Rekap Gangguan Harian per Stasiun, serta Analisa & Grafik Tren Gangguan.
+                  Penambahan badge BAST live dari API Web Partner pada header Report Petugas Lapangan, lengkap dengan pop-up rincian dan komparasi real-time status laporan harian.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 3: Sinkronisasi Nama Sales dari API Partner */}
+          <div
+            onClick={() => onTryFeature('database', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Data Pelanggan & Sinkronkan"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="refresh-cw" size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-amber-600 transition-colors">
+                    Sinkronisasi Nama Sales API Partner
+                  </h3>
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100/80 text-amber-800">
+                    Tombol Sinkronkan Data
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  Tombol "Sinkronkan Data" kini otomatis memicu sinkronisasi nama sales dari API Partner ke database secara langsung tanpa mengubah data koordinat maupun status aktivasi.
                 </p>
               </div>
             </div>
@@ -9463,7 +9808,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             </button>
             <button
               type="button"
-              onClick={() => onTryFeature('gangguan', dontShowAgain)}
+              onClick={() => onTryFeature('peta-pelanggan', dontShowAgain)}
               className="px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
             >
               <span>Jelajahi Fitur</span>
@@ -9635,24 +9980,13 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
       if (error) throw error;
 
-      api.run('updatePelangganData', payload)
-        .then(res => {
-          setIsSaving(false);
-          if (res !== false && res?.success !== false) {
-            if (onLocalPelangganUpdate) onLocalPelangganUpdate([payload]);
-            setInternalData(payload);
-            setEditingField(null);
-          } else {
-            setMessage({ type: 'error', text: res?.message || 'Gagal update ke Sheet' });
-          }
-        })
-        .catch(err => {
-          setIsSaving(false);
-          setMessage({ type: 'error', text: err.message });
-        });
+      setIsSaving(false);
+      if (onLocalPelangganUpdate) onLocalPelangganUpdate([payload]);
+      setInternalData(payload);
+      setEditingField(null);
     } catch (err) {
       setIsSaving(false);
-      setMessage({ type: 'error', text: 'Supabase Error: ' + err.message });
+      setMessage({ type: 'error', text: 'Database Error: ' + err.message });
     }
   };
 
@@ -9729,27 +10063,10 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           setTimeout(() => onClose(false), 1500);
         };
 
-        const failsafeLog = setTimeout(() => { finalizeSuccessLog(); }, 3500);
-
         // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
         sendTelegramVisitDM(payload, petugasList);
 
-        api.run('insertVisitLog', payload)
-          .then((res) => {
-            clearTimeout(failsafeLog);
-            if (res === false || (res && res.success === false)) {
-              setIsSaving(false);
-              setMessage({ type: 'error', text: res.message || 'Gagal menyimpan ke server' });
-            } else {
-              finalizeSuccessLog();
-            }
-          })
-          .catch((err) => {
-            clearTimeout(failsafeLog);
-            setIsSaving(false);
-            setMessage({ type: 'error', text: err.message });
-          });
-
+        finalizeSuccessLog();
         return;
       } // <--- KURUNG KURAWAL INI YANG SEBELUMNYA HILANG
 
@@ -9803,24 +10120,13 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           try {
             // 1. Simpan langsung ke Supabase
             const { error: sbErr } = await supabase.from('data_pelanggan').insert([supabaseAddPayload]);
-            if (sbErr) {
-              console.error("Supabase Insert Error:", sbErr);
-            }
-
-            // 2. Simpan ke Google Sheet via GAS
-            const res = await api.run('insertPelangganBaru', formData);
-            if (res === false || (res && res.success === false)) {
-              if (sbErr) {
-                setIsSaving(false);
-                setMessage({ type: 'error', text: res?.message || sbErr.message || 'Gagal menyimpan data pelanggan' });
-                return;
-              }
-            }
+            if (sbErr) throw sbErr;
 
             finalizeSuccessAdd();
           } catch (err) {
             console.error("Add customer error:", err);
-            finalizeSuccessAdd();
+            setIsSaving(false);
+            setMessage({ type: 'error', text: err.message || 'Gagal menyimpan data pelanggan ke Supabase' });
           }
         };
 
@@ -9892,26 +10198,10 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
           if (error) throw error;
 
-          const failsafeEdit = setTimeout(() => { finalizeSuccessEdit(); }, 3500);
-
-          api.run('updatePelangganData', updatePayload)
-            .then((res) => {
-              clearTimeout(failsafeEdit);
-              if (res === false || (res && res.success === false)) {
-                setIsSaving(false);
-                setMessage({ type: 'error', text: res.message || 'Gagal update Sheet' });
-              } else {
-                finalizeSuccessEdit();
-              }
-            })
-            .catch((err) => {
-              clearTimeout(failsafeEdit);
-              setIsSaving(false);
-              setMessage({ type: 'error', text: err.message });
-            });
+          finalizeSuccessEdit();
         } catch (err) {
           setIsSaving(false);
-          setMessage({ type: 'error', text: 'Supabase Error: ' + err.message });
+          setMessage({ type: 'error', text: 'Database Error: ' + err.message });
         }
       };
 
@@ -11292,11 +11582,8 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
     sendTelegramVisitDM(payload, listTeknisi);
 
-    // Sinkronisasi ke Google Sheet di background
-    api.run('insertVisitLog', payload).catch(e => console.warn("GAS insertVisitLog error:", e));
-
     try {
-      await supabase.from('log_visit').insert({
+      const { error: sbErr } = await supabase.from('log_visit').insert({
         timestamp: localTimestamp,
         id_pelanggan: payload.idPelanggan,
         nama_pelanggan: payload.namaPelanggan,
@@ -11312,6 +11599,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
         longitude: payload.longitude,
         petugas: payload.petugas
       });
+      if (sbErr) throw sbErr;
       finalize();
     } catch (err) {
       console.warn("Supabase insert error:", err);
@@ -11473,12 +11761,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
         await onLocalVisitUpdate('resolve', payload);
       }
 
-      // 2. Kirim update ke Google Apps Script di background (non-blocking)
-      if (typeof api !== 'undefined' && api.run) {
-        api.run('resolveVisitTicket', payload).catch(e => console.warn("GAS resolve sync warning:", e));
-      }
-
-      // 3. Sukses, tutup modal
+      // 2. Sukses, tutup modal
       setTimeout(() => {
         setIsResolving(false);
         setResolveTarget(null);
@@ -11496,24 +11779,13 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     if (!deleteTarget) return;
     setIsProcessing(true);
 
-    const payload = {
-      id: deleteTarget.id,
-      timestamp: deleteTarget.timestamp,
-      idPelanggan: deleteTarget.idPelanggan
-    };
-
     try {
       // 1. Eksekusi hapus di Supabase dan state lokal
       if (onLocalVisitUpdate) {
         await onLocalVisitUpdate('delete', deleteTarget);
       }
 
-      // 2. Sync ke Google Apps Script di background (non-blocking)
-      if (typeof api !== 'undefined' && api.run) {
-        api.run('deleteVisitLog', payload).catch(e => console.warn("GAS delete sync warning:", e));
-      }
-
-      // 3. Sukses, tutup modal
+      // 2. Sukses, tutup modal
       setTimeout(() => {
         setDeleteTarget(null);
         setIsProcessing(false);
@@ -12654,7 +12926,7 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     setBulkData(newData);
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     setIsSaving(true);
     setMessage(null);
 
@@ -12671,41 +12943,32 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     });
 
     // Update langsung ke Supabase
-    finalBulkData.forEach(async (it) => {
-      try {
+    try {
+      for (const it of finalBulkData) {
         let finalAktivasi = it.aktivasi;
         let finalIkr = it.ikr;
         if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
         else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
         const isNonKendala = finalAktivasi !== 'Kendala';
-        await supabase.from('data_pelanggan').update({
+        const { error: sbErr } = await supabase.from('data_pelanggan').update({
           status_aktivasi: finalAktivasi,
           status_ikr: finalIkr,
           issue_kendala: isNonKendala ? null : (it.issueKendala || null),
           reporter_kendala: isNonKendala ? null : (it.reporterKendala || null),
           tanggal_kendala: isNonKendala ? null : (it.tanggalKendala || null)
         }).eq('id_pelanggan', it.idPelanggan);
-      } catch (err) {
-        console.error('Supabase mass update error:', err);
+        if (sbErr) throw sbErr;
       }
-    });
 
-    api.run('updateMassalPelanggan', finalBulkData)
-      .then((res) => {
-        if (res && res.success) {
-          setIsSaving(false);
-          setIsSuccess(true);
-          if (onLocalPelangganUpdate) onLocalPelangganUpdate(finalBulkData);
-          setTimeout(() => onClose(false), 1500);
-        } else {
-          setIsSaving(false);
-          setMessage({ type: 'error', text: (res && res.message) ? res.message : 'Gagal memproses data massal.' });
-        }
-      })
-      .catch((err) => {
-        setIsSaving(false);
-        setMessage({ type: 'error', text: err.message });
-      });
+      setIsSaving(false);
+      setIsSuccess(true);
+      if (onLocalPelangganUpdate) onLocalPelangganUpdate(finalBulkData);
+      setTimeout(() => onClose(false), 1500);
+    } catch (err) {
+      console.error('Supabase mass update error:', err);
+      setIsSaving(false);
+      setMessage({ type: 'error', text: err.message || 'Gagal memproses data massal di Supabase.' });
+    }
   };
 
   return ReactDOM.createPortal(
@@ -12920,37 +13183,31 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
     return () => { document.body.style.overflow = 'auto'; };
   }, []);
 
-  const handleDeleteAll = () => {
+  const handleDeleteAll = async () => {
     setIsDeleting(true);
     setMessage(null);
 
-    // KARENA HOSTING DI FIREBASE, PASTIKAN MENGGUNAKAN api.run (bukan google.script.run)
-    if (typeof api !== 'undefined' && api.run) {
-      api.run('deleteMassalPelanggan', selectedData)
-        .then((res) => {
-          if (res && res.success) {
-            // 1. Eksekusi update lokal terlebih dahulu
-            const deletedIds = selectedData.map(item => item.idPelanggan);
-            if (onLocalPelangganDelete) onLocalPelangganDelete(deletedIds);
+    try {
+      const deletedIds = selectedData.map(item => String(item.idPelanggan).trim().toUpperCase());
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < deletedIds.length; i += BATCH_SIZE) {
+        const batch = deletedIds.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('data_pelanggan').delete().in('id_pelanggan', batch);
+        if (error) throw error;
+      }
 
-            // 2. Beri jeda sedikit sebelum menutup modal agar React sempat me-render ulang tabel
-            setTimeout(() => {
-              setIsDeleting(false);
-              onClose(false);
-            }, 300);
-          } else {
-            setIsDeleting(false);
-            setMessage({ type: 'error', text: (res && res.message) ? res.message : 'Gagal menghapus data.' });
-          }
-        })
-        .catch((err) => {
-          setIsDeleting(false);
-          setMessage({ type: 'error', text: err.message });
-        });
-    } else {
-      // Fallback jika API belum termuat (Sangat penting saat di hosting luar)
+      // 1. Eksekusi update lokal terlebih dahulu
+      if (onLocalPelangganDelete) onLocalPelangganDelete(deletedIds);
+
+      // 2. Beri jeda sedikit sebelum menutup modal agar React sempat me-render ulang tabel
+      setTimeout(() => {
+        setIsDeleting(false);
+        onClose(false);
+      }, 300);
+    } catch (err) {
+      console.error("Gagal menghapus data massal di Supabase:", err);
       setIsDeleting(false);
-      setMessage({ type: 'error', text: "Sistem API belum terhubung. Gagal menghapus data." });
+      setMessage({ type: 'error', text: err.message || 'Gagal menghapus data dari Supabase.' });
     }
   };
 

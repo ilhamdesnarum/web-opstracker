@@ -17,6 +17,7 @@
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@supabase/supabase-js": "^2.106.2",
+    "@tmcw/togeojson": "^7.1.2",
     "firebase": "^12.13.0",
     "leaflet": "^1.9.4",
     "lodash": "^4.18.1",
