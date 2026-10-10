@@ -2897,8 +2897,13 @@ export function OkupansiView({ data, setData }) {
 
       const BATCH_SIZE = 100;
       for (let i = 0; i < records.length; i += BATCH_SIZE) {
-        const batch = records.slice(i, i + BATCH_SIZE);
-        const { error } = await supabase.from('odp').upsert(batch, { onConflict: 'id' });
+        // Hapus property id jika undefined agar tidak menimpa serial/UUID otomatis saat upsert
+        const batch = records.slice(i, i + BATCH_SIZE).map(r => {
+          const rec = { ...r };
+          if (!rec.id) delete rec.id;
+          return rec;
+        });
+        const { error } = await supabase.from('odp').upsert(batch, { onConflict: 'kode_odp' });
         if (error) throw error;
       }
 
