@@ -2811,7 +2811,7 @@ export function OkupansiView({ data, setData }) {
   const [inputTahap, setInputTahap] = useState('');
   const [isNewTahap, setIsNewTahap] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadDuplicateError, setUploadDuplicateError] = useState([]);
+  const [uploadDuplicateError, setUploadDuplicateError] = useState(null);
   const [isUploadSuccess, setIsUploadSuccess] = useState(false);
   const fileInputRef = useRef(null);
   const [syncToast, setSyncToast] = useState({ show: false, type: '', message: '' });
@@ -2879,28 +2879,39 @@ export function OkupansiView({ data, setData }) {
     }));
   };
 
-  const handleUploadPayload = async (payloadToSend) => {
+  const handleUploadPayload = async (payloadToSend, skipDbCheck = false) => {
     if (!payloadToSend || payloadToSend.length === 0) return;
     setIsUploading(true);
 
-    // Cek Duplikasi Kode ODP (dengan database lokal & di dalam payload itu sendiri)
-    const existingKodes = new Set((data.odpData || []).map(o => String(o.kodeOdp || o.kode_odp || o.label).trim().toUpperCase()));
-    const payloadKodes = new Set();
-    const duplicates = new Set();
+    if (!skipDbCheck) {
+      // Cek Duplikasi Kode ODP
+      const existingKodes = new Set((data.odpData || []).map(o => String(o.kodeOdp || o.kode_odp || o.label).trim().toUpperCase()));
+      const payloadKodes = new Set();
+      const duplicatesInFile = new Set();
+      const duplicatesInDb = new Set();
 
-    for (const o of payloadToSend) {
-      const kod = String(o.kode_odp || o.label).trim().toUpperCase();
-      if (!kod) continue;
-      if (existingKodes.has(kod) || payloadKodes.has(kod)) {
-        duplicates.add(kod);
+      for (const o of payloadToSend) {
+        const kod = String(o.kode_odp || o.label).trim().toUpperCase();
+        if (!kod) continue;
+        if (payloadKodes.has(kod)) {
+          duplicatesInFile.add(kod);
+        } else if (existingKodes.has(kod)) {
+          duplicatesInDb.add(kod);
+        }
+        payloadKodes.add(kod);
       }
-      payloadKodes.add(kod);
-    }
 
-    if (duplicates.size > 0) {
-      setUploadDuplicateError(Array.from(duplicates));
-      setIsUploading(false);
-      return;
+      if (duplicatesInFile.size > 0) {
+        setUploadDuplicateError({ type: 'file', data: Array.from(duplicatesInFile) });
+        setIsUploading(false);
+        return;
+      }
+
+      if (duplicatesInDb.size > 0) {
+        setUploadDuplicateError({ type: 'db', data: Array.from(duplicatesInDb), payload: payloadToSend });
+        setIsUploading(false);
+        return;
+      }
     }
 
     try {
@@ -4133,7 +4144,7 @@ export function OkupansiView({ data, setData }) {
       {/* MODAL UPLOAD & TAMBAH ODP (MANUAL 1-2 ODP / EXCEL MASSAL) */}
       {showBulkModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { if (!isUploading && !isUploadSuccess) { setUploadDuplicateError([]); setShowBulkModal(false); } }}></div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { if (!isUploading && !isUploadSuccess) { setUploadDuplicateError(null); setShowBulkModal(false); } }}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl xl:max-w-5xl flex flex-col relative z-10 animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* OVERLAY SUKSES */}
@@ -4173,7 +4184,7 @@ export function OkupansiView({ data, setData }) {
                 </div>
               </div>
               <button
-                onClick={() => { if (!isUploading) { setUploadDuplicateError([]); setShowBulkModal(false); } }}
+                onClick={() => { if (!isUploading) { setUploadDuplicateError(null); setShowBulkModal(false); } }}
                 className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
                 <Icon name="x" size={20} />
@@ -4184,7 +4195,7 @@ export function OkupansiView({ data, setData }) {
             <div className="flex border-b border-slate-200 bg-slate-100/70 px-4 sm:px-6 pt-2.5 gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => { setUploadDuplicateError([]); setAddOdpTab('manual'); }}
+                onClick={() => { setUploadDuplicateError(null); setAddOdpTab('manual'); }}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'manual'
                   ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                   : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
@@ -4198,7 +4209,7 @@ export function OkupansiView({ data, setData }) {
               </button>
               <button
                 type="button"
-                onClick={() => { setUploadDuplicateError([]); setAddOdpTab('excel'); }}
+                onClick={() => { setUploadDuplicateError(null); setAddOdpTab('excel'); }}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'excel'
                   ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                   : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
@@ -4211,7 +4222,7 @@ export function OkupansiView({ data, setData }) {
 
             {/* CONTENT BODY */}
             <div className="p-4 sm:p-5 flex-1 overflow-y-auto min-h-0">
-              {uploadDuplicateError.length > 0 && (
+              {uploadDuplicateError && uploadDuplicateError.data && (
                 <div className="mb-4 bg-rose-50 border border-rose-200 rounded-xl p-4 shadow-sm animate-fade">
                   <div className="flex items-start gap-3">
                     <div className="bg-rose-100 p-2 rounded-lg text-rose-600 shrink-0 mt-0.5">
@@ -4219,18 +4230,37 @@ export function OkupansiView({ data, setData }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-bold text-rose-700 mb-1">
-                        Upload Dibatalkan! Ada {uploadDuplicateError.length} ODP Duplikat
+                        {uploadDuplicateError.type === 'file' 
+                          ? `Upload Dibatalkan! Ada ${uploadDuplicateError.data.length} ODP Ditulis Ganda`
+                          : `Perhatian! Ada ${uploadDuplicateError.data.length} ODP Sudah Terdaftar`}
                       </h4>
                       <p className="text-xs text-rose-600 mb-2 leading-relaxed">
-                        Kode ODP di bawah ini sudah terdaftar di sistem (database) atau ditulis ganda di dalam file Excel Anda. Mohon hapus/perbaiki dari input Anda.
+                        {uploadDuplicateError.type === 'file'
+                          ? "Kode ODP di bawah ini ditulis ganda di dalam file Excel Anda. Mohon hapus/perbaiki dari input Anda."
+                          : "Kode ODP di bawah ini sudah terdaftar di sistem (database). Yakin ingin mereplace dengan data ini?"}
                       </p>
-                      <div className="bg-white/60 rounded border border-rose-100 p-2 text-xs font-mono text-rose-700 max-h-32 overflow-y-auto">
-                        {uploadDuplicateError.map((k, i) => (
+                      <div className={`bg-white/60 rounded border border-rose-100 p-2 text-xs font-mono text-rose-700 max-h-32 overflow-y-auto ${uploadDuplicateError.type === 'db' ? 'mb-3' : ''}`}>
+                        {uploadDuplicateError.data.map((k, i) => (
                           <div key={i} className="py-0.5 border-b border-rose-100/50 last:border-0">{k}</div>
                         ))}
                       </div>
+                      {uploadDuplicateError.type === 'db' && (
+                        <div className="flex gap-2">
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const p = uploadDuplicateError.payload;
+                              setUploadDuplicateError(null);
+                              handleUploadPayload(p, true);
+                            }}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
+                          >
+                            Ya, Replace Data
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <button type="button" onClick={() => setUploadDuplicateError([])} className="text-rose-400 hover:text-rose-600 bg-white/50 hover:bg-white rounded-lg p-1 transition-colors cursor-pointer shrink-0">
+                    <button type="button" onClick={() => setUploadDuplicateError(null)} className="text-rose-400 hover:text-rose-600 bg-white/50 hover:bg-white rounded-lg p-1 transition-colors cursor-pointer shrink-0">
                       <Icon name="x" size={16} />
                     </button>
                   </div>
@@ -4590,7 +4620,7 @@ export function OkupansiView({ data, setData }) {
                               setSyncToast({ show: true, type: 'error', message: 'File Excel terbaca, tapi tidak ada data ODP di bawah tabel header.' });
                               setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
                             } else {
-                              setUploadDuplicateError([]);
+                              setUploadDuplicateError(null);
                               setParsedExcelData(newPayload);
                               setInputTahap(manageTahapFilter || '');
                               setIsNewTahap(false);
@@ -4656,7 +4686,7 @@ export function OkupansiView({ data, setData }) {
                           )}
                         </div>
                       </div>
-                      <button onClick={() => { setUploadDuplicateError([]); setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
+                      <button onClick={() => { setUploadDuplicateError(null); setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
                         Ganti File
                       </button>
                     </div>
@@ -4711,7 +4741,7 @@ export function OkupansiView({ data, setData }) {
                 <button
                   type="button"
                   onClick={() => {
-                    setUploadDuplicateError([]);
+                    setUploadDuplicateError(null);
                     setShowBulkModal(false);
                     setParsedExcelData([]);
                     setInputTahap(manageTahapFilter || '');
@@ -4958,7 +4988,7 @@ export function OkupansiView({ data, setData }) {
                     setManualOdpRows([
                       { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
                     ]);
-                    setUploadDuplicateError([]);
+                    setUploadDuplicateError(null);
                     setAddOdpTab('manual');
                     setInputTahap(defaultTh);
                     setIsNewTahap(false);
