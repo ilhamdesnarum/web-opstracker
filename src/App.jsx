@@ -2811,6 +2811,7 @@ export function OkupansiView({ data, setData }) {
   const [inputTahap, setInputTahap] = useState('');
   const [isNewTahap, setIsNewTahap] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadDuplicateError, setUploadDuplicateError] = useState([]);
   const [isUploadSuccess, setIsUploadSuccess] = useState(false);
   const fileInputRef = useRef(null);
   const [syncToast, setSyncToast] = useState({ show: false, type: '', message: '' });
@@ -2897,8 +2898,7 @@ export function OkupansiView({ data, setData }) {
     }
 
     if (duplicates.size > 0) {
-      const dupArray = Array.from(duplicates);
-      alert(`Upload dibatalkan!\n\nTerdapat ${dupArray.length} ODP yang KODE-nya duplikat (sudah ada di database atau ganda di dalam file):\n\n${dupArray.slice(0, 10).join(', ')}${dupArray.length > 10 ? '\n...dan lainnya' : ''}\n\nMohon hapus/perbaiki kode ODP duplikat tersebut sebelum menyimpan.`);
+      setUploadDuplicateError(dupArray);
       setIsUploading(false);
       return;
     }
@@ -4133,7 +4133,7 @@ export function OkupansiView({ data, setData }) {
       {/* MODAL UPLOAD & TAMBAH ODP (MANUAL 1-2 ODP / EXCEL MASSAL) */}
       {showBulkModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isUploading && !isUploadSuccess && setShowBulkModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { if (!isUploading && !isUploadSuccess) { setUploadDuplicateError([]); setShowBulkModal(false); } }}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl xl:max-w-5xl flex flex-col relative z-10 animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* OVERLAY SUKSES */}
@@ -4173,7 +4173,7 @@ export function OkupansiView({ data, setData }) {
                 </div>
               </div>
               <button
-                onClick={() => !isUploading && setShowBulkModal(false)}
+                onClick={() => { if (!isUploading) { setUploadDuplicateError([]); setShowBulkModal(false); } }}
                 className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
                 <Icon name="x" size={20} />
@@ -4184,7 +4184,7 @@ export function OkupansiView({ data, setData }) {
             <div className="flex border-b border-slate-200 bg-slate-100/70 px-4 sm:px-6 pt-2.5 gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setAddOdpTab('manual')}
+                onClick={() => { setUploadDuplicateError([]); setAddOdpTab('manual'); }}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'manual'
                   ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                   : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
@@ -4198,7 +4198,7 @@ export function OkupansiView({ data, setData }) {
               </button>
               <button
                 type="button"
-                onClick={() => setAddOdpTab('excel')}
+                onClick={() => { setUploadDuplicateError([]); setAddOdpTab('excel'); }}
                 className={`px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 border-t border-x cursor-pointer ${addOdpTab === 'excel'
                   ? 'bg-white text-emerald-700 border-slate-200 -mb-[1px] shadow-sm'
                   : 'bg-transparent text-slate-500 hover:text-slate-700 border-transparent hover:bg-white/50'
@@ -4211,6 +4211,31 @@ export function OkupansiView({ data, setData }) {
 
             {/* CONTENT BODY */}
             <div className="p-4 sm:p-5 flex-1 overflow-y-auto min-h-0">
+              {uploadDuplicateError.length > 0 && (
+                <div className="mb-4 bg-rose-50 border border-rose-200 rounded-xl p-4 shadow-sm animate-fade">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-rose-100 p-2 rounded-lg text-rose-600 shrink-0 mt-0.5">
+                      <Icon name="alert-circle" size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-bold text-rose-700 mb-1">
+                        Upload Dibatalkan! Ada {uploadDuplicateError.length} ODP Duplikat
+                      </h4>
+                      <p className="text-xs text-rose-600 mb-2 leading-relaxed">
+                        Kode ODP di bawah ini sudah terdaftar di sistem (database) atau ditulis ganda di dalam file Excel Anda. Mohon hapus/perbaiki dari input Anda.
+                      </p>
+                      <div className="bg-white/60 rounded border border-rose-100 p-2 text-xs font-mono text-rose-700 max-h-32 overflow-y-auto">
+                        {uploadDuplicateError.map((k, i) => (
+                          <div key={i} className="py-0.5 border-b border-rose-100/50 last:border-0">{k}</div>
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setUploadDuplicateError([])} className="text-rose-400 hover:text-rose-600 bg-white/50 hover:bg-white rounded-lg p-1 transition-colors cursor-pointer shrink-0">
+                      <Icon name="x" size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
               {addOdpTab === 'manual' ? (
                 <div className="space-y-4">
                   {/* PENGATURAN STASIUN & TAHAP */}
@@ -4565,6 +4590,7 @@ export function OkupansiView({ data, setData }) {
                               setSyncToast({ show: true, type: 'error', message: 'File Excel terbaca, tapi tidak ada data ODP di bawah tabel header.' });
                               setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
                             } else {
+                              setUploadDuplicateError([]);
                               setParsedExcelData(newPayload);
                               setInputTahap(manageTahapFilter || '');
                               setIsNewTahap(false);
@@ -4630,7 +4656,7 @@ export function OkupansiView({ data, setData }) {
                           )}
                         </div>
                       </div>
-                      <button onClick={() => { setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
+                      <button onClick={() => { setUploadDuplicateError([]); setParsedExcelData([]); setInputTahap(manageTahapFilter || ''); setIsNewTahap(false); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-sm font-bold text-rose-500 hover:text-rose-600 px-3 py-1.5 hover:bg-rose-50 rounded-lg transition-colors">
                         Ganti File
                       </button>
                     </div>
@@ -4685,6 +4711,7 @@ export function OkupansiView({ data, setData }) {
                 <button
                   type="button"
                   onClick={() => {
+                    setUploadDuplicateError([]);
                     setShowBulkModal(false);
                     setParsedExcelData([]);
                     setInputTahap(manageTahapFilter || '');
@@ -4931,6 +4958,7 @@ export function OkupansiView({ data, setData }) {
                     setManualOdpRows([
                       { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
                     ]);
+                    setUploadDuplicateError([]);
                     setAddOdpTab('manual');
                     setInputTahap(defaultTh);
                     setIsNewTahap(false);
