@@ -470,8 +470,8 @@ async function main() {
           catatan: catatan,
           stasiun: stationName,
           tanggal_registrasi: tglRegistrasi || existingData.tanggal_registrasi || null,
-          odp: odp || existingData.odp || existingData.kode_odp || existingData.odp_aktual || null,
-          port_odp: portOdp || existingData.port_odp || null,
+          odp: existingData.odp || existingData.kode_odp || existingData.odp_aktual || odp || null,
+          port_odp: existingData.port_odp || portOdp || null,
           nama_sales: newSales || null,
           updated_at: new Date().toISOString()
         };

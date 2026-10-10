@@ -362,6 +362,14 @@ async function main() {
           if (ex) {
             if (!row.nama_sales && ex.nama_sales) row.nama_sales = ex.nama_sales;
             if (!row.tanggal_registrasi && ex.tanggal_registrasi) row.tanggal_registrasi = ex.tanggal_registrasi;
+            
+            // JANGAN PERNAH update titik ODP/Port jika sudah ada di database (permintaan user)
+            if (ex.odp || ex.kode_odp || ex.odp_aktual) {
+              row.odp = ex.odp || ex.kode_odp || ex.odp_aktual;
+            }
+            if (ex.port_odp) {
+              row.port_odp = ex.port_odp;
+            }
           }
         }
 
