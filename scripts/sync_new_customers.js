@@ -462,6 +462,11 @@ async function main() {
           }
         }
 
+        // Cek apakah sudah pernah aktif / IKR
+        const statusAktivasi = existingData.status_aktivasi ? String(existingData.status_aktivasi).toLowerCase() : "";
+        const statusIkr = existingData.status_ikr ? String(existingData.status_ikr).toLowerCase() : "";
+        const isPernahAktif = statusAktivasi === "sudah" || statusIkr === "sudah";
+
         const payloadExisting = {
           id_pelanggan: idPelanggan,
           nama_pelanggan: nama,
@@ -470,11 +475,21 @@ async function main() {
           catatan: catatan,
           stasiun: stationName,
           tanggal_registrasi: tglRegistrasi || existingData.tanggal_registrasi || null,
-          odp: existingData.odp || existingData.kode_odp || existingData.odp_aktual || odp || null,
-          port_odp: existingData.port_odp || portOdp || null,
           nama_sales: newSales || null,
           updated_at: new Date().toISOString()
         };
+
+        if (isPernahAktif) {
+          // JANGAN PERNAH update koordinat dan ODP jika sudah aktif (tetap gunakan yang di database)
+          payloadExisting.odp = existingData.odp || existingData.kode_odp || existingData.odp_aktual || null;
+          payloadExisting.port_odp = existingData.port_odp || null;
+        } else {
+          // Jika belum aktif, boleh update dari API jika ada perubahan
+          payloadExisting.odp = odp || existingData.odp || existingData.kode_odp || existingData.odp_aktual || null;
+          payloadExisting.port_odp = portOdp || existingData.port_odp || null;
+          if (lat) payloadExisting.latitude = lat;
+          if (lng) payloadExisting.longitude = lng;
+        }
 
         rowsExistingNoStatus.push(payloadExisting);
       } else {
