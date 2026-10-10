@@ -2881,6 +2881,28 @@ export function OkupansiView({ data, setData }) {
   const handleUploadPayload = async (payloadToSend) => {
     if (!payloadToSend || payloadToSend.length === 0) return;
     setIsUploading(true);
+
+    // Cek Duplikasi Kode ODP (dengan database lokal & di dalam payload itu sendiri)
+    const existingKodes = new Set((data.odpData || []).map(o => String(o.kodeOdp || o.kode_odp || o.label).trim().toUpperCase()));
+    const payloadKodes = new Set();
+    const duplicates = new Set();
+
+    for (const o of payloadToSend) {
+      const kod = String(o.kode_odp || o.label).trim().toUpperCase();
+      if (!kod) continue;
+      if (existingKodes.has(kod) || payloadKodes.has(kod)) {
+        duplicates.add(kod);
+      }
+      payloadKodes.add(kod);
+    }
+
+    if (duplicates.size > 0) {
+      const dupArray = Array.from(duplicates);
+      alert(`Upload dibatalkan!\n\nTerdapat ${dupArray.length} ODP yang KODE-nya duplikat (sudah ada di database atau ganda di dalam file):\n\n${dupArray.slice(0, 10).join(', ')}${dupArray.length > 10 ? '\n...dan lainnya' : ''}\n\nMohon hapus/perbaiki kode ODP duplikat tersebut sebelum menyimpan.`);
+      setIsUploading(false);
+      return;
+    }
+
     try {
       const records = payloadToSend.map(o => ({
         id: o.id,
