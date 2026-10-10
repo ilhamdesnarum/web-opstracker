@@ -559,8 +559,14 @@ export const ExecutiveRolloutTracker = ({
 
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
                         <div
-                          className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(numTakeUp, 100)}%` }}
+                          className="h-full bg-emerald-500 transition-all duration-500"
+                          style={{ width: `${Math.min(totalHp > 0 ? (totHcAktif / totalHp) * 100 : 0, 100)}%` }}
+                          title={`Aktif: ${totHcAktif.toLocaleString('id-ID')} HC`}
+                        ></div>
+                        <div
+                          className="h-full bg-blue-500 transition-all duration-500"
+                          style={{ width: `${Math.min(totalHp > 0 ? (Math.max(0, totAkt - totHcAktif) / totalHp) * 100 : 0, 100)}%` }}
+                          title={`Suspend/Dismantle: ${Math.max(0, totAkt - totHcAktif).toLocaleString('id-ID')} HC`}
                         ></div>
                       </div>
 
@@ -722,7 +728,7 @@ export const ExecutiveRolloutTracker = ({
                                     <div className="flex items-center justify-between text-[10px] mb-1">
                                       <div className="flex items-center gap-2">
                                         <span className="text-slate-500 font-medium">
-                                          Terpasang: <strong className="text-slate-700">{poAkt} / {poTotalHp} HP</strong>
+                                          Aktivasi: <strong className="text-slate-700">{poAkt} / {poTotalHp} HP</strong>
                                         </span>
                                         {Number(po.hp_rfs || po.hpRfs || 0) > 0 && (
                                           <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
@@ -734,10 +740,16 @@ export const ExecutiveRolloutTracker = ({
                                         {poTakeUp}%
                                       </span>
                                     </div>
-                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
                                       <div
-                                        className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                                        style={{ width: `${Math.min(numPoTakeUp, 100)}%` }}
+                                        className="h-full bg-emerald-500 transition-all duration-500"
+                                        style={{ width: `${Math.min(poTotalHp > 0 ? (poAktif / poTotalHp) * 100 : 0, 100)}%` }}
+                                        title={`Aktif: ${poAktif}`}
+                                      ></div>
+                                      <div
+                                        className="h-full bg-blue-500 transition-all duration-500"
+                                        style={{ width: `${Math.min(poTotalHp > 0 ? (Math.max(0, poAkt - poAktif) / poTotalHp) * 100 : 0, 100)}%` }}
+                                        title={`Suspend/Dismantle: ${Math.max(0, poAkt - poAktif)}`}
                                       ></div>
                                     </div>
                                   </div>
