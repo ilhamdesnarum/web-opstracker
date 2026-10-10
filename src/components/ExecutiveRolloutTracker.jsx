@@ -156,12 +156,12 @@ export const ExecutiveRolloutTracker = ({
       const matchSearch = !q || stName.includes(q);
 
       // Health Filter Calculation
-      const hpReg = Number(row.hpReguler || row.hpTerbangun || 0);
-      const hpPerc = Number(row.hpPercepatan || row.hpPercepatanVal || 0);
+      const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
+      const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
       const totalHp = hpReg + hpPerc;
 
-      const aktReg = Number(row.aktivasiReguler || row.totalAktivasiHc || 0);
-      const aktPerc = Number(row.aktivasiPercepatan || row.hcAktif || 0);
+      const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
+      const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
       const totAkt = row.totalAktivasiHc !== undefined && row.hpPercepatan !== undefined
         ? Number(row.totalAktivasiHc)
         : (aktReg + aktPerc);
@@ -457,20 +457,20 @@ export const ExecutiveRolloutTracker = ({
               const isExpanded = Boolean(expandedStations[stName]);
 
               // Kapasitas HP
-              const hpReg = Number(row.hpReguler || row.hpTerbangun || 0);
-              const hpPerc = Number(row.hpPercepatan || row.hpPercepatanVal || 0);
+              const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
+              const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
               const totalHp = hpReg + hpPerc;
 
               // Aktivasi HC
-              const aktReg = Number(row.aktivasiReguler || row.totalAktivasiHc || 0);
-              const aktPerc = Number(row.aktivasiPercepatan || row.hcAktif || 0);
+              const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
+              const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
               const totAkt = row.totalAktivasiHc !== undefined && row.hpPercepatan !== undefined
                 ? Number(row.totalAktivasiHc)
                 : (aktReg + aktPerc);
 
               // HC Aktif
-              const hcAktReg = Number(row.hcAktifReguler || row.performaHc || 0);
-              const hcAktPerc = Number(row.hcAktifPercepatan || row.tieringHc || 0);
+              const hcAktReg = row.hcAktifReguler !== undefined ? Number(row.hcAktifReguler) : Number(row.performaHc || 0);
+              const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
               const totHcAktif = hcAktReg + hcAktPerc;
 
               // Aktivasi Hari Ini
