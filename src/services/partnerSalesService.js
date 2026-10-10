@@ -58,8 +58,9 @@ export function extractSalesName(c) {
 
   if (!s) return null;
   const cleaned = String(s).trim();
-  if (!cleaned || cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') {
-    return null;
+  if (!cleaned) return null;
+  if (cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') {
+    return '-'; // "-" means Daftar Mandiri via web
   }
   return cleaned;
 }
@@ -87,7 +88,7 @@ export function extractCustomerId(c) {
  */
 export async function syncSalesFromPartnerApi({
   pelangganList = [],
-  maxPages = 6,
+  maxPages = 10,
   onProgress = null
 } = {}) {
   const token = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STARLITE_PARTNER_TOKEN)
@@ -111,7 +112,7 @@ export async function syncSalesFromPartnerApi({
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${p}&page_size=10&sort_order=DESC`, {
+        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${p}&page_size=20&sort_order=DESC`, {
           headers,
           signal: controller.signal
         });
@@ -130,7 +131,7 @@ export async function syncSalesFromPartnerApi({
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=20&sort_order=DESC&sales_partner_id=${partnerId}`, {
+        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`, {
           headers,
           signal: controller.signal
         });
@@ -221,8 +222,8 @@ export async function syncSalesFromPartnerApi({
       const existing = existingMap.get(idUpper);
       if (existing) {
         const curSales = String(existing.namaSales || existing.nama_sales || '').trim();
-        // Update jika belum ada sales atau masih 'Daftar Mandiri' / '-' atau ada perubahan nama sales riil
-        if (!curSales || curSales === '-' || curSales.toLowerCase() === 'daftar mandiri' || (salesName && curSales !== salesName)) {
+        // Update hanya jika ada perbedaan nama sales (ini juga akan mengupdate data yang dulunya 'Daftar Mandiri' menjadi '-')
+        if (curSales !== salesName) {
           updates.push({
             id_pelanggan: existing.idPelanggan || existing.id_pelanggan || idUpper,
             nama_sales: salesName

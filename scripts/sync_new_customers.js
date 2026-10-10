@@ -187,9 +187,13 @@ function extractSalesName(c) {
     s = typeof vs === 'object' ? vs?.name : vs;
   }
 
-  if (!s) return "Daftar Mandiri";
+  if (!s) return null;
   const cleaned = String(s).trim();
-  return (!cleaned || cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') ? "Daftar Mandiri" : cleaned;
+  if (!cleaned) return null;
+  if (cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') {
+    return '-';
+  }
+  return cleaned;
 }
 
 async function checkExistingInSupabase(customerIds) {

@@ -94,7 +94,7 @@ const parseSupabaseDocument = (fields) => {
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: (fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null && fields.telat_bayar_hari !== "") ? Number(fields.telat_bayar_hari) : null,
-    namaSales: (fields.nama_sales && fields.nama_sales !== "-") ? fields.nama_sales : (fields.sales && fields.sales !== "-" ? fields.sales : "Daftar Mandiri"),
+    namaSales: (fields.nama_sales && fields.nama_sales.trim()) ? fields.nama_sales.trim() : (fields.sales && fields.sales.trim() ? fields.sales.trim() : ""),
     updatedAt: fields.updated_at || fields.updatedAt || "",
     createdAt: fields.created_at || fields.createdAt || "",
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
@@ -5253,14 +5253,14 @@ const MobileApp = () => {
                             <span>Tanggal: <span className="font-semibold text-slate-700">{standardizeDate(item.tanggal || item.tanggalRegistrasi)}</span></span>
                           </div>
                           <div className="flex items-center gap-1.5 text-[9px]">
-                            <Icon name="user" size={10} className={item.namaSales && item.namaSales !== 'Daftar Mandiri' ? "text-blue-500" : "text-slate-400"} />
+                            <Icon name="user" size={10} className={(item.namaSales && item.namaSales !== '-' && item.namaSales !== 'Daftar Mandiri') ? "text-blue-500" : "text-slate-400"} />
                             <span className="text-slate-500">Sales:</span>
                             <span className={`px-1.5 py-0.5 rounded border text-[8.5px] ${
-                              item.namaSales && item.namaSales !== 'Daftar Mandiri'
+                              (item.namaSales && item.namaSales !== '-' && item.namaSales !== 'Daftar Mandiri')
                                 ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
                                 : 'bg-slate-50 text-slate-500 border-slate-200 italic'
                             }`}>
-                              {item.namaSales || 'Daftar Mandiri'}
+                              {(item.namaSales === '-' || item.namaSales === 'Daftar Mandiri') ? 'Daftar Mandiri' : (item.namaSales || '-')}
                             </span>
                           </div>
                         </div>

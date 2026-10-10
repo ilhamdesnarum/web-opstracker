@@ -68,7 +68,7 @@ const parseSupabaseDocument = (fields) => {
     fotoOntTerpasang: fields.foto_ont_terpasang || "",
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null ? Number(fields.telat_bayar_hari) : null,
-    namaSales: (fields.nama_sales && fields.nama_sales !== "-") ? fields.nama_sales : (fields.sales && fields.sales !== "-" ? fields.sales : "Daftar Mandiri"),
+    namaSales: (fields.nama_sales && fields.nama_sales.trim()) ? fields.nama_sales.trim() : (fields.sales && fields.sales.trim() ? fields.sales.trim() : ""),
     updatedAt: fields.updated_at || fields.updatedAt || "",
     createdAt: fields.created_at || fields.createdAt || "",
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
@@ -7883,8 +7883,12 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                   {/* TAMPILAN MOBILE: KARTU LIST REGISTRASI KHUSUS MOBILE */}
                   <div className="sm:hidden space-y-2.5">
                     {registrasiList.map((cust, idx) => {
-                      const sales = cust.namaSales || 'Daftar Mandiri';
-                      const isMandiri = !sales || sales === 'Daftar Mandiri' || sales === '-';
+                      let sales = cust.namaSales;
+                      const isMandiri = sales === '-' || sales === 'Daftar Mandiri';
+                      const isMissing = !sales;
+                      if (isMandiri) sales = 'Daftar Mandiri';
+                      else if (isMissing) sales = '-';
+                      
                       return (
                         <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between gap-2.5">
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -7897,11 +7901,11 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                                 <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{cust.idPelanggan || '-'}</span>
                                 <span className="text-[8.5px] uppercase font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{toProperCase(cust.stasiun)}</span>
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${
-                                  isMandiri
+                                  isMandiri || isMissing
                                     ? 'bg-slate-50 text-slate-500 border-slate-200 italic font-normal'
                                     : 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
                                 }`}>
-                                  <Icon name="user" size={9} className={isMandiri ? "text-slate-400" : "text-blue-500"} />
+                                  <Icon name="user" size={9} className={(isMandiri || isMissing) ? "text-slate-400" : "text-blue-500"} />
                                   {sales}
                                 </span>
                               </div>
@@ -7939,8 +7943,12 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {registrasiList.map((cust, idx) => {
-                        const sales = cust.namaSales || 'Daftar Mandiri';
-                        const isMandiri = !sales || sales === 'Daftar Mandiri' || sales === '-';
+                        let sales = cust.namaSales;
+                        const isMandiri = sales === '-' || sales === 'Daftar Mandiri';
+                        const isMissing = !sales;
+                        if (isMandiri) sales = 'Daftar Mandiri';
+                        else if (isMissing) sales = '-';
+
                         return (
                           <tr key={idx} className="hover:bg-white transition-colors">
                             <td className="px-6 py-3 text-center text-slate-400 font-medium">{idx + 1}</td>
@@ -7948,11 +7956,11 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                             <td className="px-6 py-3 font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</td>
                             <td className="px-6 py-3">
                               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
-                                isMandiri
+                                isMandiri || isMissing
                                   ? 'bg-slate-100 text-slate-500 border-slate-200 italic font-normal'
                                   : 'bg-blue-50 text-blue-700 border-blue-200'
                               }`}>
-                                <Icon name="user" size={12} className={isMandiri ? "text-slate-400" : "text-blue-500"} />
+                                <Icon name="user" size={12} className={(isMandiri || isMissing) ? "text-slate-400" : "text-blue-500"} />
                                 {sales}
                               </span>
                             </td>
@@ -14516,13 +14524,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         </span>
                         <div className="flex items-center gap-1.5">
                           <Icon name="user" size={11} className="text-slate-400 shrink-0" />
-                          <span className={`text-[10.5px] font-medium leading-none px-1.5 py-0.5 rounded ${item.namaSales === 'Daftar Mandiri'
-                            ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
-                            : (item.namaSales
-                              ? 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
-                              : 'text-slate-400')
+                          <span className={`text-[10.5px] font-medium leading-none px-1.5 py-0.5 rounded ${
+                            item.namaSales === 'Daftar Mandiri' || item.namaSales === '-' || !item.namaSales
+                              ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
+                              : 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
                             }`}>
-                            {item.namaSales || '-'}
+                            {(item.namaSales === '-' || item.namaSales === 'Daftar Mandiri') ? 'Daftar Mandiri' : (item.namaSales || '-')}
                           </span>
                         </div>
                       </div>

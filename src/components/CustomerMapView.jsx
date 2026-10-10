@@ -246,8 +246,10 @@ export default function CustomerMapView({ data }) {
         if (pSt !== stFilter && !pSt.includes(stFilter)) return;
       }
 
-      const sales = (p.namaSales || p.nama_sales || p.sales || '').trim();
-      const salesLabel = sales || 'Daftar Mandiri';
+      let sales = (p.namaSales || p.nama_sales || p.sales || '').trim();
+      if (sales === '-' || sales === 'Daftar Mandiri') sales = 'Daftar Mandiri';
+      else if (!sales) sales = '-';
+      const salesLabel = sales;
       slCount.set(salesLabel, (slCount.get(salesLabel) || 0) + 1);
     });
 
@@ -482,7 +484,9 @@ export default function CustomerMapView({ data }) {
       const idPel = p.idPelanggan || p.id_pelanggan || '-';
       const nama = p.namaPelanggan || p.nama_pelanggan || 'Tanpa Nama';
       const stasiun = toProperCase(p.stasiun || '-');
-      const sales = p.namaSales || p.nama_sales || p.sales || 'Daftar Mandiri';
+      let sales = (p.namaSales || p.nama_sales || p.sales || '').trim();
+      if (sales === '-' || sales === 'Daftar Mandiri') sales = 'Daftar Mandiri';
+      else if (!sales) sales = '-';
       const alamat = p.alamat || '-';
       const waLink = p.nomorHp ? `https://wa.me/62${String(p.nomorHp).replace(/^0+|^62/, '')}` : null;
       const gmapsLink = `https://maps.google.com/?q=${lat},${lng}`;
