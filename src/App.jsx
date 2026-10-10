@@ -2898,7 +2898,7 @@ export function OkupansiView({ data, setData }) {
     }
 
     if (duplicates.size > 0) {
-      setUploadDuplicateError(dupArray);
+      setUploadDuplicateError(Array.from(duplicates));
       setIsUploading(false);
       return;
     }
