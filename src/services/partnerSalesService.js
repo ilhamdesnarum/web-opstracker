@@ -106,42 +106,39 @@ export async function syncSalesFromPartnerApi({
   try {
     if (onProgress) onProgress('Menghubungkan ke API Partner Starlite...');
 
+    // Fungsi helper dengan Retry (maksimal 3 kali) & Timeout 25 detik
+    const fetchWithRetry = async (url, retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
+          
+          // Tambahkan sedikit jeda acak agar server tidak kelebihan beban serentak
+          await new Promise(res => setTimeout(res, Math.random() * 500));
+          
+          const res = await fetch(url, { headers, signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (res.ok) {
+            const json = await res.json();
+            return json?.data || [];
+          }
+        } catch (_err) {
+          // Abaikan error dan ulangi
+        }
+      }
+      return [];
+    };
+
     // 1. Tarik Pelanggan Aktif Terbaru (Paralel beberapa halaman)
     const activePages = Array.from({ length: maxPages }, (_, i) => i + 1);
-    const activePromises = activePages.map(async (p) => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${p}&page_size=20&sort_order=DESC`, {
-          headers,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        if (!res.ok) return [];
-        const json = await res.json();
-        return json?.data || [];
-      } catch (_err) {
-        return [];
-      }
+    const activePromises = activePages.map((p) => {
+      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${p}&page_size=20&sort_order=DESC`);
     });
 
     // 2. Tarik Pelanggan Baru untuk 11 Stasiun (Paralel)
-    // Gunakan page_size=20 agar registrasi baru hari ini tercover menyeluruh
-    const newPromises = Object.entries(PARTNER_STATION_IDS).map(async ([_, partnerId]) => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`, {
-          headers,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        if (!res.ok) return [];
-        const json = await res.json();
-        return json?.data || [];
-      } catch (_err) {
-        return [];
-      }
+    // Gunakan page_size=50 agar registrasi baru hari ini tercover menyeluruh
+    const newPromises = Object.entries(PARTNER_STATION_IDS).map(([_, partnerId]) => {
+      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`);
     });
 
     const [activeBatches, newBatches] = await Promise.all([
