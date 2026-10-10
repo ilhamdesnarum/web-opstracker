@@ -552,9 +552,15 @@ export const ExecutiveRolloutTracker = ({
                         <span className="font-bold text-slate-700 text-[11px]">
                           {totAkt.toLocaleString('id-ID')} <span className="font-medium text-slate-400">/ {totalHp.toLocaleString('id-ID')} HC</span>
                         </span>
-                        <span className="font-black text-blue-700 text-xs">
-                          {takeUpRate}%
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-emerald-600 text-xs" title="Persentase HC Aktif">
+                            {totalHp > 0 ? ((totHcAktif / totalHp) * 100).toFixed(2) : "0.00"}%
+                          </span>
+                          <span className="text-slate-300 text-[10px]">|</span>
+                          <span className="font-black text-blue-700 text-xs" title="Persentase Total Aktivasi">
+                            {takeUpRate}%
+                          </span>
+                        </div>
                       </div>
 
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
@@ -736,9 +742,15 @@ export const ExecutiveRolloutTracker = ({
                                           </span>
                                         )}
                                       </div>
-                                      <span className="font-black text-blue-700 text-[11px]">
-                                        {poTakeUp}%
-                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-black text-emerald-600 text-[11px]" title="Persentase HC Aktif">
+                                          {poTotalHp > 0 ? ((poAktif / poTotalHp) * 100).toFixed(2) : "0.00"}%
+                                        </span>
+                                        <span className="text-slate-300 text-[10px]">|</span>
+                                        <span className="font-black text-blue-700 text-[11px]" title="Persentase Total Aktivasi">
+                                          {poTakeUp}%
+                                        </span>
+                                      </div>
                                     </div>
                                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
                                       <div
