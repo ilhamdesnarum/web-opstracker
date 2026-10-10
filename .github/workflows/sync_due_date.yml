@@ -2,9 +2,9 @@ name: 1. Sync Due Date & Suspend (Cepat ~30s)
 
 on:
   schedule:
-    # Berjalan OTOMATIS SETIAP HARI pada jam 01:00 Dini Hari WIB (18:00 UTC)
-    # Menarik pelanggan Suspend, Dismantle & Due Date secara menyeluruh sekali sehari
-    - cron: '0 18 * * *'
+    # Berjalan OTOMATIS SETIAP 3 JAM (pada menit ke-15)
+    # Menarik pelanggan Suspend, Dismantle & Due Date secara rutin agar data selalu lurus dengan web partner
+    - cron: '15 */3 * * *'
 
   workflow_dispatch:
 
