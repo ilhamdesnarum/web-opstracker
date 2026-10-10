@@ -241,7 +241,7 @@ async function main() {
               nomor_hp: telepon,
               alamat: alamat,
               catatan: patokan,
-              status_ikr: "Sudah",
+
               status_aktivasi: cfg.dbStatus,
               tanggal_registrasi: tglRegistrasi,
               tanggal_berakhir: tanggalBerakhir || null,
@@ -249,15 +249,10 @@ async function main() {
               stasiun: stationName,
               odp: odp,
               port_odp: portOdp,
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
+              tanggal_dismantle: tglDismantle || null,
+              reason_dismantle: reasonDismantle || null
             };
-
-            if (tglDismantle) {
-              rowPayload.tanggal_dismantle = tglDismantle;
-            }
-            if (reasonDismantle) {
-              rowPayload.reason_dismantle = reasonDismantle;
-            }
 
             stationRows.push(rowPayload);
             statusCount++;
