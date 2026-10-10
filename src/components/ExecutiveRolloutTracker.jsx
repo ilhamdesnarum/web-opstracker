@@ -473,6 +473,12 @@ export const ExecutiveRolloutTracker = ({
               const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
               const totHcAktif = hcAktReg + hcAktPerc;
 
+              // Other Statuses
+              const stSuspend = Number(row.suspend || 0);
+              const stReady = Number(row.readyToDismantle || row.readyDismantle || 0);
+              const stDismantled = Number(row.dismantled || 0);
+              const stLainnya = Math.max(0, totAkt - (totHcAktif + stSuspend + stReady + stDismantled));
+
               // Aktivasi Hari Ini
               const aktToday = Number(row.aktifHariIniVal || 0);
 
@@ -564,16 +570,41 @@ export const ExecutiveRolloutTracker = ({
                       </div>
 
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
-                        <div
-                          className="h-full bg-emerald-500 transition-all duration-500"
-                          style={{ width: `${Math.min(totalHp > 0 ? (totHcAktif / totalHp) * 100 : 0, 100)}%` }}
-                          title={`Aktif: ${totHcAktif.toLocaleString('id-ID')} HC`}
-                        ></div>
-                        <div
-                          className="h-full bg-blue-500 transition-all duration-500"
-                          style={{ width: `${Math.min(totalHp > 0 ? (Math.max(0, totAkt - totHcAktif) / totalHp) * 100 : 0, 100)}%` }}
-                          title={`Suspend/Dismantle: ${Math.max(0, totAkt - totHcAktif).toLocaleString('id-ID')} HC`}
-                        ></div>
+                        {totHcAktif > 0 && (
+                          <div
+                            className="h-full bg-emerald-500 transition-all duration-500"
+                            style={{ width: `${Math.min((totHcAktif / totalHp) * 100, 100)}%` }}
+                            title={`Aktif: ${totHcAktif.toLocaleString('id-ID')} HC`}
+                          ></div>
+                        )}
+                        {stSuspend > 0 && (
+                          <div
+                            className="h-full bg-amber-500 transition-all duration-500"
+                            style={{ width: `${Math.min((stSuspend / totalHp) * 100, 100)}%` }}
+                            title={`Suspend: ${stSuspend.toLocaleString('id-ID')} HC`}
+                          ></div>
+                        )}
+                        {stReady > 0 && (
+                          <div
+                            className="h-full bg-orange-500 transition-all duration-500"
+                            style={{ width: `${Math.min((stReady / totalHp) * 100, 100)}%` }}
+                            title={`Dismantle: ${stReady.toLocaleString('id-ID')} HC`}
+                          ></div>
+                        )}
+                        {stDismantled > 0 && (
+                          <div
+                            className="h-full bg-rose-500 transition-all duration-500"
+                            style={{ width: `${Math.min((stDismantled / totalHp) * 100, 100)}%` }}
+                            title={`Dismantled: ${stDismantled.toLocaleString('id-ID')} HC`}
+                          ></div>
+                        )}
+                        {stLainnya > 0 && (
+                          <div
+                            className="h-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${Math.min((stLainnya / totalHp) * 100, 100)}%` }}
+                            title={`Lainnya: ${stLainnya.toLocaleString('id-ID')} HC`}
+                          ></div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between text-[9px] font-semibold text-slate-400 mt-0.5">
@@ -753,16 +784,41 @@ export const ExecutiveRolloutTracker = ({
                                       </div>
                                     </div>
                                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
-                                      <div
-                                        className="h-full bg-emerald-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(poTotalHp > 0 ? (poAktif / poTotalHp) * 100 : 0, 100)}%` }}
-                                        title={`Aktif: ${poAktif}`}
-                                      ></div>
-                                      <div
-                                        className="h-full bg-blue-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(poTotalHp > 0 ? (Math.max(0, poAkt - poAktif) / poTotalHp) * 100 : 0, 100)}%` }}
-                                        title={`Suspend/Dismantle: ${Math.max(0, poAkt - poAktif)}`}
-                                      ></div>
+                                      {poAktif > 0 && (
+                                        <div
+                                          className="h-full bg-emerald-500 transition-all duration-500"
+                                          style={{ width: `${Math.min((poAktif / poTotalHp) * 100, 100)}%` }}
+                                          title={`Aktif: ${poAktif}`}
+                                        ></div>
+                                      )}
+                                      {poSuspend > 0 && (
+                                        <div
+                                          className="h-full bg-amber-500 transition-all duration-500"
+                                          style={{ width: `${Math.min((poSuspend / poTotalHp) * 100, 100)}%` }}
+                                          title={`Suspend: ${poSuspend}`}
+                                        ></div>
+                                      )}
+                                      {poReady > 0 && (
+                                        <div
+                                          className="h-full bg-orange-500 transition-all duration-500"
+                                          style={{ width: `${Math.min((poReady / poTotalHp) * 100, 100)}%` }}
+                                          title={`Dismantle: ${poReady}`}
+                                        ></div>
+                                      )}
+                                      {poDismantled > 0 && (
+                                        <div
+                                          className="h-full bg-rose-500 transition-all duration-500"
+                                          style={{ width: `${Math.min((poDismantled / poTotalHp) * 100, 100)}%` }}
+                                          title={`Dismantled: ${poDismantled}`}
+                                        ></div>
+                                      )}
+                                      {Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) > 0 && (
+                                        <div
+                                          className="h-full bg-blue-500 transition-all duration-500"
+                                          style={{ width: `${Math.min((Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) / poTotalHp) * 100, 100)}%` }}
+                                          title={`Lainnya: ${Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled))}`}
+                                        ></div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -797,7 +853,7 @@ export const ExecutiveRolloutTracker = ({
                                       className="text-[10px] font-bold px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 rounded border border-orange-200/60 transition-all flex items-center justify-between cursor-pointer active:scale-95"
                                       title="Lihat pelanggan Ready to Dismantle"
                                     >
-                                      <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" /> Dismantle</span>
+                                      <span className="flex items-center gap-1.5"><Clock size={12} className="text-orange-500" /> Ready to Dismantle</span>
                                       <strong>{poReady}</strong>
                                     </button>
 
