@@ -2756,6 +2756,8 @@ const MobileApp = () => {
       };
 
       const { error } = await supabase.from('data_pelanggan').update({
+        stasiun: updateData.stasiun,
+        nama_pelanggan: updateData.namaPelanggan,
         nomor_hp: updateData.nomorHp,
         alamat: updateData.alamat,
         latitude: updateData.latitude,

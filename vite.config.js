@@ -6,6 +6,12 @@ import { resolve } from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      stream: resolve(__dirname, 'src/shims/stream.js'),
+      fs: resolve(__dirname, 'src/shims/fs.js')
+    }
+  },
   build: {
     rollupOptions: {
       input: {

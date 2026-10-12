@@ -2568,7 +2568,7 @@ function MiniOdpMap({ targetOdp, allOdps = [], customers = [] }) {
 
 
 // Helper pembersih karakter tersembunyi / unicode dan penyeragaman format 3-digit pada kode ODP/ODC
-export const cleanOdpStr = (str) => {
+const cleanOdpStr = (str) => {
   if (!str) return '';
   let clean = String(str)
     .replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '')
@@ -9968,6 +9968,8 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
     petugas: '', // Note: This still stores the Name in state for the UI dropdown
+    petugasIkr: data?.petugasIkr || '',
+    petugasAktivasi: data?.petugasAktivasi || '',
     tanggalDismantle: data?.tanggalDismantle || '',
     reasonDismantle: data?.reasonDismantle || ''
   });
@@ -10125,6 +10127,8 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         reason_dismantle: payload.reasonDismantle || null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
+      if (payload.stasiun !== undefined) updateData.stasiun = payload.stasiun;
+      if (payload.namaPelanggan !== undefined) updateData.nama_pelanggan = payload.namaPelanggan;
 
       const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
 
@@ -10152,12 +10156,12 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             {options ? (
               <select value={editValue} onChange={e => setEditValue(e.target.value)} disabled={isSaving} className="flex-1 p-1.5 text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 bg-white">
                 <option value="">-- Pilih --</option>
-                {options.map(opt => (
-                  <option key={opt.value || opt} value={opt.value || opt}>{opt.label || opt}</option>
+                {options.map((opt, optIdx) => (
+                  <option key={`${opt.value || opt}-${optIdx}`} value={opt.value || opt}>{opt.label || opt}</option>
                 ))}
               </select>
             ) : (
-              <input type={type} value={editValue} onChange={e => setEditValue(e.target.value)} disabled={isSaving} className="flex-1 p-1.5 text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500" />
+              <input type={type} value={editValue} onChange={e => setEditValue(e.target.value)} disabled={isSaving} placeholder={`Ketik ${label.toLowerCase()}...`} className="flex-1 p-1.5 text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500" />
             )}
             <button disabled={isSaving} onClick={() => saveInlineEdit(fieldKey)} className="p-1.5 bg-emerald-100 text-emerald-600 rounded hover:bg-emerald-200 disabled:opacity-50 transition-colors"><Icon name="check" size={14} /></button>
             <button disabled={isSaving} onClick={() => setEditingField(null)} className="p-1.5 bg-rose-100 text-rose-600 rounded hover:bg-rose-200 disabled:opacity-50 transition-colors"><Icon name="x" size={14} /></button>
@@ -10344,6 +10348,8 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             reason_dismantle: updatePayload.reasonDismantle || null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
+          if (updatePayload.stasiun !== undefined) updateData.stasiun = updatePayload.stasiun;
+          if (updatePayload.namaPelanggan !== undefined) updateData.nama_pelanggan = updatePayload.namaPelanggan;
 
           const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
 
@@ -10449,8 +10455,8 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                 {renderEditableDetailRow({ label: "Kabel Precon", fieldKey: "kabelPrecon" })}
                 <div className="hidden md:block"></div>
                 <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
-                {renderEditableDetailRow({ label: "Petugas IKR", fieldKey: "petugasIkr", options: petugasList.map(p => p.nama) })}
-                {renderEditableDetailRow({ label: "Petugas Aktivasi", fieldKey: "petugasAktivasi", options: petugasList.map(p => p.nama) })}
+                {renderEditableDetailRow({ label: "Petugas IKR", fieldKey: "petugasIkr" })}
+                {renderEditableDetailRow({ label: "Petugas Aktivasi", fieldKey: "petugasAktivasi" })}
 
                 {/* FOTO DOKUMENTASI */}
                 <div className="md:col-span-2 mt-4">
@@ -10644,6 +10650,20 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                     <label className="text-[11px] font-bold text-rose-500 mb-1.5 block uppercase tracking-wider">Issue / Kendala</label>
                     <textarea rows="2" name="issueKendala" value={formData.issueKendala || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Opsional: Tulis kendala yang dialami di lapangan..." className="w-full p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-sm font-medium focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50 resize-y"></textarea>
                   </div>
+                )}
+
+                {/* 8C. PETUGAS IKR & PETUGAS AKTIVASI MANUAL */}
+                {type !== 'add' && (
+                  <>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas IKR</label>
+                      <input type="text" name="petugasIkr" value={formData.petugasIkr || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas IKR..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas Aktivasi</label>
+                      <input type="text" name="petugasAktivasi" value={formData.petugasAktivasi || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas aktivasi..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                    </div>
+                  </>
                 )}
 
                 {/* 9. CUSTOM DROPDOWN STATUS PELANGGAN */}
