@@ -354,29 +354,40 @@ async function main() {
       for (let i = 0; i < dedupedRows.length; i += CHUNK_SIZE) {
         const chunk = dedupedRows.slice(i, i + CHUNK_SIZE);
         const existingMap = await checkExistingInSupabase(chunk.map(r => r.id_pelanggan));
-
+        const rowsToUpsert = [];
         for (const row of chunk) {
           const ex = existingMap.get(row.id_pelanggan) ||
                      existingMap.get(row.id_pelanggan.toUpperCase()) ||
                      existingMap.get(row.id_pelanggan.toLowerCase());
           if (ex) {
-            if (!row.nama_sales && ex.nama_sales) row.nama_sales = ex.nama_sales;
-            if (!row.tanggal_registrasi && ex.tanggal_registrasi) row.tanggal_registrasi = ex.tanggal_registrasi;
-            
-            // JANGAN PERNAH update titik ODP/Port jika sudah ada di database (permintaan user)
-            if (ex.odp || ex.kode_odp || ex.odp_aktual) {
-              row.odp = ex.odp || ex.kode_odp || ex.odp_aktual;
+            // [!] PELANGGAN LAMA:
+            // Hanya update STATUS, masa aktif / due date, telat bayar, dan nama sales.
+            // JANGAN PERNAH utak-atik data kontak (nomor_hp, alamat, catatan) maupun ODP (odp, port_odp)!
+            const payloadEx = {
+              id_pelanggan: row.id_pelanggan,
+              status_ikr: "Sudah",
+              status_aktivasi: "Sudah",
+              tanggal_berakhir: row.tanggal_berakhir || null,
+              telat_bayar_hari: row.telat_bayar_hari,
+              updated_at: new Date().toISOString()
+            };
+            if (row.nama_sales && row.nama_sales !== "-" && row.nama_sales !== "Daftar Mandiri") {
+              payloadEx.nama_sales = row.nama_sales;
             }
-            if (ex.port_odp) {
-              row.port_odp = ex.port_odp;
+            if (!ex.tanggal_registrasi && row.tanggal_registrasi) {
+              payloadEx.tanggal_registrasi = row.tanggal_registrasi;
             }
+            rowsToUpsert.push(payloadEx);
+          } else {
+            // Pelanggan baru murni (belum ada di database)
+            rowsToUpsert.push(row);
           }
         }
 
-        const ok = await upsertToSupabase(chunk);
+        const ok = await upsertToSupabase(rowsToUpsert);
         if (ok) {
-          upsertedCount += chunk.length;
-          grandTotalUpserted += chunk.length;
+          upsertedCount += rowsToUpsert.length;
+          grandTotalUpserted += rowsToUpsert.length;
         }
       }
       console.log(`   💾 Tersimpan ke Supabase: ${upsertedCount} baris data.`);

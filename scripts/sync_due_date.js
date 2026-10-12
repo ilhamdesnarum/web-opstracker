@@ -235,22 +235,34 @@ async function main() {
               }
             }
 
+            let extractedSales = "";
+            if (customer.sales_id && typeof customer.sales_id === 'object' && customer.sales_id.name) {
+              extractedSales = String(customer.sales_id.name).trim();
+            } else if (typeof customer.sales_id === 'string' && customer.sales_id.trim()) {
+              extractedSales = customer.sales_id.trim();
+            } else if (customer.sales_visit_id && customer.sales_visit_id.sales_id) {
+              if (typeof customer.sales_visit_id.sales_id === 'object' && customer.sales_visit_id.sales_id.name) {
+                extractedSales = String(customer.sales_visit_id.sales_id.name).trim();
+              } else if (typeof customer.sales_visit_id.sales_id === 'string') {
+                extractedSales = customer.sales_visit_id.sales_id.trim();
+              }
+            }
+
+            // [!] HANYA UPDATE STATUS & NAMA SALES:
+            // JANGAN PERNAH utak-atik data kontak (nomor_hp, alamat, catatan) maupun ODP (odp, port_odp)!
             const rowPayload = {
               id_pelanggan: idPelanggan,
-              nama_pelanggan: nama,
-              nomor_hp: telepon,
-              alamat: alamat,
-              catatan: patokan,
-
               status_aktivasi: cfg.dbStatus,
-              tanggal_registrasi: tglRegistrasi,
               tanggal_berakhir: tanggalBerakhir || null,
               telat_bayar_hari: telatBayarHari,
-              stasiun: stationName,
               updated_at: new Date().toISOString(),
               tanggal_dismantle: tglDismantle || null,
               reason_dismantle: reasonDismantle || null
             };
+
+            if (extractedSales && extractedSales !== "-" && extractedSales !== "Daftar Mandiri") {
+              rowPayload.nama_sales = extractedSales;
+            }
 
             stationRows.push(rowPayload);
             statusCount++;

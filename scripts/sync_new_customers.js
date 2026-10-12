@@ -452,28 +452,24 @@ async function main() {
       if (existingData) {
         // [!] SUDAH ADA DI SUPABASE (PELANGGAN LAMA):
         // 1. JANGAN PERNAH sertakan status_ikr & status_aktivasi (status teknisi aman).
-        // 2. JANGAN PERNAH sertakan latitude & longitude (koordinat dari teknisi/lapangan TIDAK BOLEH ditimpa partner!).
-        // 3. JANGAN PERNAH sertakan odp & port_odp (mapping ODP lokal TIDAK BOLEH ditimpa partner!).
-        // 4. JANGAN timpa nama_sales jika sudah ada di database.
-        const currentSales = existingData.nama_sales ? String(existingData.nama_sales).trim() : "";
-        let newSales = currentSales;
-        if (!currentSales || currentSales === "-" || currentSales === "Daftar Mandiri") {
-          if (namaSales && namaSales !== "Daftar Mandiri" && namaSales !== "-") {
-            newSales = namaSales;
-          }
-        }
-
+        // 2. JANGAN PERNAH sertakan latitude & longitude (koordinat presisi teknisi aman).
+        // 3. JANGAN PERNAH sertakan odp & port_odp (mapping ODP teknisi aman).
+        // 4. JANGAN PERNAH sertakan nomor_hp, alamat, catatan (data kontak lapangan aman).
+        // 5. UPDATE NAMA SALES: nama sales ditarik dari partner API baik pelanggan baru maupun lama!
         const payloadExisting = {
           id_pelanggan: idPelanggan,
-          nama_pelanggan: nama,
-          nomor_hp: telepon,
-          alamat: alamat,
-          catatan: catatan,
           stasiun: stationName,
-          tanggal_registrasi: tglRegistrasi || existingData.tanggal_registrasi || null,
-          nama_sales: newSales || null,
           updated_at: new Date().toISOString()
         };
+
+        // Tarik nama sales dari partner API jika ada
+        if (namaSales && namaSales !== "-" && namaSales !== "Daftar Mandiri") {
+          payloadExisting.nama_sales = namaSales;
+        }
+
+        if (!existingData.tanggal_registrasi && tglRegistrasi) {
+          payloadExisting.tanggal_registrasi = tglRegistrasi;
+        }
 
         rowsExistingNoStatus.push(payloadExisting);
       } else {
