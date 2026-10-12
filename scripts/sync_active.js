@@ -78,7 +78,7 @@ async function checkExistingInSupabase(customerIds) {
   for (let i = 0; i < allIdsToSearch.length; i += 50) {
     const chunk = allIdsToSearch.slice(i, i + 50);
     const formattedIn = chunk.map(id => `"${id.replace(/"/g, '')}"`).join(',');
-    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,nama_sales,tanggal_registrasi`;
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,odp,port_odp,nama_sales,tanggal_registrasi`;
 
     let retries = 2;
     while (retries >= 0) {

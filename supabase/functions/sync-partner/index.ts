@@ -303,7 +303,7 @@ Deno.serve(async (req: Request) => {
               const existsInSupabase = existingSupabaseSet.has(idPelanggan) || existingSupabaseSet.has(idPelangganUpper);
 
               if (isTarikPelangganBaru && existsInSupabase) {
-                // [!] JANGAN update status_ikr, status_aktivasi, koordinat, dan nama_sales untuk pelanggan lama
+                // [!] JANGAN PERNAH update status_ikr, status_aktivasi, koordinat, odp, dan nama_sales untuk pelanggan lama
                 const existingRowPayload: Record<string, any> = {
                   id_pelanggan: idPelanggan,
                   nama_pelanggan: nama,
@@ -314,8 +314,6 @@ Deno.serve(async (req: Request) => {
                   tanggal_berakhir: tanggalBerakhir || null,
                   telat_bayar_hari: telatBayarHari,
                   stasiun: stationName,
-                  odp: odp,
-                  port_odp: portOdp,
                   updated_at: new Date().toISOString()
                 };
                 allStationRowsExistingNoStatus.push(existingRowPayload);
@@ -326,18 +324,20 @@ Deno.serve(async (req: Request) => {
                   nomor_hp: telepon,
                   alamat: alamat,
                   catatan: patokan,
-                  status_ikr: tIkr,
                   status_aktivasi: tStatus,
                   tanggal_registrasi: tglRegistrasi,
                   tanggal_berakhir: tanggalBerakhir || null,
                   telat_bayar_hari: telatBayarHari,
                   stasiun: stationName,
-                  odp: odp,
-                  port_odp: portOdp,
-                  // Hanya sertakan nama_sales dan koordinat untuk pelanggan BARU murni
-                  ...(isTarikPelangganBaru ? { nama_sales: namaSales } : {}),
-                  ...(isTarikPelangganBaru && lat ? { latitude: lat } : {}),
-                  ...(isTarikPelangganBaru && lng ? { longitude: lng } : {}),
+                  // Hanya sertakan status_ikr, ODP, nama_sales, dan koordinat untuk pelanggan BARU murni
+                  ...(isTarikPelangganBaru ? {
+                    status_ikr: tIkr,
+                    odp: odp,
+                    port_odp: portOdp,
+                    nama_sales: namaSales,
+                    ...(lat ? { latitude: lat } : {}),
+                    ...(lng ? { longitude: lng } : {})
+                  } : {}),
                   updated_at: new Date().toISOString()
                 };
                 allStationRowsWithStatus.push(rowPayload);

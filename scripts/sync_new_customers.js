@@ -218,7 +218,7 @@ async function checkExistingInSupabase(customerIds) {
     const chunk = allIdsToSearch.slice(i, i + 50);
     // Format PostgREST in: in.("ID1","ID2",...) dengan URL encode
     const formattedIn = chunk.map(id => `"${id.replace(/"/g, '')}"`).join(',');
-    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales`;
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales,odp,port_odp`;
 
     let retries = 2;
     while (retries >= 0) {
@@ -449,11 +449,11 @@ async function main() {
                            existingSupabaseMap.get(idPelanggan.toUpperCase()) ||
                            existingSupabaseMap.get(idPelanggan.toLowerCase());
 
-      if (existingData) {
         // [!] SUDAH ADA DI SUPABASE (PELANGGAN LAMA):
-        // 1. JANGAN SERTAKAN status_ikr & status_aktivasi agar status kendala aman.
-        // 2. JANGAN PERNAH perbarui latitude & longitude (sudah diatur presisi saat aktivasi).
-        // 3. JANGAN timpa nama_sales (pelanggan lama sudah disinkronkan manual).
+        // 1. JANGAN PERNAH sertakan status_ikr & status_aktivasi (status teknisi aman).
+        // 2. JANGAN PERNAH sertakan latitude & longitude (koordinat dari teknisi/lapangan TIDAK BOLEH ditimpa partner!).
+        // 3. JANGAN PERNAH sertakan odp & port_odp (mapping ODP lokal TIDAK BOLEH ditimpa partner!).
+        // 4. JANGAN timpa nama_sales jika sudah ada di database.
         const currentSales = existingData.nama_sales ? String(existingData.nama_sales).trim() : "";
         let newSales = currentSales;
         if (!currentSales || currentSales === "-" || currentSales === "Daftar Mandiri") {
@@ -473,20 +473,6 @@ async function main() {
           nama_sales: newSales || null,
           updated_at: new Date().toISOString()
         };
-
-        // JANGAN PERNAH timpa ODP / Port ODP jika sudah ada di Supabase
-        payloadExisting.odp = existingData.odp || existingData.kode_odp || existingData.odp_aktual || odp || null;
-        payloadExisting.port_odp = existingData.port_odp || portOdp || null;
-
-        // JANGAN PERNAH timpa latitude & longitude jika sudah ada di Supabase
-        // (Bisa jadi teknisi sudah menggeser titik, meskipun status belum aktif)
-        if (existingData.latitude && existingData.longitude && String(existingData.latitude).trim() !== "" && String(existingData.latitude).trim() !== "-") {
-          // Biarkan saja, tidak dimasukkan ke payloadExisting agar tidak ter-update/tertimpa
-        } else {
-          // Jika di database masih kosong/strip, baru boleh update dari API Starlite
-          if (lat) payloadExisting.latitude = lat;
-          if (lng) payloadExisting.longitude = lng;
-        }
 
         rowsExistingNoStatus.push(payloadExisting);
       } else {

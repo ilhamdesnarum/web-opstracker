@@ -247,8 +247,6 @@ async function main() {
               tanggal_berakhir: tanggalBerakhir || null,
               telat_bayar_hari: telatBayarHari,
               stasiun: stationName,
-              odp: odp,
-              port_odp: portOdp,
               updated_at: new Date().toISOString(),
               tanggal_dismantle: tglDismantle || null,
               reason_dismantle: reasonDismantle || null

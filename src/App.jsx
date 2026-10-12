@@ -407,22 +407,22 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
     const namaAsli = targetTeknisi.nama || rawPetugas;
     const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
 
-    let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨\n\n`;
+    let msg = `ðŸš¨ <b>TIKET BARU (ASSIGNED)</b> ðŸš¨\n\n`;
     msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk mengecek kendala/visit berikut:\n\n`;
-    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
-    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
-    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    msg += `ðŸ†” <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
+    msg += `ðŸ‘¤ <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
+    msg += `ðŸ“ <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
     if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
-      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+      msg += `ðŸ—ºï¸ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
     } else {
-      msg += `🗺️ <b>Tikor:</b> -\n`;
+      msg += `ðŸ—ºï¸ <b>Tikor:</b> -\n`;
     }
-    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
-    msg += `⚠️ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
+    msg += `ðŸ“ž <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    msg += `âš ï¸ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
     if (payload.catatan) {
-      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+      msg += `ðŸ“ <b>Catatan:</b> ${payload.catatan}\n`;
     }
-    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! 🛠️</i>`;
+    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! ðŸ› ï¸</i>`;
 
     await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
@@ -1667,7 +1667,7 @@ function App({ onLogout }) {
         }));
       }
 
-      // ── TRIGGER SINKRONISASI NAMA SALES DARI API PARTNER STARLITE (Dijalankan saat Sinkronkan Data) ──
+      // â”€â”€ TRIGGER SINKRONISASI NAMA SALES DARI API PARTNER STARLITE (Dijalankan saat Sinkronkan Data) â”€â”€
       if (isForce) {
         setSalesSyncToast({ show: true, type: 'syncing', message: 'Menyinkronkan data & mengecek nama sales dari Partner API...' });
         syncSalesFromPartnerApi({
@@ -2178,7 +2178,7 @@ function App({ onLogout }) {
 
         {/* Teks Copyright di bawah */}
         <div className="p-4 pb-8 lg:pb-4 text-[10px] text-blue-300/50 border-t border-blue-800/50 text-center whitespace-nowrap shrink-0">
-          {isSidebarOpen ? '© 2026 Starlite by Desnarum' : 'v2.0'}
+          {isSidebarOpen ? 'Â© 2026 Starlite by Desnarum' : 'v2.0'}
         </div>
       </aside>
 
@@ -2855,6 +2855,7 @@ export function OkupansiView({ data, setData }) {
   const [isDeletingOdp, setIsDeletingOdp] = useState(false);
   const [showMassDeleteModal, setShowMassDeleteModal] = useState(false);
   const [isMassDeleting, setIsMassDeleting] = useState(false);
+  const [massDeleteTahap, setMassDeleteTahap] = useState('ALL');
   const [isSyncingPorts, setIsSyncingPorts] = useState(false);
 
   // Peta dinamis jumlah pelanggan per ODP (dibersihkan dari karakter tersembunyi)
@@ -3294,11 +3295,20 @@ export function OkupansiView({ data, setData }) {
     }
   };
 
+  const uniqueTahapInFilter = useMemo(() => {
+    return Array.from(new Set(filteredManageOdps.map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap))).filter(Boolean).sort();
+  }, [filteredManageOdps]);
+
+  const targetMassDeleteOdps = useMemo(() => {
+    if (massDeleteTahap === 'ALL') return filteredManageOdps;
+    return filteredManageOdps.filter(o => (o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === massDeleteTahap);
+  }, [filteredManageOdps, massDeleteTahap]);
+
   const handleMassDeleteOdp = async () => {
-    if (!filteredManageOdps || filteredManageOdps.length === 0) return;
+    if (!targetMassDeleteOdps || targetMassDeleteOdps.length === 0) return;
     setIsMassDeleting(true);
     try {
-      const idsToDelete = filteredManageOdps.map(o => o.id);
+      const idsToDelete = targetMassDeleteOdps.map(o => o.id);
       
       const BATCH_SIZE = 200;
       for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
@@ -4202,7 +4212,7 @@ export function OkupansiView({ data, setData }) {
                   }`}
               >
                 <Icon name="edit-3" size={15} className={addOdpTab === 'manual' ? 'text-emerald-600' : 'text-slate-400'} />
-                <span>✍️ Input Manual (1 - 2 ODP)</span>
+                <span>âœï¸ Input Manual (1 - 2 ODP)</span>
                 <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
                   Cepat
                 </span>
@@ -4216,7 +4226,7 @@ export function OkupansiView({ data, setData }) {
                   }`}
               >
                 <Icon name="file-spreadsheet" size={15} className={addOdpTab === 'excel' ? 'text-emerald-600' : 'text-slate-400'} />
-                <span>📁 Upload File Excel (Massal)</span>
+                <span>ðŸ“ Upload File Excel (Massal)</span>
               </button>
             </div>
 
@@ -4969,7 +4979,10 @@ export function OkupansiView({ data, setData }) {
                   <span>{isSyncingPorts ? 'Menyinkronkan...' : 'Sinkronkan Port'}</span>
                 </button>
                 <button
-                  onClick={() => setShowMassDeleteModal(true)}
+                  onClick={() => {
+                    setMassDeleteTahap(manageTahapFilter || (uniqueTahapInFilter.length === 1 ? uniqueTahapInFilter[0] : 'ALL'));
+                    setShowMassDeleteModal(true);
+                  }}
                   disabled={isMassDeleting || filteredManageOdps.length === 0}
                   className={`px-3 sm:px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs sm:text-sm font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isMassDeleting || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
                   title={filteredManageOdps.length > 0 ? `Hapus ${filteredManageOdps.length} ODP yang tampil di filter ini` : 'Tidak ada ODP sesuai filter'}
@@ -5396,8 +5409,26 @@ export function OkupansiView({ data, setData }) {
                 <Icon name="alert-triangle" size={28} />
               </div>
               <h3 className="text-lg font-black text-slate-800 mb-2">Hapus ODP Massal</h3>
+              {uniqueTahapInFilter.length > 1 && (
+                <div className="w-full text-left mb-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Pilih Tahap Pembangunan yang Ingin Dihapus</label>
+                  <select
+                    value={massDeleteTahap}
+                    onChange={(e) => setMassDeleteTahap(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition-shadow appearance-none"
+                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7rem top 50%', backgroundSize: '.65rem auto' }}
+                  >
+                    <option value="ALL">Semua Tahap Pembangunan ({filteredManageOdps.length} ODP)</option>
+                    {uniqueTahapInFilter.map(th => (
+                      <option key={th} value={th}>
+                        {th} ({filteredManageOdps.filter(o => (o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === th).length} ODP)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <p className="text-sm text-slate-600">
-                Anda yakin ingin menghapus permanen <strong>{filteredManageOdps.length} ODP</strong> yang sedang difilter ini?
+                Anda yakin ingin menghapus permanen <strong>{targetMassDeleteOdps.length} ODP</strong> ini?
               </p>
               <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-3 mt-4 text-xs text-rose-800 text-left">
                 <span className="font-bold block mb-1">Perhatian:</span>
@@ -5420,7 +5451,7 @@ export function OkupansiView({ data, setData }) {
                 {isMassDeleting ? (
                   <><Icon name="loader" size={14} className="animate-spin" /> Menghapus...</>
                 ) : (
-                  <><Icon name="trash-2" size={14} /> Ya, Hapus {filteredManageOdps.length} ODP</>
+                  <><Icon name="trash-2" size={14} /> Ya, Hapus {targetMassDeleteOdps.length} ODP</>
                 )}
               </button>
             </div>
@@ -7503,13 +7534,13 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                       <p className="text-[9.5px] sm:text-[11px] text-slate-500 mb-1.5 truncate">{item.alamat || '-'}</p>
                       <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-2.5 gap-y-1 text-[8.5px] sm:text-[11px] font-semibold sm:font-medium text-slate-500 sm:text-slate-600">
                         <span className="flex items-center" title="ID Pelanggan"><Icon name="hash" size={9} className="mr-1 text-slate-400" />{item.idPelanggan || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">•</span>
+                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
                         <span className="flex items-center" title="ODP Aktual"><Icon name="box" size={9} className="mr-1 text-slate-400" />{item.odpAktual || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">•</span>
+                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
                         <span className="flex items-center" title="Port"><Icon name="link" size={9} className="mr-1 text-slate-400" />Port {item.portOdp || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">•</span>
+                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
                         <span className="flex items-center" title="Kabel Precon"><Icon name="git-commit" size={9} className="mr-1 text-slate-400" />{item.kabelPrecon || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">•</span>
+                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
                         <span className="flex items-center text-slate-500" title="SN ONT"><Icon name="cpu" size={9} className="mr-1 text-slate-400" />{item.snOnt || '-'}</span>
                       </div>
                     </div>
@@ -8423,7 +8454,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
         <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 140px;">
           <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 2px;">${customer?.namaPelanggan || 'Pelanggan'}</strong>
           <span style="font-size:10px; color:#64748b; font-family:monospace;">ID: ${customer?.idPelanggan || '-'}</span><br/>
-          <div style="margin-top: 4px; font-size:10px; color:#2563eb; font-weight: bold;">📍 Titik Pelanggan</div>
+          <div style="margin-top: 4px; font-size:10px; color:#2563eb; font-weight: bold;">ðŸ“ Titik Pelanggan</div>
         </div>
       `)
       .addTo(userLayerRef.current)
@@ -8575,7 +8606,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-base font-bold text-slate-800 truncate">
-                  Coverage ODP Terdekat — {customer?.namaPelanggan || 'Pelanggan'}
+                  Coverage ODP Terdekat â€” {customer?.namaPelanggan || 'Pelanggan'}
                 </h2>
                 {customer?.idPelanggan && (
                   <span className="px-2 py-0.5 bg-blue-100 text-blue-700 font-mono text-[11px] font-bold rounded-md">
@@ -8589,7 +8620,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                 )}
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                {customer?.alamat ? `Alamat: ${customer.alamat} • ` : ''}
+                {customer?.alamat ? `Alamat: ${customer.alamat} â€¢ ` : ''}
                 Koordinat: {customer?.latitude || '-'}, {customer?.longitude || '-'}
               </p>
             </div>
@@ -8845,7 +8876,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                           <Icon name="navigation" size={12} className={isRouting ? 'animate-spin' : ''} />
                           {isRouting ? 'Menghitung jalur kabel...' : realRouteDistance !== null ? `${realRouteDistance} meter (Jalur Kabel)` : `~${selectedOdp.distance} meter (Tarik Lurus)`}
                         </span>
-                        <span className="text-slate-400">•</span>
+                        <span className="text-slate-400">â€¢</span>
                         <span className="text-slate-500">{toProperCase(selectedOdp.stasiun || '')}</span>
                       </div>
                     </div>
@@ -9354,7 +9385,7 @@ function QuickScanCoverageModal({
                     {stats.coveredPct}%
                   </span>
                 </div>
-                <span className="text-[9px] text-emerald-600 mt-0.5">Jarak ≤ {optimalRadius}m & Ada Port</span>
+                <span className="text-[9px] text-emerald-600 mt-0.5">Jarak â‰¤ {optimalRadius}m & Ada Port</span>
               </div>
 
               {/* Card 3: Mendekati */}
@@ -9707,7 +9738,7 @@ function QuickScanCoverageModal({
                 <strong className="text-slate-800">{targetList.length}</strong> pelanggan hasil scan.
                 {stats.covered > 0 && (
                   <span className="ml-1 text-emerald-700 font-bold hidden md:inline">
-                    • {stats.covered} pelanggan siap diproses penarikan jaringan!
+                    â€¢ {stats.covered} pelanggan siap diproses penarikan jaringan!
                   </span>
                 )}
               </>
@@ -11123,7 +11154,7 @@ function MonitoringGamasView() {
   return (
     <div className="max-w-[1440px] w-full mx-auto flex flex-col gap-5 pb-8 page-enter">
 
-      {/* ── STATS BAR ── */}
+      {/* â”€â”€ STATS BAR â”€â”€ */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className={`p-3 rounded-2xl shadow-lg text-white ${totalAktif > 0 ? 'bg-rose-600 shadow-rose-500/30' : 'bg-emerald-600 shadow-emerald-500/20'}`}>
@@ -11132,7 +11163,7 @@ function MonitoringGamasView() {
           <div>
             <h2 className="text-xl font-bold text-slate-800 leading-none">Monitoring Gangguan Massal</h2>
             <p className={`text-sm mt-1 font-semibold ${totalAktif > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {totalAktif > 0 ? `⚠ ${totalAktif} Gangguan Massal Aktif` : '✓ Semua stasiun beroperasi normal'}
+              {totalAktif > 0 ? `âš  ${totalAktif} Gangguan Massal Aktif` : 'âœ“ Semua stasiun beroperasi normal'}
             </p>
           </div>
         </div>
@@ -11149,7 +11180,7 @@ function MonitoringGamasView() {
         </div>
       </div>
 
-      {/* ── STATION CHAIN VISUALIZATION ── */}
+      {/* â”€â”€ STATION CHAIN VISUALIZATION â”€â”€ */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
           <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
@@ -11198,7 +11229,7 @@ function MonitoringGamasView() {
                         )}
                         <button
                           onClick={() => setFilterStation(selected ? null : st.name)}
-                          title={`${st.name}${affected ? ' — OLT Down' : ' — Online'}`}
+                          title={`${st.name}${affected ? ' â€” OLT Down' : ' â€” Online'}`}
                           className={`
                             relative z-10 flex flex-col items-center w-[76px] rounded-2xl border-2 px-1 py-2.5 cursor-pointer transition-all duration-200 shadow-sm
                             ${selected ? 'bg-blue-600 border-blue-500 shadow-blue-400/40 shadow-lg scale-110'
@@ -11245,7 +11276,7 @@ function MonitoringGamasView() {
         )}
       </div>
 
-      {/* ── LOG TABLE ── */}
+      {/* â”€â”€ LOG TABLE â”€â”€ */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
         {/* Table header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
@@ -11421,7 +11452,7 @@ function MonitoringGamasView() {
       </div>
 
 
-      {/* ── MODAL INPUT GAMAS ── */}
+      {/* â”€â”€ MODAL INPUT GAMAS â”€â”€ */}
       {showInputModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade" onClick={() => !isSubmitting && setShowInputModal(false)}></div>
@@ -12145,7 +12176,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       </div>
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{newTicketSelectedPelanggan.namaPelanggan}</p>
-                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">{newTicketSelectedPelanggan.idPelanggan} · {toProperCase(newTicketSelectedPelanggan.stasiun)}</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">{newTicketSelectedPelanggan.idPelanggan} Â· {toProperCase(newTicketSelectedPelanggan.stasiun)}</p>
                         {newTicketSelectedPelanggan.odpAktual && <p className="text-[10px] text-slate-400">ODP: {newTicketSelectedPelanggan.odpAktual}</p>}
                       </div>
                     </div>
@@ -12173,7 +12204,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                             className="px-4 py-3 cursor-pointer hover:bg-amber-50 border-b border-slate-50 last:border-0 flex flex-col group transition-all"
                           >
                             <span className="font-bold text-slate-800 text-sm group-hover:text-amber-700">{p.namaPelanggan}</span>
-                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">{p.idPelanggan} · {toProperCase(p.stasiun || '')}</span>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">{p.idPelanggan} Â· {toProperCase(p.stasiun || '')}</span>
                           </div>
                         ))}
                       </div>
@@ -12259,7 +12290,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       >
                         <div className="flex flex-col">
                           <span>{ptg.nama}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">{ptg.username} · {ptg.stasiun}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">{ptg.username} Â· {ptg.stasiun}</span>
                         </div>
                         {newTicketPetugas === ptg.nama && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
                       </div>
@@ -12600,7 +12631,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                 <div className="flex items-center justify-between text-[9px] text-slate-500 pt-1 border-t border-slate-50">
                   <div className="flex items-center gap-1">
                     <Icon name="clock" size={10} className="text-blue-500" />
-                    <span>{displayDate} {displayTime && `• ${displayTime}`}</span>
+                    <span>{displayDate} {displayTime && `â€¢ ${displayTime}`}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Icon name="user" size={10} className="text-purple-500" />
@@ -14836,7 +14867,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             visitData={visitData}
             onGoToHistory={onGoToHistory}
 
-            // 👇 INI DIA KABEL PENGHUBUNG YANG KEMUNGKINAN TERLEWAT 👇
+            // ðŸ‘‡ INI DIA KABEL PENGHUBUNG YANG KEMUNGKINAN TERLEWAT ðŸ‘‡
             onLocalPelangganUpdate={onLocalPelangganUpdate}
             onLocalVisitUpdate={onLocalVisitUpdate}
             petugasList={petugasList}
@@ -15094,7 +15125,7 @@ function CoverageGISView({ data, targetCoords }) {
       polygon.bindPopup(`
         <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 180px;">
           <div style="font-size:10px; font-weight:bold; color:#0284c7; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:flex; align-items:center; gap:4px;">
-            <span>🗺️ Area Coverage Aktual</span>
+            <span>ðŸ—ºï¸ Area Coverage Aktual</span>
           </div>
           <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 4px;">${feat.name}</strong>
           ${feat.description ? `<p style="font-size:10px; color:#64748b; margin-bottom:6px;">${feat.description}</p>` : ''}
@@ -15435,7 +15466,7 @@ function CoverageGISView({ data, targetCoords }) {
 
                           {isSelected && realRouteDistance && (
                             <div className="text-[9px] bg-purple-100 text-purple-700 px-2 py-1 rounded border border-purple-200 font-bold flex items-center shadow-sm animate-fade">
-                              <Icon name="git-commit" size={10} className="mr-1" /> JALUR: ±{realRouteDistance}m
+                              <Icon name="git-commit" size={10} className="mr-1" /> JALUR: Â±{realRouteDistance}m
                             </div>
                           )}
                           {isSelected && !realRouteDistance && (
@@ -15657,7 +15688,7 @@ function CoverageGISView({ data, targetCoords }) {
                     >
                       Pilih Semua
                     </button>
-                    <span className="text-slate-300">•</span>
+                    <span className="text-slate-300">â€¢</span>
                     <button
                       type="button"
                       onClick={() => setSelectedStations(new Set())}
@@ -15951,7 +15982,7 @@ function LoginView({ onLogin }) {
         </form>
 
         <div className="mt-8 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-          © 2026 Desnarum. All rights reserved.
+          Â© 2026 Desnarum. All rights reserved.
         </div>
       </div>
     </div>
