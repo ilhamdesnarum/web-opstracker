@@ -10009,9 +10009,13 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   // STATE UNTUK CUSTOM DROPDOWN KELUHAN
   const [isKeluhanOpen, setIsKeluhanOpen] = useState(false);
   const keluhanOptionsList = [
-    "Modem LOS / Nyala Merah", "No Internet / Tidak Ada Koneksi", "Koneksi Putus-Putus / Lambat",
-    "Kabel Drop / Putus", "Perangkat Mati / Rusak", "Kendala Konfigurasi / Sistem",
-    "Tindak Lanjut Visit Teknisi", "Keluhan Lainnya..."
+    "Modem LOS / Nyala Merah",
+    "Tidak Ada Internet",
+    "Koneksi Putus-Putus / Lambat",
+    "Kabel Putus / Jatuh",
+    "Perangkat Mati / Modem Rusak",
+    "Tindak Lanjut Visit Teknisi",
+    "Lainnya"
   ];
 
   // STATE UNTUK CUSTOM DROPDOWN STASIUN (ADD/EDIT)
@@ -11663,9 +11667,13 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
   const [newTicketSuccess, setNewTicketSuccess] = useState(false);
 
   const keluhanOptions = [
-    "Modem LOS / Nyala Merah", "No Internet / Bengong", "Koneksi Putus-Putus / Lambat",
-    "Kabel Drop / Putus", "Perangkat Mati / Rusak", "Kendala Konfigurasi / Sistem",
-    "Tindak Lanjut Visit Teknisi", "Keluhan Lainnya..."
+    "Modem LOS / Nyala Merah",
+    "Tidak Ada Internet",
+    "Koneksi Putus-Putus / Lambat",
+    "Kabel Putus / Jatuh",
+    "Perangkat Mati / Modem Rusak",
+    "Tindak Lanjut Visit Teknisi",
+    "Lainnya"
   ];
 
   const filteredPelangganSuggestions = useMemo(() => {

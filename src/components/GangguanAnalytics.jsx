@@ -64,13 +64,13 @@ export default function GangguanAnalytics({ visitData = [] }) {
   const categorizeKeluhan = (raw) => {
     if (!raw) return 'Lainnya';
     const s = String(raw).toUpperCase();
-    if (s.includes('KABEL') || s.includes('PUTUS') || s.includes('DROP')) return 'Kabel Putus / Jatuh';
-    if (s.includes('LOS') || s.includes('MERAH')) return 'Modem LOS Merah';
-    if (s.includes('BENGONG') || s.includes('NO INTERNET')) return 'No Internet / Bengong';
-    if (s.includes('LAMBAT') || s.includes('PUTUS-PUTUS') || s.includes('LEMOT')) return 'Koneksi Putus / Lambat';
-    if (s.includes('MATI') || s.includes('RUSAK') || s.includes('ADAPTOR')) return 'Perangkat Rusak';
-    if (s.includes('SISTEM') || s.includes('KONFIGURASI') || s.includes('SETTING')) return 'Konfigurasi / Sistem';
-    return 'Keluhan Lainnya';
+    if (s.includes('KABEL') || s.includes('PUTUS') || s.includes('JATUH') || s.includes('DROP')) return 'Kabel Putus / Jatuh';
+    if (s.includes('LOS') || s.includes('MERAH')) return 'Modem LOS / Nyala Merah';
+    if (s.includes('TIDAK ADA INTERNET') || s.includes('BENGONG') || s.includes('NO INTERNET')) return 'Tidak Ada Internet';
+    if (s.includes('LAMBAT') || s.includes('PUTUS-PUTUS') || s.includes('LEMOT')) return 'Koneksi Putus-Putus / Lambat';
+    if (s.includes('MATI') || s.includes('RUSAK') || s.includes('ADAPTOR') || s.includes('PERANGKAT')) return 'Perangkat Mati / Modem Rusak';
+    if (s.includes('VISIT') || s.includes('TINDAK LANJUT')) return 'Tindak Lanjut Visit';
+    return 'Lainnya';
   };
 
   // Kalkulasi stasiun dan total tiket tahun terpilih (diurutkan terbanyak)

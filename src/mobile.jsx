@@ -2599,9 +2599,13 @@ const MobileApp = () => {
   }, [data.pelangganData, pelangganSearch, pelangganStatusFilter, pelangganStationFilter]);
 
   const keluhanOptions = [
-    "Modem LOS / Nyala Merah", "No Internet / Tidak Ada Koneksi", "Koneksi Putus-Putus / Lambat",
-    "Kabel Drop / Putus", "Perangkat Mati / Rusak", "Kendala Konfigurasi / Sistem",
-    "Tindak Lanjut Visit Teknisi", "Keluhan Lainnya..."
+    "Modem LOS / Nyala Merah",
+    "Tidak Ada Internet",
+    "Koneksi Putus-Putus / Lambat",
+    "Kabel Putus / Jatuh",
+    "Perangkat Mati / Modem Rusak",
+    "Tindak Lanjut Visit Teknisi",
+    "Lainnya"
   ];
 
   const filteredPelangganSuggestions = useMemo(() => {
