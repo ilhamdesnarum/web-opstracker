@@ -18,6 +18,37 @@ export function getTodayWibDateString() {
   }
 }
 
+export function formatToWibDate(dateInput) {
+  if (!dateInput) return null;
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+}
+
+export function formatToWibTime(dateInput) {
+  if (!dateInput) return "00:00";
+  const s = String(dateInput).trim();
+  if (/^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(s)) {
+    return s.substring(0, 5);
+  }
+  const spaceParts = s.split(/\s+/);
+  if (spaceParts.length >= 2 && /^([01]?\d|2[0-3]):[0-5]\d/.test(spaceParts[1])) {
+    return spaceParts[1].substring(0, 5);
+  }
+  if (!s.includes('T') && !s.includes(':')) return "00:00";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) {
+    const match = s.match(/([01]?\d|2[0-3]):([0-5]\d)/);
+    return match ? match[0] : "00:00";
+  }
+  return new Intl.DateTimeFormat('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Jakarta'
+  }).format(d).replace('.', ':');
+}
+
 export function cleanStationName(raw) {
   if (!raw) return 'Tanpa Stasiun';
   let s = String(raw).trim();
@@ -110,31 +141,42 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
       const idPelanggan = String(rawId || '').trim();
       if (!idPelanggan || uniqueMap.has(idPelanggan)) continue;
 
-      const updated = String(c.updated_at || '');
-      const billing = String(c.billing_date || '');
-      const ikr = c.submit_request_ikr_id;
-      const ikrUpdated = String(ikr?.updated_at || '');
-      const pppoe = String(c.pppoe?.start_date || '');
+      const ikrDoneAt = c.request_ikr_id?.done_at;
+      const ikrTask = c.submit_request_ikr_id?.task;
+      const ikrUpdated = c.submit_request_ikr_id?.updated_at;
+      const createdAts = c.created_ats;
 
-      const isToday = updated.includes(dateToFetch) || billing.includes(dateToFetch) || ikrUpdated.includes(dateToFetch) || pppoe.includes(dateToFetch);
+      // Jika IKR pelanggan ini sudah pernah selesai di tanggal lampau (sebelum hari ini),
+      // lewati karena ini pelanggan lama (misal tiket visit/gangguan) dan bukan BAST baru hari ini
+      if (ikrDoneAt && formatToWibDate(ikrDoneAt) !== dateToFetch) {
+        continue;
+      }
 
-      if (isToday) {
+      // Tentukan timestamp BAST / Aktivasi terbaik pada targetDate
+      let bestTimestamp = null;
+      if (ikrDoneAt && formatToWibDate(ikrDoneAt) === dateToFetch) {
+        bestTimestamp = ikrDoneAt;
+      } else if (ikrTask === 'installation' && formatToWibDate(ikrUpdated) === dateToFetch) {
+        bestTimestamp = ikrUpdated;
+      } else if (formatToWibDate(createdAts) === dateToFetch) {
+        bestTimestamp = createdAts;
+      } else if (Array.isArray(c.billing_id)) {
+        const todayBilling = c.billing_id.find(b => b.payment_date === dateToFetch || formatToWibDate(b.created_at) === dateToFetch);
+        if (todayBilling) bestTimestamp = todayBilling.payment_date || todayBilling.created_at;
+      }
+
+      if (bestTimestamp) {
         const rawStation = c.customer_id?.sales_partner_id?.name || c.sales_partner_id?.name || '';
         const station = cleanStationName(rawStation);
         const nama = c.name || c.customer_id?.name || 'Tanpa Nama';
-        const bestTimeStr = updated || ikrUpdated || billing || '';
-        
-        let jam = "00:00";
-        const timeMatch = bestTimeStr.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-        if (timeMatch) jam = timeMatch[0];
-        else if (bestTimeStr.includes('T')) jam = bestTimeStr.split('T')[1].substring(0, 5);
+        const jam = formatToWibTime(bestTimestamp);
 
         uniqueMap.set(idPelanggan, {
           idPelanggan,
           namaPelanggan: nama,
           stasiun: station,
           jam,
-          rawTimestamp: bestTimeStr,
+          rawTimestamp: bestTimestamp,
           rawPartnerData: c
         });
       }
@@ -175,9 +217,10 @@ export function compareBastWithFieldReports(bastList, pelangganData, targetDate)
 
   // 1. Ambil seluruh aktivasi lapangan pada tanggal tersebut
   const fieldActivations = (pelangganData || []).filter(p => {
-    const tAkt = standardizeDate(p.tglAktivasi);
     const isAktif = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
                     String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+    const rawTgl = p.tglAktivasi || p.timestampAktivasi || (isAktif ? (p.tanggalRegistrasi || p.createdAt) : '');
+    const tAkt = standardizeDate(rawTgl);
     return tAkt === normalizedTargetDate && isAktif;
   });
 

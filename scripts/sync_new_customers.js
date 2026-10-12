@@ -449,6 +449,7 @@ async function main() {
                            existingSupabaseMap.get(idPelanggan.toUpperCase()) ||
                            existingSupabaseMap.get(idPelanggan.toLowerCase());
 
+      if (existingData) {
         // [!] SUDAH ADA DI SUPABASE (PELANGGAN LAMA):
         // 1. JANGAN PERNAH sertakan status_ikr & status_aktivasi (status teknisi aman).
         // 2. JANGAN PERNAH sertakan latitude & longitude (koordinat dari teknisi/lapangan TIDAK BOLEH ditimpa partner!).

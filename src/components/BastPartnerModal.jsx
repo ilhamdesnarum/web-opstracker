@@ -1,15 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { standardizeDate } from '../utils.js';
+import { formatToWibTime } from '../services/partnerBastService.js';
 
 function extractJam(str) {
-  if (!str) return '-';
-  const s = String(str).trim();
-  const timeMatch = s.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-  if (timeMatch) return timeMatch[0];
-  if (s.includes('T')) return s.split('T')[1].substring(0, 5);
-  if (s.includes(' ')) return s.split(' ')[1].substring(0, 5);
-  return '-';
+  return formatToWibTime(str);
 }
 
 export default function BastPartnerModal({
@@ -59,7 +54,8 @@ export default function BastPartnerModal({
     (pelangganData || []).forEach(p => {
       const pAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toLowerCase();
       const isAktif = pAkt.includes('sudah') || pAkt === 'aktif';
-      const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
+      const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAktif ? (p.tanggalRegistrasi || p.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
 
       if (tAkt === selectedDate && isAktif) {
         const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
@@ -70,7 +66,7 @@ export default function BastPartnerModal({
             namaPelanggan: p.namaPelanggan || p.nama_pelanggan || p.nama || 'Tanpa Nama',
             stasiun: p.stasiun || 'Tanpa Stasiun',
             petugas: p.petugasAktivasi || p.petugas_aktivasi || p.petugasIkr || p.petugas_ikr || p.petugas || 'Petugas Lapangan',
-            jam: extractJam(p.tglAktivasi || p.timestampAktivasi)
+            jam: formatToWibTime(p.tglAktivasi || p.timestampAktivasi)
           });
         }
       }

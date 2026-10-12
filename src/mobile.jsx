@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import BastPartnerModal from './components/BastPartnerModal';
-import { fetchPartnerBastToday, getTodayWibDateString } from './services/partnerBastService.js';
+import { fetchPartnerBastToday, getTodayWibDateString, formatToWibTime } from './services/partnerBastService.js';
 import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 import { isPercepatanCustomer } from './utils';
 import './index.css';
@@ -5745,11 +5745,16 @@ const MobileApp = () => {
       <BastPartnerModal
         isOpen={showMobileBastModal}
         onClose={() => setShowMobileBastModal(false)}
-        bastData={bastPartnerData.length > 0 ? bastPartnerData : (data.pelangganData || []).filter(p => standardizeDate(p.tglAktivasi) === todayStr).map(p => ({
+        bastData={bastPartnerData.length > 0 ? bastPartnerData : (data.pelangganData || []).filter(p => {
+          const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                        String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+          const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAkt ? (p.tanggalRegistrasi || p.createdAt) : '');
+          return standardizeDate(rawAkt) === todayStr;
+        }).map(p => ({
           idPelanggan: p.idPelanggan || p.id_pelanggan,
           namaPelanggan: p.namaPelanggan || p.nama_pelanggan,
           stasiun: p.stasiun,
-          jam: p.tglAktivasi && p.tglAktivasi.includes(' ') ? p.tglAktivasi.split(' ')[1] : '-'
+          jam: formatToWibTime(p.tglAktivasi || p.timestampAktivasi)
         }))}
         pelangganData={data.pelangganData}
         selectedDate={todayStr}

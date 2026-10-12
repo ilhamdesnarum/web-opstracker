@@ -17,7 +17,7 @@ import { isPercepatanCustomer, getCustomerDismantleDate } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import CustomerMapView from './components/CustomerMapView';
 import BastPartnerModal from './components/BastPartnerModal';
-import { fetchPartnerBastToday, getTodayWibDateString } from './services/partnerBastService.js';
+import { fetchPartnerBastToday, getTodayWibDateString, formatToWibTime } from './services/partnerBastService.js';
 import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 
 import {
@@ -6415,9 +6415,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     let ikr = 0;
 
     (data.pelangganData || []).forEach(row => {
-      const tAkt = standardizeDate(row.tglAktivasi || row.timestampAktivasi);
       const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
                     String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+      const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
       if (tAkt === selectedDate && isAkt) aktivasi++;
 
       const tIkr = standardizeDate(row.tglIkr);
@@ -6433,9 +6434,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     const reportedIdSet = new Set();
     const reportedCustomers = [];
     (data.pelangganData || []).forEach(p => {
-      const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
       const pAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toLowerCase();
       const isAktif = pAkt.includes('sudah') || pAkt === 'aktif';
+      const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAktif ? (p.tanggalRegistrasi || p.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
 
       if (tAkt === selectedDate && isAktif) {
         const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
@@ -8281,11 +8283,16 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       <BastPartnerModal
         isOpen={showBastModal}
         onClose={() => setShowBastModal(false)}
-        bastData={partnerBastData.length > 0 ? partnerBastData : (data.pelangganData || []).filter(p => standardizeDate(p.tglAktivasi) === selectedDate).map(p => ({
+        bastData={partnerBastData.length > 0 ? partnerBastData : (data.pelangganData || []).filter(p => {
+          const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                        String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+          const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAkt ? (p.tanggalRegistrasi || p.createdAt) : '');
+          return standardizeDate(rawAkt) === selectedDate;
+        }).map(p => ({
           idPelanggan: p.idPelanggan || p.id_pelanggan,
           namaPelanggan: p.namaPelanggan || p.nama_pelanggan,
           stasiun: p.stasiun,
-          jam: p.tglAktivasi && p.tglAktivasi.includes(' ') ? p.tglAktivasi.split(' ')[1] : '-'
+          jam: formatToWibTime(p.tglAktivasi || p.timestampAktivasi)
         }))}
         pelangganData={data.pelangganData}
         selectedDate={selectedDate}
