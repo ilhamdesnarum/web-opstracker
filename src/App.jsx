@@ -9985,17 +9985,26 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   const [isPetugasOpen, setIsPetugasOpen] = useState(false);
   const [petugasSearch, setPetugasSearch] = useState('');
 
+  const effectivePetugasList = useMemo(() => {
+    if (petugasList && Array.isArray(petugasList) && petugasList.length > 0) return petugasList;
+    try {
+      const cached = getCachedData('otas_teknisi_cache');
+      if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+    } catch (e) {}
+    return [];
+  }, [petugasList]);
+
   const filteredPetugasForLog = useMemo(() => {
-    if (!petugasList || !Array.isArray(petugasList)) return [];
-    if (!petugasSearch.trim()) return petugasList;
+    if (!effectivePetugasList || !Array.isArray(effectivePetugasList)) return [];
+    if (!petugasSearch.trim()) return effectivePetugasList;
     const q = petugasSearch.toLowerCase().trim();
-    return petugasList.filter(ptg => {
+    return effectivePetugasList.filter(ptg => {
       const nama = String(ptg.nama || '').toLowerCase();
       const username = String(ptg.username || '').toLowerCase();
       const stasiun = String(ptg.stasiun || '').toLowerCase();
       return nama.includes(q) || username.includes(q) || stasiun.includes(q);
     });
-  }, [petugasList, petugasSearch]);
+  }, [effectivePetugasList, petugasSearch]);
 
   // STATE UNTUK CUSTOM DROPDOWN KELUHAN
   const [isKeluhanOpen, setIsKeluhanOpen] = useState(false);
@@ -10177,8 +10186,9 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
         // --- PERBAIKAN LOGIKA PETUGAS DISINI ---
         let usernamePetugas = formData.petugas; // Defaultnya nama jika gagal ketemu
-        if (formData.petugas && petugasList && petugasList.length > 0) {
-          const teknisiTerpilih = petugasList.find(t => t.nama === formData.petugas);
+        const listTeknisi = (petugasList && petugasList.length > 0) ? petugasList : effectivePetugasList;
+        if (formData.petugas && listTeknisi.length > 0) {
+          const teknisiTerpilih = listTeknisi.find(t => t.nama === formData.petugas || t.username === formData.petugas);
           if (teknisiTerpilih && teknisiTerpilih.username) {
             usernamePetugas = teknisiTerpilih.username.startsWith('@')
               ? teknisiTerpilih.username
@@ -10201,7 +10211,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
         };
 
         // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
-        sendTelegramVisitDM(payload, petugasList);
+        sendTelegramVisitDM(payload, listTeknisi);
 
         finalizeSuccessLog();
         return;
@@ -10740,74 +10750,64 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                     )}
                   </div>
 
-                  {/* FORM BARU: DROPDOWN PETUGAS DENGAN FITUR PENCARIAN */}
+                  {/* 3. TUGASKAN TEKNISI (MATCHING DATA GANGGUAN VIEW) */}
                   <div className="relative z-[60]">
-                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Tugaskan Teknisi <span className="text-slate-400 font-medium normal-case text-[10px]">(Opsional)</span></label>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                      Tugaskan Teknisi <span className="text-slate-400 font-normal text-[10px] normal-case">(Opsional)</span>
+                    </label>
                     {isPetugasOpen && <div className="fixed inset-0 z-[55]" onClick={() => { setIsPetugasOpen(false); setPetugasSearch(''); }}></div>}
-                    <div
-                      onClick={() => !isSaving && setIsPetugasOpen(!isPetugasOpen)}
-                      className={`w-full p-3 bg-white border ${isPetugasOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-xl text-sm font-bold text-slate-700 flex justify-between items-center transition-all shadow-sm ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
-                    >
-                      <span className="truncate">{formData.petugas ? formData.petugas : '-- Pilih Teknisi --'}</span>
-                      <Icon name={isPetugasOpen ? "chevron-up" : "chevron-down"} size={16} className="text-slate-400 shrink-0 ml-2" />
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={isPetugasOpen ? petugasSearch : (formData.petugas || '')}
+                        onChange={(e) => {
+                          setPetugasSearch(e.target.value);
+                          if (!isPetugasOpen) setIsPetugasOpen(true);
+                        }}
+                        onFocus={() => {
+                          setPetugasSearch('');
+                          setIsPetugasOpen(true);
+                        }}
+                        placeholder="-- Ketik atau pilih nama teknisi --"
+                        className={`w-full p-3 pr-10 bg-white border ${isPetugasOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-xl text-sm font-semibold focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-sm transition-all text-slate-700 cursor-text`}
+                        disabled={isSaving}
+                      />
+                      <div
+                        className="absolute right-0 top-0 bottom-0 px-4 flex items-center cursor-pointer"
+                        onClick={() => !isSaving && setIsPetugasOpen(!isPetugasOpen)}
+                      >
+                        <Icon name={isPetugasOpen ? 'chevron-up' : 'chevron-down'} size={16} className="text-slate-400" />
+                      </div>
                     </div>
 
                     {isPetugasOpen && !isSaving && (
-                      <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-200 shadow-2xl rounded-xl py-1.5 z-[65] animate-dropdown flex flex-col max-h-64">
-                        {/* Box Input Pencarian Teknisi */}
-                        <div className="px-2.5 py-2 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
-                          <div className="relative flex items-center">
-                            <Icon name="search" size={14} className="absolute left-2.5 text-slate-400 pointer-events-none" />
-                            <input
-                              type="text"
-                              value={petugasSearch}
-                              onChange={(e) => setPetugasSearch(e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              placeholder="Cari nama atau username teknisi..."
-                              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition-all font-medium"
-                              autoFocus
-                            />
-                            {petugasSearch && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setPetugasSearch(''); }}
-                                className="absolute right-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
-                              >
-                                <Icon name="x" size={12} />
-                              </button>
-                            )}
-                          </div>
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-100 shadow-2xl rounded-xl py-1.5 z-[65] animate-dropdown overflow-y-auto max-h-48 custom-scrollbar">
+                        <div
+                          onClick={() => { setFormData(prev => ({ ...prev, petugas: '' })); setPetugasSearch(''); setIsPetugasOpen(false); }}
+                          className={`px-4 py-2.5 text-sm cursor-pointer flex items-center ${!formData.petugas ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          -- Kosongkan / Belum Ditugaskan --
+                          {!formData.petugas && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
                         </div>
-
-                        {/* List Teknisi (Scrollable) */}
-                        <div className="overflow-y-auto max-h-48 custom-scrollbar">
+                        {filteredPetugasForLog.map((ptg, i) => (
                           <div
-                            onClick={() => { setFormData(prev => ({ ...prev, petugas: '' })); setIsPetugasOpen(false); setPetugasSearch(''); }}
-                            className={`px-4 py-2 text-xs font-semibold cursor-pointer transition-colors flex items-center border-b border-slate-50 ${formData.petugas === '' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                            key={i}
+                            onClick={() => { setFormData(prev => ({ ...prev, petugas: ptg.nama })); setPetugasSearch(''); setIsPetugasOpen(false); }}
+                            className={`px-4 py-2.5 text-sm cursor-pointer flex items-center transition-colors ${formData.petugas === ptg.nama ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
                           >
-                            -- Kosongkan / Belum Ditugaskan --
-                            {formData.petugas === '' && <Icon name="check" size={13} className="ml-auto text-blue-600" />}
-                          </div>
-                          {filteredPetugasForLog.length > 0 ? (
-                            filteredPetugasForLog.map((ptg, i) => (
-                              <div
-                                key={i}
-                                onClick={() => { setFormData(prev => ({ ...prev, petugas: ptg.nama })); setIsPetugasOpen(false); setPetugasSearch(''); }}
-                                className={`px-4 py-2.5 text-sm cursor-pointer transition-colors flex items-center ${formData.petugas === ptg.nama ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-50 font-medium'}`}
-                              >
-                                <div className="flex flex-col">
-                                  <span className="text-slate-800 text-xs font-bold">{ptg.nama}</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">{ptg.username || '-'} {ptg.stasiun ? `• ${ptg.stasiun}` : ''}</span>
-                                </div>
-                                {formData.petugas === ptg.nama && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
-                              </div>
-                            ))
-                          ) : (
-                            <div className="px-4 py-3 text-xs text-center text-slate-400 italic">
-                              Teknisi "{petugasSearch}" tidak ditemukan
+                            <div className="flex flex-col">
+                              <span>{ptg.nama}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">{ptg.username} · {ptg.stasiun}</span>
                             </div>
-                          )}
-                        </div>
+                            {formData.petugas === ptg.nama && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
+                          </div>
+                        ))}
+                        {filteredPetugasForLog.length === 0 && (
+                          <div className="px-4 py-3 text-sm text-slate-400 italic text-center">
+                            Teknisi tidak ditemukan
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
