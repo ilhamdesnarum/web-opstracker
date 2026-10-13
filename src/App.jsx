@@ -518,30 +518,63 @@ const fetchGoogleSheetVisitData = async () => {
 
 const standardizeDate = (dateStr) => {
   if (!dateStr) return '';
-  let cleaned = String(dateStr).trim();
-  cleaned = cleaned.split(/[T ]/)[0];
+  let str = String(dateStr).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
-    return cleaned;
+  // 1. Check ISO timestamp with timezone (T and Z or + offset)
+  if (str.includes('T') && (str.endsWith('Z') || str.includes('+') || str.includes('-0') || str.includes('+0'))) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+      } catch (_e) {}
+    }
   }
 
-  const dmyMatch = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (dmyMatch) {
-    const day = dmyMatch[1].padStart(2, '0');
-    const month = dmyMatch[2].padStart(2, '0');
-    const year = dmyMatch[3];
+  // 2. Extract date part: split on comma, T, or space, and remove trailing punctuation
+  let datePart = str.split(',')[0].trim().split(/[T ]/)[0].trim().replace(/[,;]+$/, '');
+
+  // Check YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmy4 = datePart.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmy4) {
+    const day = dmy4[1].padStart(2, '0');
+    const month = dmy4[2].padStart(2, '0');
+    const year = dmy4[3];
     return `${year}-${month}-${day}`;
   }
 
-  const ymdMatch = cleaned.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-  if (ymdMatch) {
-    const year = ymdMatch[1];
-    const month = ymdMatch[2].padStart(2, '0');
-    const day = ymdMatch[3].padStart(2, '0');
+  // DD/MM/YY or DD-MM-YY or DD.MM.YY (2-digit year, e.g. 13-10-26 -> 2026-10-13)
+  const dmy2 = datePart.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2})$/);
+  if (dmy2) {
+    const day = dmy2[1].padStart(2, '0');
+    const month = dmy2[2].padStart(2, '0');
+    const year = `20${dmy2[3]}`;
     return `${year}-${month}-${day}`;
   }
 
-  return cleaned;
+  // YYYY/MM/DD or YYYY.MM.DD
+  const ymd4 = datePart.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (ymd4) {
+    const year = ymd4[1];
+    const month = ymd4[2].padStart(2, '0');
+    const day = ymd4[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // Fallback: try Date parsing
+  try {
+    const d = new Date(datePart);
+    if (!isNaN(d.getTime()) && d.getFullYear() > 2000) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+    }
+  } catch (_e) {}
+
+  return datePart;
 };
 
 const toProperCase = (str) => {
@@ -6340,9 +6373,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       return partnerBastData.length;
     }
     return (data.pelangganData || []).filter(p => {
-      const tAkt = standardizeDate(p.tglAktivasi);
       const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
                     String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+      const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAkt ? (p.tanggalRegistrasi || p.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
       return tAkt === selectedDate && isAkt;
     }).length;
   }, [isSelectedToday, partnerBastData, data.pelangganData, selectedDate]);
@@ -6525,7 +6559,8 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       }
 
       // Aktivasi Hari Ini (pada selectedDate)
-      const tAkt = standardizeDate(p.tglAktivasi);
+      const rawAkt = p.tglAktivasi || p.timestampAktivasi || ((akt.includes('sudah') || akt === 'aktif') ? (p.tanggalRegistrasi || p.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
       if (tAkt === selectedDate && (akt.includes('sudah') || akt === 'aktif')) {
         stationAktifTodayMap[stKey] = (stationAktifTodayMap[stKey] || 0) + 1;
       }
@@ -6875,11 +6910,14 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   const discrepancyList = useMemo(() => {
     return (data.pelangganData || [])
       .map(row => {
+        const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                      String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+        const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
         const tIkr = standardizeDate(row.tglIkr);
-        const tAkt = standardizeDate(row.tglAktivasi);
+        const tAkt = standardizeDate(rawAkt);
 
         const isIkrSelected = tIkr === selectedDate;
-        const isAktSelected = tAkt === selectedDate;
+        const isAktSelected = tAkt === selectedDate && isAkt;
 
         if (isIkrSelected && !isAktSelected) {
           return { ...row, discrepancyType: 'BELUM REPORT AKTIVASI' };
@@ -6905,18 +6943,21 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   const historyAktivasi = useMemo(() => {
     return (data.pelangganData || [])
       .filter(row => {
-        const tAkt = standardizeDate(row.tglAktivasi);
-        const isSelectedDay = tAkt === selectedDate && String(row.aktivasi || '').toLowerCase().includes('sudah');
+        const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                      String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+        const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
+        const tAkt = standardizeDate(rawAkt);
+        const isSelectedDay = tAkt === selectedDate && isAkt;
         const isStationMatch = historyFilter === '' || String(row.stasiun || '').toLowerCase().trim() === String(historyFilter).toLowerCase().trim();
         return isSelectedDay && isStationMatch;
       })
       .map(row => {
         let jam = "00:00";
         const tsStr = String(row.timestampAktivasi || row.tglAktivasi || "");
-        const timeMatch = tsStr.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+        const timeMatch = tsStr.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
 
         if (timeMatch) {
-          jam = timeMatch[0];
+          jam = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
         } else if (tsStr.includes('T')) {
           jam = tsStr.split('T')[1].substring(0, 5);
         }
@@ -6952,8 +6993,11 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
         if (petugasMode === 'aktivasi') {
           const pAkt = row.petugasAktivasi;
-          const tAkt = standardizeDate(row.tglAktivasi);
-          if (pAkt && tAkt === selectedDate && String(row.aktivasi || '').toLowerCase().includes('sudah')) {
+          const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
+                        String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+          const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
+          const tAkt = standardizeDate(rawAkt);
+          if (pAkt && tAkt === selectedDate && isAkt) {
             if (!map[pAkt]) map[pAkt] = { nama: pAkt, stasiun: stasiun, aktivasi: 0 };
             map[pAkt].aktivasi += 1;
           }

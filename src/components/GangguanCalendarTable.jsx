@@ -51,19 +51,63 @@ const normalizeStation = (raw) => {
 // Helper standardisasi format tanggal YYYY-MM-DD
 const standardizeDate = (dateStr) => {
   if (!dateStr) return '';
-  let cleaned = String(dateStr).trim().split(/[T ]/)[0];
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned;
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleaned)) {
-    const p = cleaned.split('/');
-    return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
-  }
-  try {
-    const d = new Date(dateStr);
+  let str = String(dateStr).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
+
+  // 1. Check ISO timestamp with timezone (T and Z or + offset)
+  if (str.includes('T') && (str.endsWith('Z') || str.includes('+') || str.includes('-0') || str.includes('+0'))) {
+    const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+      } catch (_e) {}
     }
-  } catch (e) { }
-  return cleaned;
+  }
+
+  // 2. Extract date part: split on comma, T, or space, and remove trailing punctuation
+  let datePart = str.split(',')[0].trim().split(/[T ]/)[0].trim().replace(/[,;]+$/, '');
+
+  // Check YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmy4 = datePart.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmy4) {
+    const day = dmy4[1].padStart(2, '0');
+    const month = dmy4[2].padStart(2, '0');
+    const year = dmy4[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // DD/MM/YY or DD-MM-YY or DD.MM.YY (2-digit year, e.g. 13-10-26 -> 2026-10-13)
+  const dmy2 = datePart.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2})$/);
+  if (dmy2) {
+    const day = dmy2[1].padStart(2, '0');
+    const month = dmy2[2].padStart(2, '0');
+    const year = `20${dmy2[3]}`;
+    return `${year}-${month}-${day}`;
+  }
+
+  // YYYY/MM/DD or YYYY.MM.DD
+  const ymd4 = datePart.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (ymd4) {
+    const year = ymd4[1];
+    const month = ymd4[2].padStart(2, '0');
+    const day = ymd4[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // Fallback: try Date parsing
+  try {
+    const d = new Date(datePart);
+    if (!isNaN(d.getTime()) && d.getFullYear() > 2000) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+    }
+  } catch (_e) {}
+
+  return datePart;
 };
 
 const MONTH_NAMES = [

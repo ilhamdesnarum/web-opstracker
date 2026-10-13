@@ -28,25 +28,37 @@ export function formatToWibDate(dateInput) {
 export function formatToWibTime(dateInput) {
   if (!dateInput) return "00:00";
   const s = String(dateInput).trim();
-  if (/^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(s)) {
-    return s.substring(0, 5);
+
+  // If ISO string with T
+  if (s.includes('T')) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Jakarta'
+      }).format(d).replace('.', ':');
+    }
   }
-  const spaceParts = s.split(/\s+/);
-  if (spaceParts.length >= 2 && /^([01]?\d|2[0-3]):[0-5]\d/.test(spaceParts[1])) {
-    return spaceParts[1].substring(0, 5);
+
+  // Check HH:mm or HH.mm anywhere in string (e.g. "13-10-26, 10.58" or "10:20:00")
+  const timeMatch = s.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+  if (timeMatch) {
+    return `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
   }
-  if (!s.includes('T') && !s.includes(':')) return "00:00";
+
   const d = new Date(s);
-  if (isNaN(d.getTime())) {
-    const match = s.match(/([01]?\d|2[0-3]):([0-5]\d)/);
-    return match ? match[0] : "00:00";
+  if (!isNaN(d.getTime())) {
+    return new Intl.DateTimeFormat('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Jakarta'
+    }).format(d).replace('.', ':');
   }
-  return new Intl.DateTimeFormat('id-ID', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Asia/Jakarta'
-  }).format(d).replace('.', ':');
+
+  return "00:00";
 }
 
 export function cleanStationName(raw) {
