@@ -60,7 +60,7 @@ function formatKeWIB(isoString) {
 
 async function upsertToSupabase(rows) {
   if (!rows || rows.length === 0) return true;
-  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
+  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -71,7 +71,7 @@ async function upsertToSupabase(rows) {
         'Prefer': 'resolution=merge-duplicates'
       },
       body: JSON.stringify(rows),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(25000)
     });
     if (!res.ok) {
       const txt = await res.text();
@@ -249,20 +249,18 @@ async function main() {
             }
 
             // [!] HANYA UPDATE STATUS & NAMA SALES:
-            // JANGAN PERNAH utak-atik data kontak (nomor_hp, alamat, catatan) maupun ODP (odp, port_odp)!
+            // JANGAN PERNAH utak-atik koordinat (latitude, longitude), data kontak (nomor_hp, alamat, catatan) maupun ODP (odp, port_odp)!
+            // Pastikan semua key seragam agar PostgREST tidak menolak dengan PGRST102:
             const rowPayload = {
               id_pelanggan: idPelanggan,
               status_aktivasi: cfg.dbStatus,
               tanggal_berakhir: tanggalBerakhir || null,
-              telat_bayar_hari: telatBayarHari,
-              updated_at: new Date().toISOString(),
+              telat_bayar_hari: (telatBayarHari !== undefined && telatBayarHari !== null) ? telatBayarHari : null,
+              nama_sales: (extractedSales && extractedSales !== "-" && extractedSales !== "Daftar Mandiri") ? extractedSales : null,
               tanggal_dismantle: tglDismantle || null,
-              reason_dismantle: reasonDismantle || null
+              reason_dismantle: reasonDismantle || null,
+              updated_at: new Date().toISOString()
             };
-
-            if (extractedSales && extractedSales !== "-" && extractedSales !== "Daftar Mandiri") {
-              rowPayload.nama_sales = extractedSales;
-            }
 
             stationRows.push(rowPayload);
             statusCount++;

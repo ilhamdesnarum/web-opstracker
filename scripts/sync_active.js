@@ -115,9 +115,9 @@ async function checkExistingInSupabase(customerIds) {
   return map;
 }
 
-async function upsertToSupabase(rows) {
+async function upsertToSupabase(rows, prefer = 'resolution=merge-duplicates') {
   if (!rows || rows.length === 0) return true;
-  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
+  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -125,10 +125,10 @@ async function upsertToSupabase(rows) {
         'apikey': SUPABASE_KEY,
         'Authorization': `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates'
+        'Prefer': prefer
       },
       body: JSON.stringify(rows),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(30000)
     });
     if (!res.ok) {
       const txt = await res.text();
@@ -354,7 +354,8 @@ async function main() {
       for (let i = 0; i < dedupedRows.length; i += CHUNK_SIZE) {
         const chunk = dedupedRows.slice(i, i + CHUNK_SIZE);
         const existingMap = await checkExistingInSupabase(chunk.map(r => r.id_pelanggan));
-        const rowsToUpsert = [];
+        const rowsExisting = [];
+        const rowsNew = [];
         for (const row of chunk) {
           const ex = existingMap.get(row.id_pelanggan) ||
                      existingMap.get(row.id_pelanggan.toUpperCase()) ||
@@ -362,32 +363,38 @@ async function main() {
           if (ex) {
             // [!] PELANGGAN LAMA:
             // Hanya update STATUS, masa aktif / due date, telat bayar, dan nama sales.
-            // JANGAN PERNAH utak-atik data kontak (nomor_hp, alamat, catatan) maupun ODP (odp, port_odp)!
+            // JANGAN PERNAH utak-atik koordinat (latitude, longitude), kontak (nomor_hp, alamat, catatan), maupun ODP (odp, port_odp)!
+            // Pastikan SEMUA key seragam untuk mencegah PGRST102 dari PostgREST:
             const payloadEx = {
               id_pelanggan: row.id_pelanggan,
               status_ikr: "Sudah",
               status_aktivasi: "Sudah",
               tanggal_berakhir: row.tanggal_berakhir || null,
-              telat_bayar_hari: row.telat_bayar_hari,
+              telat_bayar_hari: (row.telat_bayar_hari !== undefined && row.telat_bayar_hari !== null) ? row.telat_bayar_hari : null,
+              nama_sales: (row.nama_sales && row.nama_sales !== "-" && row.nama_sales !== "Daftar Mandiri") ? row.nama_sales : (ex.nama_sales || null),
+              tanggal_registrasi: (!ex.tanggal_registrasi && row.tanggal_registrasi) ? row.tanggal_registrasi : (ex.tanggal_registrasi || null),
               updated_at: new Date().toISOString()
             };
-            if (row.nama_sales && row.nama_sales !== "-" && row.nama_sales !== "Daftar Mandiri") {
-              payloadEx.nama_sales = row.nama_sales;
-            }
-            if (!ex.tanggal_registrasi && row.tanggal_registrasi) {
-              payloadEx.tanggal_registrasi = row.tanggal_registrasi;
-            }
-            rowsToUpsert.push(payloadEx);
+            rowsExisting.push(payloadEx);
           } else {
             // Pelanggan baru murni (belum ada di database)
-            rowsToUpsert.push(row);
+            rowsNew.push(row);
           }
         }
 
-        const ok = await upsertToSupabase(rowsToUpsert);
-        if (ok) {
-          upsertedCount += rowsToUpsert.length;
-          grandTotalUpserted += rowsToUpsert.length;
+        if (rowsExisting.length > 0) {
+          const ok = await upsertToSupabase(rowsExisting, 'resolution=merge-duplicates');
+          if (ok) {
+            upsertedCount += rowsExisting.length;
+            grandTotalUpserted += rowsExisting.length;
+          }
+        }
+        if (rowsNew.length > 0) {
+          const okNew = await upsertToSupabase(rowsNew, 'resolution=ignore-duplicates');
+          if (okNew) {
+            upsertedCount += rowsNew.length;
+            grandTotalUpserted += rowsNew.length;
+          }
         }
       }
       console.log(`   💾 Tersimpan ke Supabase: ${upsertedCount} baris data.`);
