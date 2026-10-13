@@ -329,12 +329,14 @@ Deno.serve(async (req: Request) => {
                   tanggal_berakhir: tanggalBerakhir || null,
                   telat_bayar_hari: telatBayarHari,
                   stasiun: stationName,
-                  // Hanya sertakan status_ikr, ODP, dan nama_sales untuk pelanggan BARU murni
+                  // Hanya sertakan status_ikr, ODP, nama_sales, dan koordinat untuk pelanggan BARU murni
                   ...(isTarikPelangganBaru ? {
                     status_ikr: tIkr,
                     odp: odp,
                     port_odp: portOdp,
-                    nama_sales: namaSales
+                    nama_sales: namaSales,
+                    ...(lat ? { latitude: lat } : {}),
+                    ...(lng ? { longitude: lng } : {})
                   } : {}),
                   updated_at: new Date().toISOString()
                 };

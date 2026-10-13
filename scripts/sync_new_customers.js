@@ -301,8 +301,8 @@ async function writeNewCustomerToSheet(row) {
       nomorHp: row.nomor_hp,
       odpAktual: row.odp,
       portOdp: row.port_odp,
-      latitude: "",
-      longitude: "",
+      latitude: row.latitude || "",
+      longitude: row.longitude || "",
       namaSales: row.nama_sales,
       aktivasi: "Belum",
       catatan: row.catatan || ""
@@ -472,7 +472,7 @@ async function main() {
       } else {
         // [!] DATA BARU MURNI:
         // Status awal untuk pendaftaran baru adalah Belum.
-        // JANGAN PERNAH tarik latitude/longitude dari API (dikosongkan agar titik GPS akurat disurvey & diinput oleh teknisi lapangan).
+        // Tarik koordinat awal dari API agar tim & teknisi mengetahui titik lokasi untuk survey & instalasi.
         const initialStatus = "Belum";
         const payloadNew = {
           id_pelanggan: idPelanggan,
@@ -483,8 +483,8 @@ async function main() {
           nama_sales: namaSales,
           status_ikr: initialStatus,
           status_aktivasi: initialStatus,
-          latitude: "",
-          longitude: "",
+          latitude: lat || "",
+          longitude: lng || "",
           stasiun: stationName,
           odp: odp,
           port_odp: portOdp,
