@@ -304,6 +304,7 @@ async function writeNewCustomerToSheet(row) {
       latitude: row.latitude || "",
       longitude: row.longitude || "",
       namaSales: row.nama_sales,
+      ikr: row.status_ikr || "Belum",
       aktivasi: "Belum",
       catatan: row.catatan || ""
     };
