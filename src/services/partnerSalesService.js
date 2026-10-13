@@ -141,13 +141,19 @@ export async function syncSalesFromPartnerApi({
       return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`);
     });
 
-    const [activeBatches, newBatches] = await Promise.all([
+    // 3. Tarik Fasum Aktif Terbaru
+    const fasumPromises = [1, 2].map(p => {
+      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/fasum/active?page=${p}&page_size=20&sort_order=DESC`);
+    });
+
+    const [activeBatches, newBatches, fasumBatches] = await Promise.all([
       Promise.all(activePromises),
-      Promise.all(newPromises)
+      Promise.all(newPromises),
+      Promise.all(fasumPromises)
     ]);
 
-    // Gabungkan hasil dari active dan new
-    const allFetched = [...activeBatches.flat(), ...newBatches.flat()];
+    // Gabungkan hasil dari active, new, dan fasum
+    const allFetched = [...activeBatches.flat(), ...newBatches.flat(), ...fasumBatches.flat()];
 
     for (const item of allFetched) {
       const cid = extractCustomerId(item);

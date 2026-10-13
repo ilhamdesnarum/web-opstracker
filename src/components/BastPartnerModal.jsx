@@ -537,6 +537,11 @@ export default function BastPartnerModal({
                                 Report Saja
                               </span>
                             )}
+                            {(row.isFasum || String(row.namaPelanggan || '').toUpperCase().includes('(FASUM)')) && (
+                              <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                Fasum
+                              </span>
+                            )}
                           </div>
                           <h4 className="text-xs font-bold text-slate-800 mt-1 truncate">
                             {row.namaPelanggan}
@@ -634,6 +639,11 @@ export default function BastPartnerModal({
                               {isUnbast && (
                                 <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-200/80 text-amber-800 border border-amber-300">
                                   Report Saja
+                                </span>
+                              )}
+                              {(row.isFasum || String(row.namaPelanggan || '').toUpperCase().includes('(FASUM)')) && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                  Fasum
                                 </span>
                               )}
                             </div>

@@ -119,9 +119,9 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
     : DEFAULT_PARTNER_TOKEN;
 
   try {
-    // Ambil halaman 1 sampai 4 secara paralel (maksimal 40 data terbaru)
+    // 1. Ambil Pelanggan Reguler Aktif (halaman 1 sampai 4 secara paralel)
     const pages = [1, 2, 3, 4];
-    const fetchPromises = pages.map(async (page) => {
+    const regPromises = pages.map(async (page) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 9000);
       try {
@@ -135,15 +135,41 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
         clearTimeout(timeoutId);
         if (!res.ok) return [];
         const json = await res.json();
-        return json?.data || [];
+        return (json?.data || []).map(item => ({ ...item, is_fasum: false }));
       } catch (_err) {
         clearTimeout(timeoutId);
         return [];
       }
     });
 
-    const results = await Promise.all(fetchPromises);
-    const allCustomers = results.flat();
+    // 2. Ambil Fasum Aktif (halaman 1 dan 2 secara paralel)
+    const fasumPages = [1, 2];
+    const fasumPromises = fasumPages.map(async (page) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 9000);
+      try {
+        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/fasum/active?page=${page}&page_size=10&sort_order=DESC`, {
+          headers: {
+            'Authorization': token,
+            'Accept': 'application/json'
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) return [];
+        const json = await res.json();
+        return (json?.data || []).map(item => ({ ...item, is_fasum: true, source: 'fasum' }));
+      } catch (_err) {
+        clearTimeout(timeoutId);
+        return [];
+      }
+    });
+
+    const [regBatches, fasumBatches] = await Promise.all([
+      Promise.all(regPromises),
+      Promise.all(fasumPromises)
+    ]);
+    const allCustomers = [...regBatches.flat(), ...fasumBatches.flat()];
 
     const uniqueMap = new Map();
 
@@ -156,7 +182,7 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
       const ikrDoneAt = c.request_ikr_id?.done_at;
       const ikrTask = c.submit_request_ikr_id?.task;
       const ikrUpdated = c.submit_request_ikr_id?.updated_at;
-      const createdAts = c.created_ats;
+      const createdAts = c.created_ats || c.created_at;
 
       // Jika IKR pelanggan ini sudah pernah selesai di tanggal lampau (sebelum hari ini),
       // lewati karena ini pelanggan lama (misal tiket visit/gangguan) dan bukan BAST baru hari ini
@@ -178,10 +204,11 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
       }
 
       if (bestTimestamp) {
-        const rawStation = c.customer_id?.sales_partner_id?.name || c.sales_partner_id?.name || '';
+        const rawStation = c.customer_id?.sales_partner_id?.name || c.sales_partner_id?.name || c.sales_id?.sales_partner_id?.name || '';
         const station = cleanStationName(rawStation);
         const nama = c.name || c.customer_id?.name || 'Tanpa Nama';
         const jam = formatToWibTime(bestTimestamp);
+        const isFasum = Boolean(c.is_fasum || c.source === 'fasum' || c.fasum_status || (nama && nama.toUpperCase().includes('(FASUM)')));
 
         uniqueMap.set(idPelanggan, {
           idPelanggan,
@@ -189,6 +216,7 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
           stasiun: station,
           jam,
           rawTimestamp: bestTimestamp,
+          isFasum,
           rawPartnerData: c
         });
       }
