@@ -253,6 +253,9 @@ async function checkExistingInSupabase(customerIds) {
         if (retries >= 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
+    if (retries < 0) {
+      throw new Error(`Gagal memverifikasi keberadaan data pelanggan di Supabase untuk chunk ID. Sinkronisasi dibatalkan demi keamanan data.`);
+    }
   }
 
   return map;
@@ -260,7 +263,7 @@ async function checkExistingInSupabase(customerIds) {
 
 async function upsertToSupabase(rows, preferResolution = 'resolution=merge-duplicates') {
   if (!rows || rows.length === 0) return true;
-  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan`;
+  const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -298,8 +301,8 @@ async function writeNewCustomerToSheet(row) {
       nomorHp: row.nomor_hp,
       odpAktual: row.odp,
       portOdp: row.port_odp,
-      latitude: row.latitude,
-      longitude: row.longitude,
+      latitude: "",
+      longitude: "",
       namaSales: row.nama_sales,
       aktivasi: "Belum",
       catatan: row.catatan || ""
@@ -456,25 +459,20 @@ async function main() {
         // 3. JANGAN PERNAH sertakan odp & port_odp (mapping ODP teknisi aman).
         // 4. JANGAN PERNAH sertakan nomor_hp, alamat, catatan (data kontak lapangan aman).
         // 5. UPDATE NAMA SALES: nama sales ditarik dari partner API baik pelanggan baru maupun lama!
+        // Catatan: Semua objek harus memiliki key yang identik agar tidak ditolak PostgREST (PGRST102)
         const payloadExisting = {
           id_pelanggan: idPelanggan,
           stasiun: stationName,
+          nama_sales: (namaSales && namaSales !== "-" && namaSales !== "Daftar Mandiri") ? namaSales : (existingData.nama_sales || null),
+          tanggal_registrasi: (!existingData.tanggal_registrasi && tglRegistrasi) ? tglRegistrasi : (existingData.tanggal_registrasi || null),
           updated_at: new Date().toISOString()
         };
-
-        // Tarik nama sales dari partner API jika ada
-        if (namaSales && namaSales !== "-" && namaSales !== "Daftar Mandiri") {
-          payloadExisting.nama_sales = namaSales;
-        }
-
-        if (!existingData.tanggal_registrasi && tglRegistrasi) {
-          payloadExisting.tanggal_registrasi = tglRegistrasi;
-        }
 
         rowsExistingNoStatus.push(payloadExisting);
       } else {
         // [!] DATA BARU MURNI:
-        // Status awal untuk pendaftaran baru adalah Belum
+        // Status awal untuk pendaftaran baru adalah Belum.
+        // JANGAN PERNAH tarik latitude/longitude dari API (dikosongkan agar titik GPS akurat disurvey & diinput oleh teknisi lapangan).
         const initialStatus = "Belum";
         const payloadNew = {
           id_pelanggan: idPelanggan,
@@ -485,8 +483,8 @@ async function main() {
           nama_sales: namaSales,
           status_ikr: initialStatus,
           status_aktivasi: initialStatus,
-          latitude: lat || "",
-          longitude: lng || "",
+          latitude: "",
+          longitude: "",
           stasiun: stationName,
           odp: odp,
           port_odp: portOdp,
