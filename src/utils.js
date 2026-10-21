@@ -1,3 +1,14 @@
+// --- Kontrol Animasi Chart: Aktif HANYA saat pertama kali web dibuka (initial load), 
+// setelah 2.5 detik otomatis dinonaktifkan agar ganti halaman / filter 100% instan dan bebas lag ---
+let isInitialWebLoad = true;
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    isInitialWebLoad = false;
+  }, 2500);
+}
+
+export const isInitialChartAnimationActive = () => isInitialWebLoad;
+
 // --- Helper Function: Format ke Proper Case (Tiap awal kata kapital) ---
 export const toProperCase = (str) => {
   if (!str) return '';
@@ -25,7 +36,7 @@ export const getGlobalStatusStr = (item) => {
   const valIkr = String(item.ikr || item.statusIkr || '').trim().toUpperCase();
   
   if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
-  if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
+  if (valAktivasi === 'READY TO DISMANTLE' || valAktivasi === 'DISMANTLING') return "READY TO DISMANTLE";
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
 
   // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
@@ -36,6 +47,47 @@ export const getGlobalStatusStr = (item) => {
   if (valIkr === 'BELUM' || valAktivasi === 'BELUM' || valAktivasi === 'WAITING' || valAktivasi === '') return "WAITING";
   if (item.tahapPembangunan) return String(item.tahapPembangunan).toUpperCase();
   return "WAITING";
+};
+
+// --- Helper Function: Deteksi Informasi WO Dismantle (Perangkat Sedang Diambil) ---
+export const getWoDismantleInfo = (item) => {
+  if (!item) return null;
+  const rawAkt = String(item.aktivasi || item.statusAktivasi || item.status_aktivasi || '').trim().toUpperCase();
+  const r = String(item.reasonDismantle || item.reason_dismantle || '').trim();
+
+  const hasWo = rawAkt === 'DISMANTLING' || r.includes('[WO DISMANTLE]') || r.includes('WO:');
+  if (!hasWo) return null;
+
+  let teknisi = '';
+  const techMatch = r.match(/Teknisi:\s*([^|()]+)/i);
+  if (techMatch && techMatch[1]) {
+    teknisi = techMatch[1].trim();
+  }
+
+  let ticket = '';
+  const ticketMatch = r.match(/Tiket:\s*([^|()]+)/i);
+  if (ticketMatch && ticketMatch[1]) {
+    ticket = ticketMatch[1].trim();
+  }
+
+  return {
+    hasWo: true,
+    teknisi: teknisi || item.petugasAktivasi || item.petugasIkr || 'Teknisi IKR',
+    ticket: ticket,
+    rawReason: r
+  };
+};
+
+// --- Helper Function: Tentukan apakah PO masuk ke Segmen Percepatan atau Reguler ---
+export const isPoPercepatan = (po) => {
+  if (!po) return false;
+  const seg = String(po.segmen || '').toLowerCase();
+  const tahap = String(po.tahapPembangunan || po.tahap_pembangunan || '').toLowerCase();
+  const jenis = String(po.jenisPo || po.jenis_po || '').toLowerCase();
+
+  if (seg === 'percepatan' || tahap.includes('percepatan') || jenis === 'percepatan') return true;
+  if (Number(po.hpPercepatan || po.hp_percepatan || 0) > 0 && Number(po.hpReguler || po.hp_reguler || 0) === 0) return true;
+  return false;
 };
 
 // --- Helper Function: Tentukan apakah pelanggan masuk ke Segmen Percepatan atau Reguler ---
@@ -54,7 +106,7 @@ export const isPercepatanCustomer = (pelanggan, odpData = []) => {
   if (odpData && odpData.length > 0) {
     const cleanRaw = rawOdp.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const matched = odpData.find(o => {
-      const cLabel = String(o.label || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      const cLabel = String(o.label || o.nama_odp || o.namaOdp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
       const cKode = String(o.kodeOdp || o.kode_odp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
       return (cLabel && cLabel === cleanRaw) || (cKode && cKode === cleanRaw);
     });
@@ -215,3 +267,45 @@ export const standardizeDate = (dateStr) => {
   return datePart;
 };
 
+// --- Helper Function: Format standardized date to DD-MM-YYYY ---
+export const formatDateDisplay = (dateStr) => {
+  if (!dateStr) return '';
+  const std = standardizeDate(dateStr);
+  if (!std) return '';
+  const parts = std.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return std;
+};
+
+// --- Helper Function: Konfigurasi Tombol & Tugas WO (Visit, Aktivasi, Dismantle) berdasarkan Status Pelanggan ---
+export const getWoActionProps = (itemOrStatus) => {
+  const s = typeof itemOrStatus === 'object' && itemOrStatus !== null
+    ? getGlobalStatusStr(itemOrStatus)
+    : String(itemOrStatus || '').toUpperCase().trim();
+
+  if (s.includes('READY TO DISMANTLE') || s.includes('DISMANTL') || s.includes('SUSPEND')) {
+    return {
+      task: 'dismantle',
+      icon: 'package-minus',
+      title: 'Kirim WO Dismantle / Penarikan',
+      btnClass: 'bg-orange-50 text-orange-600 hover:bg-orange-100 hover:text-orange-700'
+    };
+  }
+  if (s.includes('WAITING') || s.includes('KENDALA') || s.includes('BELUM')) {
+    return {
+      task: 'aktivasi',
+      icon: 'zap',
+      title: 'Kirim WO Aktivasi / IKR',
+      btnClass: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700'
+    };
+  }
+  // Default: AKTIF / SUDAH / Gangguan
+  return {
+    task: 'visit',
+    icon: 'wrench',
+    title: 'Kirim WO Visit / Gangguan',
+    btnClass: 'bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700'
+  };
+};

@@ -13,29 +13,26 @@ import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
-import { isPercepatanCustomer, getCustomerDismantleDate } from './utils';
+import { isPercepatanCustomer, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
+import { fetchLiveCoverageBoundaries } from './services/coverageService.js';
 import CustomerMapView from './components/CustomerMapView';
 import BastPartnerModal from './components/BastPartnerModal';
 import { fetchPartnerBastToday, getTodayWibDateString, formatToWibTime } from './services/partnerBastService.js';
+import { fetchPartnerVisits, fetchOpenPartnerVisits } from './services/partnerVisitService.js';
 import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
+import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
+import { syncDismantlingFast } from './services/partnerDismantleService.js';
+import TeamPerformanceView from './components/TeamPerformanceView';
+import GamasDashboardView from './components/GamasDashboardView';
+import { fetchAllOspTickets } from './services/ospTicketService.js';
 
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, Legend,
   XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine, Cell
 } from 'recharts';
 
-// Custom Icon component that uses global lucide CDN
-const Icon = ({ name, size = 20, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => {
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current });
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './components/Icon';
 
 // Helper untuk parse dokumen dari Supabase ke camelCase React
 const parseSupabaseDocument = (fields) => {
@@ -55,9 +52,9 @@ const parseSupabaseDocument = (fields) => {
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
     issueKendala: fields.issue_kendala || "",
-    tglAktivasi: fields.tgl_aktivasi || "",
-    tglIkr: fields.tgl_ikr || "",
-    timestampAktivasi: fields.timestamp_aktivasi || fields.tgl_aktivasi || "",
+    tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
+    tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
+    timestampAktivasi: fields.timestamp_aktivasi || fields.tgl_aktivasi || fields.tanggal_aktivasi || "",
     tanggalKendala: fields.tanggal_kendala || "",
     petugasAktivasi: fields.petugas_aktivasi || "",
     petugasIkr: fields.petugas_ikr || "",
@@ -190,25 +187,78 @@ const deduplicateVisitData = (items) => {
     }
   });
 
-  // Secondary consolidation by idPelanggan + timestamp
-  const secondMap = new Map();
-  for (const item of map.values()) {
-    const secKey = `${item.idPelanggan || item.id_pelanggan}_${item.timestamp || ''}`;
-    if (!secondMap.has(secKey)) {
-      secondMap.set(secKey, item);
-    } else {
-      const existing = secondMap.get(secKey);
-      const existingIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
-      const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
+  // Secondary consolidation: eliminasi duplikasi double-submit (timestamp sangat dekat / OPEN di hari yang sama)
+  const parseVisitTimeMs = (ts) => {
+    if (!ts) return null;
+    const parts = String(ts).match(/(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+    if (parts) {
+      return new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], parts[6] || 0).getTime();
+    }
+    const d = new Date(ts);
+    return !isNaN(d.getTime()) ? d.getTime() : null;
+  };
 
-      if (!existing.id && item.id) {
-        secondMap.set(secKey, { ...existing, ...item });
-      } else if (itemIsDone && !existingIsDone) {
-        secondMap.set(secKey, { ...existing, ...item });
-      }
+  const secondList = [];
+  for (const item of map.values()) {
+    const custId = String(item.idPelanggan || item.id_pelanggan || '').trim().toUpperCase();
+    const itemTime = parseVisitTimeMs(item.timestamp);
+    const itemDate = typeof standardizeDate === 'function' ? standardizeDate(item.timestamp) : '';
+    const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
+
+    let matchedIdx = -1;
+    if (custId) {
+      matchedIdx = secondList.findIndex(existing => {
+        const existCust = String(existing.idPelanggan || existing.id_pelanggan || '').trim().toUpperCase();
+        if (existCust !== custId) return false;
+
+        const existDate = typeof standardizeDate === 'function' ? standardizeDate(existing.timestamp) : '';
+        const existTime = parseVisitTimeMs(existing.timestamp);
+        const existIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
+
+        // 1. Jika timestamp-nya selisih sangat kecil (< 5 menit / 300.000 ms), pasti duplikat submit
+        if (itemTime && existTime && Math.abs(itemTime - existTime) < 300000) {
+          return true;
+        }
+
+        // 2. Jika pada hari yang sama keduanya berstatus OPEN, gabungkan menjadi 1 tiket
+        if (itemDate && existDate && itemDate === existDate && !itemIsDone && !existIsDone) {
+          return true;
+        }
+
+        return false;
+      });
+    }
+
+    if (matchedIdx === -1) {
+      secondList.push(item);
+    } else {
+      const existing = secondList[matchedIdx];
+      const existingIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
+
+      // Merge data dan ambil field yang lebih lengkap (misal nomorHp yang tidak kosong)
+      const existingHp = existing.nomorHp || existing.nomor_hp || '';
+      const itemHp = item.nomorHp || item.nomor_hp || '';
+      const chosenHp = existingHp.length >= itemHp.length ? existingHp : itemHp;
+
+      secondList[matchedIdx] = {
+        ...existing,
+        ...item,
+        id: existing.id || item.id,
+        nomorHp: chosenHp,
+        nomor_hp: chosenHp,
+        catatan: (existing.catatan && existing.catatan !== '-') ? existing.catatan : (item.catatan || existing.catatan || ''),
+        status: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
+        status_visit: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
+        tindakan: existing.tindakan || item.tindakan || existing.perbaikan || item.perbaikan || '',
+        material: existing.material || item.material || existing.usedMaterials || item.usedMaterials || '',
+        penyebab: existing.penyebab || item.penyebab || '',
+        evidence: existing.evidence || item.evidence || '',
+        waktuClose: existing.waktuClose || item.waktuClose || ''
+      };
     }
   }
-  return Array.from(secondMap.values());
+
+  return secondList;
 };
 
 // Helper untuk menghitung durasi penanganan gangguan (Time To Resolve / TTR)
@@ -333,41 +383,6 @@ const setCachedData = (key, data) => {
   }
 };
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
-
-const api = {
-  run: async (actionName, payloadData = {}) => {
-    try {
-      const response = await fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: actionName, payload: payloadData })
-      });
-
-      if (!response.ok) {
-        return { success: false, error: `HTTP Error ${response.status}` };
-      }
-
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        return { success: false, error: "Respon server tidak valid." };
-      }
-
-      if (result.error || result.success === false) {
-        return { success: false, error: result.error || result.message || "Gagal memproses data." };
-      }
-      return result;
-    } catch (error) {
-      console.warn(`[API - ${actionName}]:`, error.message || error);
-      return { success: false, error: error.message || "Gagal menghubungi server." };
-    }
-  }
-};
-
 const TELEGRAM_BOT_TOKEN = "8789065775:AAEsOr7g1myDHyHPPuhuujNR07euM3tNmEs";
 
 const sendTelegramVisitDM = async (payload, petugasList = []) => {
@@ -378,32 +393,46 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
 
-    let targetTeknisi = null;
-    if (Array.isArray(petugasList) && petugasList.length > 0) {
-      targetTeknisi = petugasList.find(t =>
-        String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-        String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-        String(t.id || '') === rawPetugas ||
-        String(t.chatId || '') === rawPetugas
-      );
-    }
+    const allCandidates = [
+      ...(Array.isArray(petugasList) ? petugasList : []),
+      ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
+    ];
 
-    if (!targetTeknisi) {
-      const cached = getCachedData('otas_teknisi_cache');
-      if (Array.isArray(cached) && cached.length > 0) {
-        targetTeknisi = cached.find(t =>
-          String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-          String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase()
-        );
+    const matches = allCandidates.filter(t =>
+      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+      String(t.id || '') === rawPetugas ||
+      String(t.chatId || '') === rawPetugas
+    );
+    let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
+
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      try {
+        const { data: dbPetugas } = await supabase
+          .from('petugas')
+          .select('id, nama, username, chat_id')
+          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .not('chat_id', 'is', null)
+          .limit(1);
+        if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
+          targetTeknisi = {
+            id: dbPetugas[0].id,
+            nama: dbPetugas[0].nama,
+            username: dbPetugas[0].username,
+            chatId: dbPetugas[0].chat_id
+          };
+        }
+      } catch (e) {
+        console.warn("Fallback query Supabase petugas visit:", e);
       }
     }
 
-    if (!targetTeknisi || !targetTeknisi.chatId) {
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
       console.warn("Tidak dapat mengirim DM Telegram: chatId tidak ditemukan untuk", rawPetugas);
       return;
     }
 
-    const chatId = targetTeknisi.chatId;
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
     const namaAsli = targetTeknisi.nama || rawPetugas;
     const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
 
@@ -440,98 +469,208 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
   }
 };
 
-const GOOGLE_SHEET_VISIT_CSV_URL = "https://docs.google.com/spreadsheets/d/13jcv3tNA4ncAj7WTv4xE0_Tb63_FU5JF0hLIfasJk2M/gviz/tq?tqx=out:csv&gid=263928205";
-
-const fetchGoogleSheetVisitData = async () => {
+const sendTelegramAktivasiDM = async (payload, petugasList = []) => {
   try {
-    const response = await fetch(GOOGLE_SHEET_VISIT_CSV_URL);
-    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
-    const csvText = await response.text();
+    if (!payload || !payload.petugas) return;
+    const rawPetugas = String(payload.petugas || '').trim();
+    if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
+    const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
 
-    const rows = [];
-    let currentRow = [];
-    let currentCell = '';
-    let inQuotes = false;
+    const allCandidates = [
+      ...(Array.isArray(petugasList) ? petugasList : []),
+      ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
+    ];
 
-    for (let i = 0; i < csvText.length; i++) {
-      const char = csvText[i];
-      const nextChar = csvText[i + 1];
+    const matches = allCandidates.filter(t =>
+      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+      String(t.id || '') === rawPetugas ||
+      String(t.chatId || '') === rawPetugas
+    );
+    let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
 
-      if (char === '"') {
-        if (inQuotes && nextChar === '"') {
-          currentCell += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      try {
+        const { data: dbPetugas } = await supabase
+          .from('petugas')
+          .select('id, nama, username, chat_id')
+          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .not('chat_id', 'is', null)
+          .limit(1);
+        if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
+          targetTeknisi = {
+            id: dbPetugas[0].id,
+            nama: dbPetugas[0].nama,
+            username: dbPetugas[0].username,
+            chatId: dbPetugas[0].chat_id
+          };
         }
-      } else if (char === ',' && !inQuotes) {
-        currentRow.push(currentCell.trim());
-        currentCell = '';
-      } else if ((char === '\r' || char === '\n') && !inQuotes) {
-        if (char === '\r' && nextChar === '\n') i++;
-        currentRow.push(currentCell.trim());
-        if (currentRow.some(c => c !== '')) rows.push(currentRow);
-        currentRow = [];
-        currentCell = '';
-      } else {
-        currentCell += char;
+      } catch (e) {
+        console.warn("Fallback query Supabase petugas aktivasi:", e);
       }
     }
-    if (currentCell || currentRow.length > 0) {
-      currentRow.push(currentCell.trim());
-      if (currentRow.some(c => c !== '')) rows.push(currentRow);
+
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      console.warn("Tidak dapat mengirim DM Telegram Aktivasi: chatId tidak ditemukan untuk", rawPetugas);
+      return;
     }
 
-    if (rows.length < 2) return [];
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    const namaAsli = targetTeknisi.nama || rawPetugas;
+    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
 
-    return rows.slice(1).map(cols => {
-      const getVal = (idx) => cols[idx] ? String(cols[idx]).trim() : '';
-      return {
-        timestamp: getVal(0),
-        idPelanggan: getVal(1),
-        namaPelanggan: getVal(2),
-        stasiun: getVal(3),
-        keluhan: getVal(4),
-        catatan: getVal(5),
-        status: getVal(6) || 'OPEN',
-        odpAktual: getVal(7),
-        portOdp: getVal(8),
-        snOnt: getVal(9),
-        nomorHp: getVal(10),
-        latitude: getVal(11),
-        longitude: getVal(12),
-        penyebab: getVal(13),
-        perbaikan: getVal(14),
-        tindakan: getVal(14),
-        material: getVal(15),
-        usedMaterials: getVal(15),
-        petugas: getVal(16),
-        evidence: getVal(17),
-        waktuClose: getVal(18)
-      };
-    }).filter(v => v.idPelanggan || v.namaPelanggan || v.timestamp);
+    let msg = `⚡ <b>PENUGASAN AKTIVASI / IKR BARU</b> ⚡\n\n`;
+    msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk melakukan instalasi / aktivasi pelanggan baru:\n\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
+    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    msg += `🏠 <b>Alamat:</b> ${payload.alamat || '-'}\n`;
+    if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+    }
+    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    if (payload.odpAktual) {
+      msg += `🌐 <b>ODP / Port:</b> ${payload.odpAktual} ${payload.portOdp ? `(Port ${payload.portOdp})` : ''}\n`;
+    }
+    if (payload.tglIkr) {
+      msg += `📅 <b>Jadwal IKR:</b> ${payload.tglIkr}\n`;
+    }
+    if (payload.catatan) {
+      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+    }
+    msg += `\n<i>Mohon segera berkoordinasi dengan pelanggan untuk jadwal instalasi. Semangat bertugas! 🛠️</i>`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msg,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false
+      })
+    });
+    console.log("Berhasil kirim DM Assign Aktivasi ke", namaAsli, chatId);
   } catch (err) {
-    console.error('Failed to fetch Visit_Log from Google Sheet:', err);
-    return [];
+    console.warn("Gagal kirim DM Telegram Aktivasi:", err);
   }
 };
 
-const standardizeDate = (dateStr) => {
+const sendTelegramDismantleDM = async (payload, petugasList = []) => {
+  try {
+    if (!payload || !payload.petugas) return;
+    const rawPetugas = String(payload.petugas || '').trim();
+    if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
+    const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+
+    const allCandidates = [
+      ...(Array.isArray(petugasList) ? petugasList : []),
+      ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
+    ];
+
+    const matches = allCandidates.filter(t =>
+      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+      String(t.id || '') === rawPetugas ||
+      String(t.chatId || '') === rawPetugas
+    );
+    let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
+
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      try {
+        const { data: dbPetugas } = await supabase
+          .from('petugas')
+          .select('id, nama, username, chat_id')
+          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .not('chat_id', 'is', null)
+          .limit(1);
+        if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
+          targetTeknisi = {
+            id: dbPetugas[0].id,
+            nama: dbPetugas[0].nama,
+            username: dbPetugas[0].username,
+            chatId: dbPetugas[0].chat_id
+          };
+        }
+      } catch (e) {
+        console.warn("Fallback query Supabase petugas dismantle:", e);
+      }
+    }
+
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      console.warn("Tidak dapat mengirim DM Telegram Dismantle: chatId tidak ditemukan untuk", rawPetugas);
+      return;
+    }
+
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    const namaAsli = targetTeknisi.nama || rawPetugas;
+    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+
+    let msg = `📦 <b>PENUGASAN DISMANTLE / TARIK PERANGKAT</b> 📦\n\n`;
+    msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu ditugaskan untuk melakukan penarikan perangkat (dismantle) berikut:\n\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
+    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    msg += `🏠 <b>Alamat:</b> ${payload.alamat || '-'}\n`;
+    if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+    }
+    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    msg += `📟 <b>SN ONT Target:</b> ${payload.snOnt || 'Cek perangkat di lokasi'}\n`;
+    if (payload.tanggalDismantle) {
+      msg += `📅 <b>Target Tarik:</b> ${payload.tanggalDismantle}\n`;
+    }
+    if (payload.reasonDismantle) {
+      msg += `⚠️ <b>Alasan:</b> ${payload.reasonDismantle}\n`;
+    }
+    if (payload.catatan) {
+      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+    }
+    msg += `\n<i>Mohon amankan perangkat ONT + Adaptor dan jangan lupa foto dokumentasi saat penarikan. Terima kasih! 📦</i>`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msg,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false
+      })
+    });
+    console.log("Berhasil kirim DM Assign Dismantle ke", namaAsli, chatId);
+  } catch (err) {
+    console.warn("Gagal kirim DM Telegram Dismantle:", err);
+  }
+};
+
+
+function standardizeDate(dateStr) {
   if (!dateStr) return '';
   let str = String(dateStr).trim();
   if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
 
-  // 1. Check ISO timestamp with timezone (T and Z or + offset)
+  // 1. Check GMT / Full Date Strings with timezone (e.g. "Wed May 20 2026 17:38:00 GMT+0700 (Western Indonesia Time)")
+  if (str.includes('GMT') || str.includes('Western Indonesia Time') || /^[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+      } catch (_e) { }
+    }
+  }
+
+  // 2. Check ISO timestamp with timezone (T and Z or + offset)
   if (str.includes('T') && (str.endsWith('Z') || str.includes('+') || str.includes('-0') || str.includes('+0'))) {
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
       try {
         return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
-      } catch (_e) {}
+      } catch (_e) { }
     }
   }
 
-  // 2. Extract date part: split on comma, T, or space, and remove trailing punctuation
+  // 3. Extract date part: split on comma, T, or space, and remove trailing punctuation
   let datePart = str.split(',')[0].trim().split(/[T ]/)[0].trim().replace(/[,;]+$/, '');
 
   // Check YYYY-MM-DD
@@ -572,9 +711,20 @@ const standardizeDate = (dateStr) => {
     if (!isNaN(d.getTime()) && d.getFullYear() > 2000) {
       return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
     }
-  } catch (_e) {}
+  } catch (_e) { }
 
   return datePart;
+};
+
+const formatDateDisplay = (dateStr) => {
+  if (!dateStr) return '';
+  const std = standardizeDate(dateStr);
+  if (!std) return '';
+  const parts = std.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return std;
 };
 
 const toProperCase = (str) => {
@@ -603,7 +753,7 @@ const getGlobalStatusStr = (item) => {
 
   if (valAktivasi === 'AKTIF' || valAktivasi === 'SUDAH') return "AKTIF";
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
-  if (valAktivasi === 'READY TO DISMANTLE') return "READY TO DISMANTLE";
+  if (valAktivasi === 'READY TO DISMANTLE' || valAktivasi === 'DISMANTLING') return "READY TO DISMANTLE";
   if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
 
   // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
@@ -724,12 +874,12 @@ function OfficerFormModal({ type, data, unassignedList, stations, onClose, onSav
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => !isSaving && onClose()}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => !isSaving && onClose()}></div>
 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 animate-modal flex flex-col border border-slate-100">
 
         {isSaving && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade rounded-2xl">
+          <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade rounded-2xl">
             <div className="w-14 h-14 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4 shadow-md"></div>
             <h3 className="text-base font-bold text-slate-800">
               {type === 'add' ? 'Menyimpan Petugas Baru...' : 'Menyimpan Perubahan...'}
@@ -1061,7 +1211,7 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
               <div className="absolute top-0 right-0 opacity-10 transform translate-x-4 -translate-y-4">
                 <Icon name="trash-2" size={100} className="text-white" />
               </div>
-              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 backdrop-blur-sm border border-white/30">
+              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 border border-white/30">
                 <Icon name="trash-2" size={28} className="text-white" />
               </div>
               <h3 className="text-xl font-bold text-white relative z-10 tracking-wide">Hapus Petugas</h3>
@@ -1324,11 +1474,72 @@ function App({ onLogout }) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [activeTab]);
 
+  // KEEP-ALIVE TAB CACHE: Menjaga tab yang telah dikunjungi tetap tersimpan di memori (anti-lag & preserve scroll/filters)
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set([getInitialTab()]));
+
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+
+    // Trigger resize agar peta Leaflet menyesuaikan ukuran instan saat tab dibuka
+    if (activeTab === 'peta-pelanggan' || activeTab === 'coverage') {
+      const timer = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
+
   const [initialDatabaseStatusFilter, setInitialDatabaseStatusFilter] = useState('');
   const [initialDatabaseStationFilter, setInitialDatabaseStationFilter] = useState('');
 
+  // Hitung jumlah tiket visit partner yang OPEN/berjalan untuk live badge di menu Data Gangguan sidebar
+  const [openPartnerVisitCount, setOpenPartnerVisitCount] = useState(0);
+
+  // Hitung jumlah tiket gamas aktif (bukan Selesai / Batal) untuk live badge di menu Monitoring Gamas sidebar
+  const [activeGamasCount, setActiveGamasCount] = useState(0);
+
+  const refreshOpenPartnerVisits = () => {
+    fetchOpenPartnerVisits().then(res => {
+      if (res && res.success && typeof res.count === 'number') {
+        setOpenPartnerVisitCount(res.count);
+      }
+    }).catch(() => { });
+  };
+
+  const refreshActiveGamasCount = () => {
+    fetchAllOspTickets().then(res => {
+      if (res && res.success && Array.isArray(res.data)) {
+        const active = res.data.filter(t => {
+          const st = String(t.status || '').toLowerCase();
+          return st !== 'selesai' && st !== 'batal';
+        });
+        setActiveGamasCount(active.length);
+      }
+    }).catch(() => { });
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    refreshOpenPartnerVisits();
+    refreshActiveGamasCount();
+
+    const intervalVisits = setInterval(refreshOpenPartnerVisits, 60000);
+    const intervalGamas = setInterval(refreshActiveGamasCount, 60000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalVisits);
+      clearInterval(intervalGamas);
+    };
+  }, []);
+
   // SISTEM INFORMASI FITUR BARU (WHAT'S NEW)
-  const CURRENT_APP_VERSION = 'v2.6.0';
+  const CURRENT_APP_VERSION = 'v2.7.0';
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [hasUnseenFeatures, setHasUnseenFeatures] = useState(false);
 
@@ -1358,22 +1569,12 @@ function App({ onLogout }) {
     }
   };
 
-  const handleTryFeatureFromWhatsNew = (targetTab = 'peta-pelanggan', dontShowAgain = true) => {
+  const handleTryFeatureFromWhatsNew = (targetTab = 'team', dontShowAgain = true) => {
     handleCloseWhatsNew(dontShowAgain);
-    if (targetTab === 'peta-pelanggan') {
-      setActiveTab('peta-pelanggan');
-    } else if (targetTab === 'dashboard') {
-      setActiveTab('dashboard');
-    } else if (targetTab === 'database') {
-      setActiveTab('database');
-    } else if (targetTab === 'gangguan') {
-      setActiveTab('gangguan');
-    } else if (targetTab === 'overview') {
-      setActiveTab('overview');
-    } else if (targetTab === 'okupansi') {
-      setActiveTab('okupansi');
+    if (['team', 'gamas', 'coverage', 'peta-pelanggan', 'dashboard', 'database', 'gangguan', 'overview', 'okupansi'].includes(targetTab)) {
+      setActiveTab(targetTab);
     } else {
-      setActiveTab('peta-pelanggan');
+      setActiveTab('team');
     }
   };
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
@@ -1511,7 +1712,7 @@ function App({ onLogout }) {
           odp: payload.odpAktual || payload.odp || '',
           port: payload.portOdp || payload.port || '',
           sn_ont: payload.snOnt || '',
-          nomor_hp: payload.nomorHp || '',
+          nomor_hp: payload.nomorHp || payload.nomor_hp || payload.kontak || '',
           latitude: payload.latitude || '',
           longitude: payload.longitude || '',
           penyebab: payload.penyebab || '',
@@ -1620,13 +1821,17 @@ function App({ onLogout }) {
         setCachedData('otas_pelanggan_cache_v6', null);
       }
 
+      if (isForce) {
+        setCachedData('otas_station_cache', null);
+      }
+
       let parsedOdp = getCachedData('otas_odp_cache_v4');
-      let cachedStation = getCachedData('otas_station_cache');
+      let cachedStation = isForce ? null : getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
       let cachedTeknisi = getCachedData('otas_teknisi_cache');
 
-      const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo;
+      const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo && cachedStation;
 
       // Jika data sudah ada (dari state atau cache), jangan munculkan layar loading penuh
       if (!hasCache && data.pelangganData.length === 0) {
@@ -1649,17 +1854,18 @@ function App({ onLogout }) {
         }));
       }
 
-      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi) {
+      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation) {
         // Ambil data langsung dari tabel Supabase
         const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
         const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
-        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas] = await Promise.all([
+        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas, supabaseStations] = await Promise.all([
           parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
           fetchAllSupabaseData('log_visit', '*', 'id').catch(() => null),
           cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
-          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null)
+          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null),
+          cachedStation ? Promise.resolve(null) : fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').catch(() => null)
         ]);
 
         if (supabasePelanggan) {
@@ -1689,31 +1895,83 @@ function App({ onLogout }) {
           cachedTeknisi = supabasePetugas.map(parseSupabasePetugasDocument);
           setCachedData('otas_teknisi_cache', cachedTeknisi);
         }
+        if (supabaseStations && supabaseStations.length > 0) {
+          cachedStation = supabaseStations.map(s => ({
+            stasiun: toProperCase(s.stasiun || ''),
+            sektor: s.sektor || '',
+            activeCount: Number(s.active_count || 0),
+            kodeStasiun: s.kode_stasiun || '',
+            lastSyncedAt: s.last_synced_at || null
+          }));
+          setCachedData('otas_station_cache', cachedStation);
+        }
 
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
           odpData: parsedOdp || prev.odpData,
+          stationData: (cachedStation && cachedStation.length > 0) ? cachedStation : prev.stationData,
           detailPoData: cachedDetailPo || prev.detailPoData,
           visitData: cachedVisit || prev.visitData,
           teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData
         }));
       }
 
-      // â”€â”€ TRIGGER SINKRONISASI NAMA SALES DARI API PARTNER STARLITE (Dijalankan saat Sinkronkan Data) â”€â”€
+      // ── TRIGGER SINKRONISASI PARTNER (TARIK CEPAT PELANGGAN BARU & UPDATE NAMA SALES) ──
       if (isForce) {
-        setSalesSyncToast({ show: true, type: 'syncing', message: 'Menyinkronkan data & mengecek nama sales dari Partner API...' });
-        syncSalesFromPartnerApi({
-          pelangganList: parsedPelanggan || data.pelangganData,
-          maxPages: 6
-        }).then(res => {
-          if (res && res.success && (res.updatedCount > 0 || (res.salesMap && Object.keys(res.salesMap).length > 0))) {
+        setIsBackgroundSyncing(true);
+        setSalesSyncToast({
+          show: true,
+          type: 'syncing',
+          message: 'Menyinkronkan data: memeriksa pelanggan baru, nama sales, & WO Dismantle...'
+        });
+
+        // Jalankan Sinkronisasi Cepat Pelanggan Baru, nama sales, dan WO Dismantle secara paralel
+        Promise.allSettled([
+          syncNewCustomersFast({
+            pelangganList: parsedPelanggan || data.pelangganData,
+            maxPagesPerStation: 3
+          }),
+          syncSalesFromPartnerApi({
+            pelangganList: parsedPelanggan || data.pelangganData,
+            maxPages: 4
+          }),
+          syncDismantlingFast({
+            pelangganList: parsedPelanggan || data.pelangganData
+          })
+        ]).then(([newCustSettled, salesSettled, dismantleSettled]) => {
+          const newCustRes = newCustSettled.status === 'fulfilled' ? newCustSettled.value : null;
+          const salesRes = salesSettled.status === 'fulfilled' ? salesSettled.value : null;
+          const dismantleRes = dismantleSettled.status === 'fulfilled' ? dismantleSettled.value : null;
+
+          const totalBaru = newCustRes?.newCount || 0;
+          const newActiveCount = newCustRes?.newActiveCount || 0;
+          const updatedActiveCount = newCustRes?.updatedActiveCount || 0;
+          const salesUpdatedCount = salesRes?.updatedCount || 0;
+          const dismantleUpdatedCount = dismantleRes?.updatedCount || 0;
+
+          // 1. Jika ada pelanggan baru yang ditarik, status aktif diperbarui, atau WO dismantle diperbarui, ambil ulang data_pelanggan dari Supabase
+          if (totalBaru > 0 || updatedActiveCount > 0 || dismantleUpdatedCount > 0) {
+            fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
+              if (freshRows && freshRows.length > 0) {
+                const parsed = freshRows.map(parseSupabaseDocument);
+                setCachedData('otas_pelanggan_cache_v6', parsed);
+                setData(prev => ({
+                  ...prev,
+                  pelangganData: parsed
+                }));
+              }
+            }).catch(e => console.warn('[SYNC PARTNER] Gagal refetch pelanggan baru / WO dismantle:', e));
+          }
+
+          // 2. Perbarui nama sales jika ada yang berubah
+          if (salesRes && salesRes.success && (salesUpdatedCount > 0 || (salesRes.salesMap && Object.keys(salesRes.salesMap).length > 0))) {
             const updatedMap = new Map();
-            if (res.updatedList && res.updatedList.length > 0) {
-              res.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
+            if (salesRes.updatedList && salesRes.updatedList.length > 0) {
+              salesRes.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
             }
-            if (res.salesMap) {
-              Object.entries(res.salesMap).forEach(([id, s]) => {
+            if (salesRes.salesMap) {
+              Object.entries(salesRes.salesMap).forEach(([id, s]) => {
                 if (s && s !== 'Daftar Mandiri' && s !== '-') updatedMap.set(String(id).trim().toUpperCase(), s);
               });
             }
@@ -1735,53 +1993,51 @@ function App({ onLogout }) {
 
               if (hasChanges) {
                 setCachedData('otas_pelanggan_cache_v6', nextList);
-                if (parsedPelanggan) {
-                  parsedPelanggan.forEach(p => {
-                    const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-                    if (updatedMap.has(id)) {
-                      const s = updatedMap.get(id);
-                      p.namaSales = s;
-                      p.nama_sales = s;
-                      p.sales = s;
-                    }
-                  });
-                }
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
             });
-
-            if (res.updatedCount > 0) {
-              setSalesSyncToast({
-                show: true,
-                type: 'success',
-                message: `Sinkronisasi Selesai! ${res.updatedCount} nama sales berhasil diperbarui dari Web Partner.`
-              });
-              setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 4500);
-            } else {
-              setSalesSyncToast({
-                show: true,
-                type: 'success',
-                message: 'Sinkronisasi data selesai! Seluruh data & nama sales sudah up-to-date.'
-              });
-              setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
-            }
-          } else {
-            setSalesSyncToast({
-              show: true,
-              type: 'success',
-              message: 'Sinkronisasi data selesai! Seluruh data & nama sales sudah up-to-date.'
-            });
-            setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
           }
+
+          // 3. Tampilkan pesan Toast hasil yang komprehensif
+          const messageParts = [];
+          if (totalBaru > 0) {
+            const activeDetail = newActiveCount > 0 ? ` (${newActiveCount} sudah aktif)` : '';
+            messageParts.push(`${totalBaru} pelanggan baru berhasil ditarik${activeDetail}`);
+          }
+          if (updatedActiveCount > 0) {
+            messageParts.push(`${updatedActiveCount} status pelanggan diperbarui jadi aktif`);
+          }
+          if (salesUpdatedCount > 0) {
+            messageParts.push(`${salesUpdatedCount} nama sales diperbarui`);
+          }
+          if (dismantleUpdatedCount > 0) {
+            messageParts.push(`${dismantleUpdatedCount} WO Dismantle (Sedang Diambil) diperbarui`);
+          }
+
+          let finalMsg = '';
+          if (messageParts.length > 0) {
+            finalMsg = `Sinkronisasi Selesai! ${messageParts.join(' & ')} dari Web Partner.`;
+          } else {
+            finalMsg = 'Sinkronisasi selesai! Seluruh data pelanggan, nama sales, & WO Dismantle sudah up-to-date.';
+          }
+
+          setSalesSyncToast({
+            show: true,
+            type: 'success',
+            message: finalMsg
+          });
+          setTimeout(() => setSalesSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 5000);
         }).catch(err => {
-          console.warn('[SALES SYNC FAIL]:', err);
+          console.warn('[SYNC ERROR]:', err);
           setSalesSyncToast({
             show: true,
             type: 'error',
-            message: `Sinkronisasi data selesai (Gagal cek sales partner: ${err.message})`
+            message: `Sinkronisasi selesai dengan catatan (Gagal: ${err.message || err})`
           });
-          setTimeout(() => setSalesSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 3500);
+          setTimeout(() => setSalesSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+        }).finally(() => {
+          setIsBackgroundSyncing(false);
         });
       }
 
@@ -1797,39 +2053,25 @@ function App({ onLogout }) {
         }
       }).catch(err => console.warn('Background Supabase Visit fetch fail:', err));
 
-      // 2. Ambil data tambahan dashboard/petugas dari GAS secara bersamaan di latar belakang
-      api.run('getFastDashboardData')
-        .then(fastResult => {
-          if (fastResult && !fastResult.error) {
-            if (fastResult.stationData?.length > 0) setCachedData('otas_station_cache', fastResult.stationData);
-            if (!cachedDetailPo && fastResult.detailPoData?.length > 0) setCachedData('otas_detail_po_cache', fastResult.detailPoData);
-            if (fastResult.teknisiData?.length > 0) setCachedData('otas_teknisi_cache', fastResult.teknisiData);
-
-            setData(prev => {
-              const currentPelanggan = (parsedPelanggan && parsedPelanggan.length > 0)
-                ? parsedPelanggan
-                : (prev.pelangganData && prev.pelangganData.length > 100 ? prev.pelangganData : (fastResult.pelangganData || prev.pelangganData));
-              return {
-                ...prev,
-                ...fastResult,
-                detailPoData: (cachedDetailPo && cachedDetailPo.length > 0) ? cachedDetailPo : prev.detailPoData,
-                visitData: cachedVisit || prev.visitData,
-                teknisiData: (fastResult.teknisiData && fastResult.teknisiData.length > 0) ? fastResult.teknisiData : (cachedTeknisi || prev.teknisiData || []),
-                dataKendalaSheet: (fastResult.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult.pelangganData || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
-                pelangganData: currentPelanggan,
-                odpData: parsedOdp || prev.odpData
-              };
-            });
-            setLastSyncedTime(new Date());
-          }
-        })
-        .catch(err => {
-          console.warn("Gagal load auxiliary data:", err);
-        })
-        .finally(() => {
-          setIsLoading(false);
-          setIsBackgroundSyncing(false);
-        });
+      // 2. Finalisasi state murni dari Supabase secara instan
+      setData(prev => {
+        const currentPelanggan = (parsedPelanggan && parsedPelanggan.length > 0)
+          ? parsedPelanggan
+          : prev.pelangganData;
+        return {
+          ...prev,
+          stationData: (cachedStation && cachedStation.length > 0) ? cachedStation : prev.stationData,
+          detailPoData: (cachedDetailPo && cachedDetailPo.length > 0) ? cachedDetailPo : prev.detailPoData,
+          visitData: cachedVisit || prev.visitData,
+          teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData,
+          dataKendalaSheet: (currentPelanggan || []).filter(p => getGlobalStatusStr(p) === 'KENDALA'),
+          pelangganData: currentPelanggan,
+          odpData: parsedOdp || prev.odpData
+        };
+      });
+      setLastSyncedTime(new Date());
+      setIsLoading(false);
+      setIsBackgroundSyncing(false);
 
     } catch (err) {
       console.error(err);
@@ -1843,14 +2085,31 @@ function App({ onLogout }) {
   const fetchDataSilent = async () => {
     try {
       // 1. Ambil data Supabase secara instan (biasanya < 500ms)
+      fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').then(supabaseStations => {
+        if (supabaseStations && supabaseStations.length > 0) {
+          const freshStation = supabaseStations.map(s => ({
+            stasiun: toProperCase(s.stasiun || ''),
+            sektor: s.sektor || '',
+            activeCount: Number(s.active_count || 0),
+            kodeStasiun: s.kode_stasiun || '',
+            lastSyncedAt: s.last_synced_at || null
+          }));
+          setCachedData('otas_station_cache', freshStation);
+          setData(prev => ({
+            ...prev,
+            stationData: freshStation
+          }));
+        }
+      }).catch(err => console.warn('Silent Supabase Station fail:', err));
+
       fetchAllSupabaseData('po_release', '*', 'id').then(supabasePo => {
         if (supabasePo && supabasePo.length > 0) {
           const parsedSupabasePo = supabasePo.map(parseSupabasePoRelease);
-          
+
           setData(prev => {
             setCachedData('otas_po_release_cache', parsedSupabasePo);
             setCachedData('otas_detail_po_cache', parsedSupabasePo);
-            
+
             return {
               ...prev,
               detailPoData: parsedSupabasePo
@@ -1881,24 +2140,7 @@ function App({ onLogout }) {
         }
       }).catch(err => console.warn('Silent Supabase Visit fail:', err));
 
-      // 2. Ambil data GAS (bisa memakan waktu 5-7 detik)
-      api.run('getFastDashboardData').then(fastResult => {
-        if (!fastResult) return;
-        
-        setData(prev => {
-          return {
-            ...prev,
-            dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
-            dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getGlobalStatusStr(p) === 'KENDALA') : prev.dataKendalaSheet),
-            petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
-            stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
-            // detailPoData tidak di-override oleh GAS karena sudah 100% Supabase
-            fastKpi: fastResult?.fastKpi || prev.fastKpi
-          };
-        });
-        setLastSyncedTime(new Date());
-      }).catch(err => console.warn('Silent GAS fail:', err));
-
+      setLastSyncedTime(new Date());
     } catch (err) {
       console.error("Silent background sync failed:", err);
     }
@@ -2141,77 +2383,165 @@ function App({ onLogout }) {
         <div className="fixed top-0 left-0 right-0 z-[100] h-1 bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500 animate-pulse shadow-sm"></div>
       )}
 
-      {/* OVERLAY HITAM UNTUK HP */}
+      {/* OVERLAY HITAM REDUP UNTUK HP (RINGAN & PERFORMA TINGGI) */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/60 z-[50] lg:hidden animate-fade"
+          className="fixed inset-0 bg-slate-950/70 z-[1000] lg:hidden animate-fade"
           onClick={() => setIsSidebarOpen(false)}
         ></div>
       )}
 
       {/* SIDEBAR: Memanjang penuh dari atas ke bawah (inset-y-0) */}
-      <aside className={`bg-[#1e3a8a] text-white transition-all duration-300 flex flex-col z-[60] shadow-2xl fixed inset-y-0 left-0 lg:relative ${isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 lg:w-20'}`}>
-        <div className="p-4 flex items-center justify-between h-16 lg:h-20 border-b border-blue-800/50 shrink-0">
-          <div className={`flex items-center ${!isSidebarOpen && 'lg:hidden'}`}>
-            <Icon name="activity" className="text-cyan-400 mr-3 shrink-0" size={28} />
-            <div className="flex flex-col whitespace-nowrap">
-              <span className="font-extrabold text-xl tracking-tight leading-none">STARLITE</span>
-              <span className="text-[9px] font-bold text-blue-300 tracking-[0.2em] mt-1">BY DESNARUM</span>
-            </div>
-          </div>
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1.5 hover:bg-blue-800 rounded-lg transition-colors hidden lg:block">
-            <Icon name="menu" size={20} />
-          </button>
-          <button onClick={() => setIsSidebarOpen(false)} className="p-1.5 hover:bg-blue-800 rounded-lg transition-colors lg:hidden">
-            <Icon name="x" size={20} />
-          </button>
+      <aside className={`bg-gradient-to-b from-[#1a3a8a] via-[#1e459c] to-[#152d6e] text-white border-r border-[#2a4faa] transition-all duration-300 flex flex-col z-[1010] shadow-xl fixed inset-y-0 left-0 lg:relative ${isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0 lg:w-20'}`}>
+        <div className={`flex items-center h-16 border-b border-[#1e3978] shrink-0 transition-all ${isSidebarOpen ? 'px-4 justify-between' : 'justify-center px-2'}`}>
+          {isSidebarOpen ? (
+            <>
+              <div className="flex items-center min-w-0">
+                <img
+                  src="/desnarum.png"
+                  alt="OpsTracker"
+                  className="h-8 sm:h-[33px] w-auto max-w-[165px] object-contain drop-shadow select-none transition-all"
+                />
+              </div>
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1.5 text-blue-200 hover:text-white hover:bg-blue-700 rounded-lg transition-all hidden lg:block"
+                title="Perkecil Sidebar"
+              >
+                <Icon name="menu" size={19} />
+              </button>
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1.5 text-blue-200 hover:text-white hover:bg-blue-700 rounded-lg transition-all lg:hidden"
+                title="Tutup Menu"
+              >
+                <Icon name="x" size={19} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-2 text-blue-200 hover:text-white hover:bg-blue-700/60 rounded-xl transition-all hidden lg:flex items-center justify-center"
+              title="Perluas Sidebar"
+            >
+              <Icon name="menu" size={20} />
+            </button>
+          )}
         </div>
 
-        <nav className="flex-1 py-6 space-y-2 px-3 overflow-y-auto custom-scrollbar">
-          <div className={`text-xs font-bold text-blue-400/50 uppercase tracking-wider mb-2 px-3 ${!isSidebarOpen && 'lg:hidden'}`}>Menu Utama</div>
+        <nav className="flex-1 py-3 space-y-1 px-3 overflow-y-auto custom-scrollbar">
+          <div className={`text-[11px] font-bold text-blue-200/60 uppercase tracking-wider mb-2 px-2.5 ${!isSidebarOpen && 'lg:hidden'}`}>
+            Menu Utama
+          </div>
 
           {[
             { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
             { id: 'performansi', icon: 'bar-chart-2', label: 'Performansi' },
             { id: 'overview', icon: 'line-chart', label: 'Overview' },
-            { id: 'database', icon: 'database', label: 'Data Pelanggan' }, // Icon diganti 'database'
+            { id: 'database', icon: 'database', label: 'Data Pelanggan' },
             { id: 'peta-pelanggan', icon: 'map-pin', label: 'Peta Pelanggan' },
             { id: 'okupansi', icon: 'server', label: 'Data Okupansi' },
             { id: 'gangguan', icon: 'headset', label: 'Data Gangguan' },
             { id: 'gamas', icon: 'activity', label: 'Monitoring Gamas' },
-            { id: 'team', icon: 'users', label: 'Data Petugas' }, // ID diganti 'team', Icon 'users'
+            { id: 'team', icon: 'users', label: 'Monitoring Tim' },
             { id: 'coverage', icon: 'map', label: 'ODP Coverage' },
             { id: 'aidece', icon: 'globe', label: 'AI.DECE Portal' },
+          ].map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setInitialDatabaseStatusFilter('');
+                  setInitialDatabaseStationFilter('');
+                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center py-2 px-3 rounded-xl transition-all duration-200 group relative ${isActive
+                  ? 'bg-blue-600 text-white font-bold shadow-lg border border-blue-500'
+                  : 'text-blue-100/90 hover:text-white hover:bg-blue-700/50 font-medium border border-transparent'
+                  }`}
+                title={item.label}
+              >
+                <div className={`p-1.5 rounded-lg shrink-0 relative transition-all duration-200 flex items-center justify-center ${isActive
+                  ? 'bg-blue-500 text-white'
+                  : 'text-blue-200/80 group-hover:text-white group-hover:bg-blue-700'
+                  }`}>
+                  <Icon name={item.icon} size={17} />
+                  {/* Dot saat sidebar collapsed jika ada tiket gamas aktif */}
+                  {!isSidebarOpen && item.id === 'gamas' && activeGamasCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                    </span>
+                  )}
+                  {/* Dot saat sidebar collapsed jika ada tiket visit open */}
+                  {!isSidebarOpen && item.id === 'gangguan' && openPartnerVisitCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </span>
+                  )}
+                </div>
 
-          ].map(item => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                setInitialDatabaseStatusFilter('');
-                setInitialDatabaseStationFilter('');
-                if (window.innerWidth < 1024) setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center p-3 rounded-lg transition-all ${activeTab === item.id ? 'sidebar-active' : 'hover:bg-blue-800/50 text-blue-100'}`}
-              title={item.label}
-            >
-              <Icon name={item.icon} className="shrink-0" />
-              <span className={`ml-3 font-semibold text-sm whitespace-nowrap ${!isSidebarOpen && 'lg:hidden'}`}>{item.label}</span>
-            </button>
-          ))}
+                <span className={`ml-3 font-semibold text-sm whitespace-nowrap transition-transform duration-200 ${!isActive && 'group-hover:translate-x-0.5'} ${!isSidebarOpen && 'lg:hidden'}`}>
+                  {item.label}
+                </span>
+
+                {/* Badge Gamas saat sidebar terbuka (hanya jika ada tiket aktif) */}
+                {isSidebarOpen && item.id === 'gamas' && activeGamasCount > 0 && (
+                  <span
+                    className={`ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isActive
+                      ? 'bg-rose-500 text-white border border-rose-400 shadow-sm'
+                      : 'bg-rose-900/80 text-rose-200 border border-rose-700'
+                      }`}
+                    title={`${activeGamasCount} Gangguan Massal Aktif`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    <span>{activeGamasCount}</span>
+                  </span>
+                )}
+                {/* Badge Tiket Visit Open saat sidebar terbuka */}
+                {isSidebarOpen && item.id === 'gangguan' && openPartnerVisitCount > 0 && (
+                  <span
+                    className={`ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isActive
+                      ? 'bg-amber-500 text-white border border-amber-400 shadow-sm'
+                      : 'bg-amber-900/80 text-amber-200 border border-amber-700'
+                      }`}
+                    title={`${openPartnerVisitCount} Tiket Visit Open`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    <span>{openPartnerVisitCount}</span>
+                  </span>
+                )}
+                {/* Indikator micro-capsule untuk tab aktif */}
+                {isSidebarOpen && isActive && !(item.id === 'gangguan' && openPartnerVisitCount > 0) && !(item.id === 'gamas' && activeGamasCount > 0) && (
+                  <span className="ml-auto w-1 h-3.5 rounded-full bg-white"></span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
-        {/* Tombol Logout */}
-        <div className="px-3 pb-2 pt-2 border-t border-blue-800/50 w-full shrink-0">
-          <button onClick={onLogout} className="w-full flex items-center p-3 text-blue-100 hover:bg-blue-800/50 rounded-lg transition-all" title="Keluar">
-            <Icon name="log-out" className="shrink-0" />
-            <span className={`ml-3 font-semibold text-sm whitespace-nowrap ${!isSidebarOpen && 'lg:hidden'}`}>Keluar</span>
+        {/* Tombol Logout dengan transisi hover halus */}
+        <div className="px-3 py-2 border-t border-[#1e3978] w-full shrink-0">
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center py-2 px-3 text-blue-100 hover:text-rose-200 hover:bg-rose-900/40 rounded-xl transition-all duration-200 group border border-transparent hover:border-rose-700/50"
+            title="Keluar"
+          >
+            <div className="p-1.5 rounded-lg bg-blue-800 group-hover:bg-rose-800 text-blue-200 group-hover:text-rose-200 transition-colors duration-200 shrink-0">
+              <Icon name="log-out" size={17} />
+            </div>
+            <span className={`ml-3 font-medium text-sm whitespace-nowrap group-hover:translate-x-0.5 transition-transform duration-200 ${!isSidebarOpen && 'lg:hidden'}`}>
+              Keluar
+            </span>
           </button>
         </div>
 
         {/* Teks Copyright di bawah */}
-        <div className="p-4 pb-8 lg:pb-4 text-[10px] text-blue-300/50 border-t border-blue-800/50 text-center whitespace-nowrap shrink-0">
-          {isSidebarOpen ? 'Â© 2026 Starlite by Desnarum' : 'v2.0'}
+        <div className="py-2.5 px-3 text-[11px] text-blue-300/60 border-t border-[#1e3978] text-center whitespace-nowrap shrink-0">
+          {isSidebarOpen ? '\u00A9 2026 Starlite by Desnarum' : 'v2.7'}
         </div>
       </aside>
 
@@ -2233,7 +2563,7 @@ function App({ onLogout }) {
                 {activeTab === 'okupansi' && 'Data Okupansi ODC & ODP'}
                 {activeTab === 'gangguan' && 'Data Gangguan & Tiket Visit'}
                 {activeTab === 'gamas' && 'Monitoring Gangguan Massal'}
-                {activeTab === 'team' && 'Manajemen Data Petugas'}
+                {activeTab === 'team' && 'Monitoring Performansi Tim Lapangan'}
                 {activeTab === 'coverage' && 'Cek Coverage ODP'}
                 {activeTab === 'aidece' && 'Customer Lookup'}
               </h1>
@@ -2257,7 +2587,7 @@ function App({ onLogout }) {
                 type="button"
                 onClick={() => setIsWhatsNewOpen(true)}
                 className="flex items-center h-8 sm:h-9 gap-1.5 text-xs px-2.5 sm:px-3 rounded-xl font-bold bg-gradient-to-r from-indigo-50 to-blue-50 text-indigo-700 border border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs transition-all relative cursor-pointer"
-                title="Lihat Pembaruan Fitur Baru (v2.6)"
+                title="Lihat Pembaruan Fitur Baru (v2.7)"
               >
                 <Icon name="sparkles" size={14} className="text-indigo-600 shrink-0" />
                 <span className="hidden md:inline whitespace-nowrap">Apa yang Baru?</span>
@@ -2301,7 +2631,7 @@ function App({ onLogout }) {
         )}
 
         {/* WADAH UTAMA KONTEN */}
-        <div className={`flex-1 overflow-auto w-full ${activeTab === 'aidece' ? 'p-0' : 'p-2.5 sm:p-4 md:p-6 pb-6 sm:pb-8'}`}>
+        <div className={`flex-1 w-full ${activeTab === 'aidece' ? 'p-0 overflow-hidden flex flex-col' : activeTab === 'peta-pelanggan' ? 'p-2 sm:p-3 overflow-hidden flex flex-col h-full' : 'overflow-auto p-2.5 sm:p-4 md:p-6 pb-6 sm:pb-8'}`}>
           {fetchError && !isLoading && (
             <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-start shadow-sm animate-in slide-in-from-top-4">
               <Icon name="alert-circle" className="mr-3 shrink-0 mt-0.5 text-rose-500" size={20} />
@@ -2312,26 +2642,100 @@ function App({ onLogout }) {
             </div>
           )}
 
-          <div className="h-full w-full">
-            {(activeTab === 'dashboard' || activeTab === 'performansi') && (
-              <DashboardView 
-                data={data} 
-                isSyncing={isLoading} 
-                onRefresh={() => fetchData(true)} 
-                onRefreshSilent={fetchDataSilent} 
-                viewMode={activeTab} 
-              />
+          <div className={`w-full ${activeTab === 'peta-pelanggan' ? 'flex-1 flex flex-col h-full min-h-0' : 'min-h-full'}`}>
+            {(visitedTabs.has('dashboard') || visitedTabs.has('performansi')) && (
+              <div className={(activeTab === 'dashboard' || activeTab === 'performansi') ? 'w-full' : 'hidden'}>
+                <DashboardView
+                  data={data}
+                  isSyncing={isLoading}
+                  onRefresh={() => fetchData(true)}
+                  onRefreshSilent={fetchDataSilent}
+                  viewMode={activeTab}
+                />
+              </div>
             )}
-            {activeTab === 'overview' && <OverviewView data={data} onGoToDatabase={(statusFilter, stationFilter = '') => { setInitialDatabaseStatusFilter(statusFilter); setInitialDatabaseStationFilter(stationFilter); setActiveTab('database'); }} />}
-            {activeTab === 'database' && <DatabaseView pelangganData={data.pelangganData} visitData={data.visitData} petugasList={data.teknisiData} odpData={data.odpData} isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))} onRefresh={() => fetchData(true)} onGoToCoverage={handleGoToCoverage} onGoToHistory={handleGoToHistory} onLocalPelangganUpdate={handleLocalPelangganUpdate} onLocalVisitUpdate={handleLocalVisitAction} onLocalPelangganDelete={handleLocalPelangganDelete} initialStatusFilter={initialDatabaseStatusFilter} initialStationFilter={initialDatabaseStationFilter} />}
-            {activeTab === 'peta-pelanggan' && <CustomerMapView data={data} />}
-            {activeTab === 'okupansi' && <OkupansiView data={data} setData={setData} />}
-            {activeTab === 'gangguan' && <DataGangguanView visitData={data.visitData} pelangganData={data.pelangganData} petugasList={data.teknisiData} onRefresh={() => fetchData(true)} onLocalVisitUpdate={handleLocalVisitAction} />}
-            {activeTab === 'gamas' && <MonitoringGamasView />}
-            {activeTab === 'team' && <OfficerManagementView teknisiList={data.teknisiData} onRefresh={() => fetchData(true)} onRefreshSilent={fetchDataSilent} />}
-            {activeTab === 'coverage' && <CoverageGISView data={data} targetCoords={coverageTarget} />}
-            {activeTab === 'aidece' && <AiDeceView />}
-
+            {visitedTabs.has('overview') && (
+              <div className={activeTab === 'overview' ? 'w-full' : 'hidden'}>
+                <OverviewView
+                  data={data}
+                  onGoToDatabase={(statusFilter, stationFilter = '') => {
+                    setInitialDatabaseStatusFilter(statusFilter);
+                    setInitialDatabaseStationFilter(stationFilter);
+                    setActiveTab('database');
+                  }}
+                />
+              </div>
+            )}
+            {visitedTabs.has('database') && (
+              <div className={activeTab === 'database' ? 'w-full' : 'hidden'}>
+                <DatabaseView
+                  pelangganData={data.pelangganData}
+                  visitData={data.visitData}
+                  petugasList={data.teknisiData}
+                  odpData={data.odpData}
+                  isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))}
+                  onRefresh={() => fetchData(true)}
+                  onGoToCoverage={handleGoToCoverage}
+                  onGoToHistory={handleGoToHistory}
+                  onLocalPelangganUpdate={handleLocalPelangganUpdate}
+                  onLocalVisitUpdate={handleLocalVisitAction}
+                  onLocalPelangganDelete={handleLocalPelangganDelete}
+                  initialStatusFilter={initialDatabaseStatusFilter}
+                  initialStationFilter={initialDatabaseStationFilter}
+                />
+              </div>
+            )}
+            {visitedTabs.has('peta-pelanggan') && (
+              <div className={activeTab === 'peta-pelanggan' ? 'w-full flex-1 flex flex-col h-full min-h-0' : 'hidden'}>
+                <CustomerMapView data={data} />
+              </div>
+            )}
+            {visitedTabs.has('okupansi') && (
+              <div className={activeTab === 'okupansi' ? 'w-full' : 'hidden'}>
+                <OkupansiView data={data} setData={setData} />
+              </div>
+            )}
+            {visitedTabs.has('gangguan') && (
+              <div className={activeTab === 'gangguan' ? 'w-full' : 'hidden'}>
+                <DataGangguanView
+                  visitData={data.visitData}
+                  pelangganData={data.pelangganData}
+                  petugasList={data.teknisiData}
+                  onRefresh={() => fetchData(true)}
+                  onLocalVisitUpdate={handleLocalVisitAction}
+                  onPartnerVisitRefresh={refreshOpenPartnerVisits}
+                />
+              </div>
+            )}
+            {visitedTabs.has('gamas') && (
+              <div className={activeTab === 'gamas' ? 'w-full' : 'hidden'}>
+                <GamasDashboardView />
+              </div>
+            )}
+            {visitedTabs.has('team') && (
+              <div className={activeTab === 'team' ? 'w-full' : 'hidden'}>
+                <TeamPerformanceView
+                  teknisiList={data.teknisiData}
+                  pelangganData={data.pelangganData}
+                  visitData={data.visitData}
+                  odpData={data.odpData}
+                  isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))}
+                  isSyncing={isLoading || isBackgroundSyncing}
+                  onRefresh={() => fetchData(true)}
+                  onRefreshSilent={fetchDataSilent}
+                />
+              </div>
+            )}
+            {visitedTabs.has('coverage') && (
+              <div className={activeTab === 'coverage' ? 'w-full' : 'hidden'}>
+                <CoverageGISView data={data} targetCoords={coverageTarget} />
+              </div>
+            )}
+            {visitedTabs.has('aidece') && (
+              <div className={activeTab === 'aidece' ? 'w-full h-full flex flex-col' : 'hidden'}>
+                <AiDeceView />
+              </div>
+            )}
           </div>
         </div>
 
@@ -2346,17 +2750,15 @@ function App({ onLogout }) {
 
       {/* TOAST POP-UP STATUS SINKRONISASI DATA & SALES PARTNER */}
       {salesSyncToast.show && ReactDOM.createPortal(
-        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-[9999] bg-white border rounded-full shadow-2xl px-5 py-3 flex items-center gap-3 animate-dropdown transition-all ${
-          salesSyncToast.type === 'syncing' ? 'border-blue-200' :
+        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-[9999] bg-white border rounded-full shadow-2xl px-5 py-3 flex items-center gap-3 animate-dropdown transition-all ${salesSyncToast.type === 'syncing' ? 'border-blue-200' :
           salesSyncToast.type === 'success' ? 'border-emerald-200' : 'border-rose-200'
-        }`}>
-          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-            salesSyncToast.type === 'syncing' ? 'bg-blue-500' :
-            salesSyncToast.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'
           }`}>
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${salesSyncToast.type === 'syncing' ? 'bg-blue-500' :
+            salesSyncToast.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'
+            }`}>
             <Icon name={
               salesSyncToast.type === 'syncing' ? "refresh-cw" :
-              salesSyncToast.type === 'success' ? "check" : "alert-circle"
+                salesSyncToast.type === 'success' ? "check" : "alert-circle"
             } className={`text-white ${salesSyncToast.type === 'syncing' ? 'animate-spin' : ''}`} size={14} />
           </div>
           <span className="text-sm font-bold text-slate-700">{salesSyncToast.message}</span>
@@ -2782,7 +3184,7 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
           <div className="overflow-auto custom-scrollbar flex-1 bg-white relative z-10 w-full">
             {realCustomers.length > 0 ? (
               <table className="w-full text-[10px] sm:text-sm text-left">
-                <thead className="bg-slate-50/90 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[9px] sm:text-xs uppercase tracking-wider z-20 backdrop-blur-sm">
+                <thead className="bg-slate-50/90 text-slate-500 font-bold sticky top-0 border-b border-slate-200 text-[9px] sm:text-xs uppercase tracking-wider z-20">
                   <tr>
                     <th className="px-2 py-2 sm:px-6 sm:py-4 text-center w-10 sm:w-20">PORT</th>
                     <th className="px-2 py-2 sm:px-6 sm:py-4">ID PELANGGAN</th>
@@ -3342,14 +3744,14 @@ export function OkupansiView({ data, setData }) {
     setIsMassDeleting(true);
     try {
       const idsToDelete = targetMassDeleteOdps.map(o => o.id);
-      
+
       const BATCH_SIZE = 200;
       for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
         const batch = idsToDelete.slice(i, i + BATCH_SIZE);
         const { error } = await supabase.from('odp').delete().in('id', batch);
         if (error) throw error;
       }
-      
+
       if (typeof setData === 'function') {
         setData(prev => {
           const filtered = (prev.odpData || []).filter(o => !idsToDelete.includes(o.id));
@@ -3357,7 +3759,7 @@ export function OkupansiView({ data, setData }) {
           return { ...prev, odpData: filtered };
         });
       }
-      
+
       setSyncToast({ show: true, type: 'success', message: `${idsToDelete.length} ODP berhasil dihapus massal!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
       setShowMassDeleteModal(false);
@@ -3947,8 +4349,8 @@ export function OkupansiView({ data, setData }) {
                     <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={10} interval={0} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                     <Tooltip content={<CustomOkupansiTooltip />} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="terpakai" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} maxBarSize={50} />
-                    <Bar dataKey="tersisa" stackId="a" fill="#a7f3d0" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                    <Bar dataKey="terpakai" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} maxBarSize={50} isAnimationActive={isInitialChartAnimationActive()} />
+                    <Bar dataKey="tersisa" stackId="a" fill="#a7f3d0" radius={[4, 4, 0, 0]} maxBarSize={50} isAnimationActive={isInitialChartAnimationActive()} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -4155,8 +4557,8 @@ export function OkupansiView({ data, setData }) {
                       <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={5} interval={0} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                       <Tooltip content={<CustomOkupansiTooltip />} cursor={{ fill: '#f8fafc' }} />
-                      <Bar dataKey="terpakai" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} maxBarSize={50} />
-                      <Bar dataKey="tersisa" stackId="a" fill="#a7f3d0" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                      <Bar dataKey="terpakai" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} maxBarSize={50} isAnimationActive={isInitialChartAnimationActive()} />
+                      <Bar dataKey="tersisa" stackId="a" fill="#a7f3d0" radius={[4, 4, 0, 0]} maxBarSize={50} isAnimationActive={isInitialChartAnimationActive()} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -4187,7 +4589,7 @@ export function OkupansiView({ data, setData }) {
       {/* MODAL UPLOAD & TAMBAH ODP (MANUAL 1-2 ODP / EXCEL MASSAL) */}
       {showBulkModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { if (!isUploading && !isUploadSuccess) { setUploadDuplicateError(null); setShowBulkModal(false); } }}></div>
+          <div className="absolute inset-0 bg-slate-950/70" onClick={() => { if (!isUploading && !isUploadSuccess) { setUploadDuplicateError(null); setShowBulkModal(false); } }}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl xl:max-w-5xl flex flex-col relative z-10 animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* OVERLAY SUKSES */}
@@ -4273,7 +4675,7 @@ export function OkupansiView({ data, setData }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-bold text-rose-700 mb-1">
-                        {uploadDuplicateError.type === 'file' 
+                        {uploadDuplicateError.type === 'file'
                           ? `Upload Dibatalkan! Ada ${uploadDuplicateError.data.length} ODP Ditulis Ganda`
                           : `Perhatian! Ada ${uploadDuplicateError.data.length} ODP Sudah Terdaftar`}
                       </h4>
@@ -4289,8 +4691,8 @@ export function OkupansiView({ data, setData }) {
                       </div>
                       {uploadDuplicateError.type === 'db' && (
                         <div className="flex gap-2">
-                          <button 
-                            type="button" 
+                          <button
+                            type="button"
                             onClick={() => {
                               const p = uploadDuplicateError.payload;
                               setUploadDuplicateError(null);
@@ -4840,7 +5242,7 @@ export function OkupansiView({ data, setData }) {
 
       {/* CONFLICT MODAL */}
       {conflictModalData && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[110] bg-slate-950/70 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-scale-up">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50">
               <div className="flex items-center gap-3">
@@ -4912,7 +5314,7 @@ export function OkupansiView({ data, setData }) {
 
       {/* MODAL KELOLA ODP */}
       {showManageOdpModal && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-5 bg-slate-950/70">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-7xl flex flex-col relative animate-modal max-h-[92vh] overflow-hidden border border-slate-100">
 
             {/* HEADER MODAL */}
@@ -5238,7 +5640,7 @@ export function OkupansiView({ data, setData }) {
 
       {/* MODAL EDIT ODP */}
       {editingOdp && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/70">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col relative animate-scale-up overflow-hidden border border-slate-100">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-blue-50/50">
               <div className="flex items-center gap-3">
@@ -5363,7 +5765,7 @@ export function OkupansiView({ data, setData }) {
 
       {/* MODAL KONFIRMASI HAPUS ODP */}
       {deletingOdp && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/70">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col relative animate-scale-up overflow-hidden border border-slate-100">
             <div className="p-5 border-b border-rose-100 flex items-center gap-3 bg-rose-50/70">
               <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
@@ -5435,7 +5837,7 @@ export function OkupansiView({ data, setData }) {
 
       {/* MODAL HAPUS MASSAL ODP */}
       {showMassDeleteModal && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 animate-fade">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-modal">
             <div className="p-5 flex flex-col items-center text-center">
               <div className="w-14 h-14 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
@@ -5601,13 +6003,20 @@ function OverviewView({ data, onGoToDatabase }) {
     { value: 'custom_range', label: 'Rentang Tanggal...' }
   ];
 
-  // Daftar stasiun unik
+  // Daftar stasiun unik dari tabel starlite_station_counts (dengan fallback data pelanggan & odp)
   const uniqueOverviewStations = useMemo(() => {
-    if (!data.stationData) return [];
-    const rawStations = data.stationData.map(s => s.stasiun).filter(Boolean);
+    let rawStations = [];
+    if (data?.stationData && data.stationData.length > 0) {
+      rawStations = data.stationData.map(s => s.stasiun).filter(Boolean);
+    } else if (data?.pelangganData && data.pelangganData.length > 0) {
+      rawStations = data.pelangganData.map(p => p.stasiun).filter(Boolean);
+    } else if (data?.odpData && data.odpData.length > 0) {
+      rawStations = data.odpData.map(o => o.stasiun).filter(Boolean);
+    }
+
     const properStations = rawStations.map(st => toProperCase(st));
     return [...new Set(properStations)].sort();
-  }, [data.stationData]);
+  }, [data?.stationData, data?.pelangganData, data?.odpData]);
 
   // Reset halaman ke 1 setiap kali tab atau filter berubah
   useEffect(() => {
@@ -6075,6 +6484,7 @@ function OverviewView({ data, onGoToDatabase }) {
                     strokeWidth={3}
                     dot={{ r: 4, strokeWidth: 2 }}
                     activeDot={{ r: 6 }}
+                    isAnimationActive={isInitialChartAnimationActive()}
                   />
                 )}
               </LineChart>
@@ -6374,7 +6784,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     }
     return (data.pelangganData || []).filter(p => {
       const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                    String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+        String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
       const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAkt ? (p.tanggalRegistrasi || p.createdAt) : '');
       const tAkt = standardizeDate(rawAkt);
       return tAkt === selectedDate && isAkt;
@@ -6389,46 +6799,40 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     }).length;
   }, [data.pelangganData]);
 
-  // --- LIST KENDALA ---
+  // --- LIST KENDALA HARIAN (MURNI DARI DATABASE SUPABASE) ---
   const kendalaList = useMemo(() => {
-    // Gunakan HANYA dari sumber data kendala sheet (BI6:BN) sesuai permintaan
-    if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
-      return data.dataKendalaSheet.filter(item => {
-        const matched = (data.pelangganData || []).find(p => String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase() === String(item.idPelanggan || '').trim().toUpperCase());
-        if (matched) {
-          if (getGlobalStatusStr(matched) !== 'KENDALA') return false;
-        } else {
-          if (getGlobalStatusStr(item) !== 'KENDALA') return false;
-        }
-
-        const itemDate = standardizeDate(item.tanggalKendala || item.timestampKendala || item.tglAktivasi || item.timestampAktivasi || item.tanggal || item.timestamp || item.waktuLapor);
-        return itemDate === selectedDate;
-      }).map(item => {
-        let issue = item.issueKendala || '';
-        if (!issue || issue.includes('GMT+') || issue.includes('Waktu Indonesia')) {
-          const matched = (data.pelangganData || []).find(p => String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase() === String(item.idPelanggan || '').trim().toUpperCase());
-          if (matched) {
-            issue = matched.issueKendala || matched.issue_kendala || matched.catatan || matched.keluhan || '';
-          }
-        }
-        return {
-          ...item,
-          extractedIssue: issue,
-          extractedReporter: item.reporterKendala || ''
-        };
-      });
-    }
-
-    // Fallback jika tidak ada dataKendalaSheet
     return (data.pelangganData || []).filter(item => {
-      const isGlobalKendala = getGlobalStatusStr(item) === 'KENDALA';
-      const itemDate = standardizeDate(item.tanggalKendala || item.timestampKendala || item.tglAktivasi || item.timestampAktivasi || item.tanggal || item.timestamp || item.waktuLapor);
-      return isGlobalKendala && itemDate === selectedDate;
+      // 1. Cek apakah status pelanggan adalah KENDALA atau memiliki issue kendala aktif
+      const isAktifOrDone = String(item.statusAktivasi || item.aktivasi || item.status_aktivasi || '').toLowerCase().includes('sudah') ||
+        String(item.statusAktivasi || item.aktivasi || item.status_aktivasi || '').toLowerCase().includes('aktif') ||
+        String(item.statusAktivasi || item.aktivasi || item.status_aktivasi || '').toLowerCase().includes('dismantle');
+
+      const hasActiveIssue = Boolean(item.issueKendala || item.issue_kendala) && !isAktifOrDone;
+
+      const isGlobalKendala = getGlobalStatusStr(item) === 'KENDALA' ||
+        String(item.statusAktivasi || item.aktivasi || item.status_aktivasi || '').trim().toUpperCase() === 'KENDALA' ||
+        String(item.statusIkr || item.ikr || item.status_ikr || '').trim().toUpperCase() === 'KENDALA' ||
+        hasActiveIssue;
+      if (!isGlobalKendala) return false;
+
+      // 2. Evaluasi tanggal kendala (Prioritas tanggal_kendala, fallback createdAt jika baru diinput tanpa tgl, BUKAN tanggal_registrasi)
+      const rawDate = item.tanggalKendala || item.tanggal_kendala || item.timestampKendala || item.waktuLapor || item.createdAt || item.created_at;
+
+      const itemDate = standardizeDate(rawDate);
+      return itemDate === selectedDate;
     }).map(item => {
       const { issue, reporter } = extractKendalaData(item);
-      return { ...item, extractedIssue: issue, extractedReporter: reporter };
+      const cleanIssue = issue && !String(issue).includes("GMT+") && !String(issue).includes("Waktu Indonesia")
+        ? issue
+        : (item.catatan || item.keluhan || item.issueKendala || item.issue_kendala || 'Kendala lapangan');
+
+      return {
+        ...item,
+        extractedIssue: cleanIssue,
+        extractedReporter: reporter || item.reporterKendala || item.reporter_kendala || item.petugasIkr || item.petugasAktivasi || 'Sistem'
+      };
     });
-  }, [data.dataKendalaSheet, data.pelangganData, selectedDate]);
+  }, [data.pelangganData, selectedDate]);
 
   const totalKendalaHarian = kendalaList.length;
 
@@ -6450,7 +6854,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
     (data.pelangganData || []).forEach(row => {
       const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                    String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+        String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
       const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
       const tAkt = standardizeDate(rawAkt);
       if (tAkt === selectedDate && isAkt) aktivasi++;
@@ -6488,7 +6892,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     // Data BAST aktif (live dari API partner untuk hari ini)
     const activeBastList = isSelectedToday && partnerBastData.length > 0 ? partnerBastData : [];
     const bastIdSet = new Set(activeBastList.map(b => String(b.idPelanggan || '').trim().toUpperCase()));
-    
+
     let unreportedList = [];
     if (activeBastList.length > 0) {
       unreportedList = activeBastList.filter(b => {
@@ -6509,7 +6913,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     const unreportedCount = unreportedList.length;
     const unbastCount = unbastList.length;
     // Discrepancy terjadi jika ada pelanggan BAST yang belum dilaporkan atau ada pelanggan dilaporkan yang belum BAST atau totalnya berbeda
-    const hasDiscrepancy = activeBastList.length > 0 
+    const hasDiscrepancy = activeBastList.length > 0
       ? (unreportedCount > 0 || unbastCount > 0 || totalBast !== totalReported)
       : (totalBast !== totalReported && totalBast > 0 && totalReported > 0);
 
@@ -6911,7 +7315,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     return (data.pelangganData || [])
       .map(row => {
         const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                      String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+          String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
         const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
         const tIkr = standardizeDate(row.tglIkr);
         const tAkt = standardizeDate(rawAkt);
@@ -6934,17 +7338,24 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   const [isHistoryDropdownOpen, setIsHistoryDropdownOpen] = useState(false);
 
   const uniqueHistoryStations = useMemo(() => {
-    if (!data.stationData) return [];
-    const rawStations = data.stationData.map(s => s.stasiun).filter(Boolean);
+    let rawStations = [];
+    if (data?.stationData && data.stationData.length > 0) {
+      rawStations = data.stationData.map(s => s.stasiun).filter(Boolean);
+    } else if (data?.pelangganData && data.pelangganData.length > 0) {
+      rawStations = data.pelangganData.map(p => p.stasiun).filter(Boolean);
+    } else if (data?.odpData && data.odpData.length > 0) {
+      rawStations = data.odpData.map(o => o.stasiun).filter(Boolean);
+    }
+
     const properStations = rawStations.map(st => toProperCase(st));
     return [...new Set(properStations)].sort();
-  }, [data.stationData]);
+  }, [data?.stationData, data?.pelangganData, data?.odpData]);
 
   const historyAktivasi = useMemo(() => {
     return (data.pelangganData || [])
       .filter(row => {
         const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                      String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+          String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
         const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
         const tAkt = standardizeDate(rawAkt);
         const isSelectedDay = tAkt === selectedDate && isAkt;
@@ -6994,7 +7405,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         if (petugasMode === 'aktivasi') {
           const pAkt = row.petugasAktivasi;
           const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                        String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+            String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
           const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
           const tAkt = standardizeDate(rawAkt);
           if (pAkt && tAkt === selectedDate && isAkt) {
@@ -7052,445 +7463,437 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     <div className={`max-w-7xl mx-auto ${viewMode === 'dashboard' ? 'space-y-3 sm:space-y-4 lg:space-y-6' : ''} page-enter pb-16 lg:pb-8`}>
       {viewMode === 'dashboard' && (
         <>
-      {/* DESKTOP TOP BAR (TANGGAL) - ASLI DESKTOP */}
-      <div className="hidden lg:flex justify-end mb-2">
-        <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all cursor-pointer">
-          <Icon name="calendar" size={16} className="text-blue-600 shrink-0" />
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="text-sm font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
-          />
-        </div>
-      </div>
-
-      {/* MOBILE ONLY: Welcome Banner Ala mobile.html */}
-      <div className="lg:hidden bg-gradient-to-br from-blue-700 to-[#1e3a8a] rounded-xl p-4 text-white shadow-md relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="relative z-10">
-          <h2 className="text-base font-bold mb-0.5 tracking-tight">Selamat Datang di OpsTracker!</h2>
-          <p className="text-blue-100 text-[10.5px]">Pantau Operasional Desnarum hari ini.</p>
-        </div>
-        <div className="relative z-10 flex items-center justify-between sm:justify-end gap-2">
-          <div className="bg-white/15 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-white/20 flex items-center gap-1.5 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
-            <div className="flex items-center gap-1.5">
-              <Icon name="calendar" size={14} className="text-blue-200" />
-              <span className="text-[10px] font-bold text-blue-200 sm:hidden">Tanggal:</span>
+          {/* DESKTOP TOP BAR (TANGGAL) - ASLI DESKTOP */}
+          <div className="hidden lg:flex justify-end mb-2">
+            <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all cursor-pointer">
+              <Icon name="calendar" size={16} className="text-blue-600 shrink-0" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="text-sm font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
+              />
             </div>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-[11px] font-bold text-white bg-transparent outline-none cursor-pointer [color-scheme:dark]"
+          </div>
+
+          {/* MOBILE ONLY: Welcome Banner Ala mobile.html */}
+          <div className="lg:hidden bg-gradient-to-br from-blue-700 to-[#1e3a8a] rounded-xl p-4 text-white shadow-md relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative z-10">
+              <h2 className="text-base font-bold mb-0.5 tracking-tight">Selamat Datang di OpsTracker!</h2>
+              <p className="text-blue-100 text-[10.5px]">Pantau Operasional Desnarum hari ini.</p>
+            </div>
+            <div className="relative z-10 flex items-center justify-between sm:justify-end gap-2">
+              <div className="bg-white/20 px-2.5 py-1.5 rounded-lg border border-white/20 flex items-center gap-1.5 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
+                <div className="flex items-center gap-1.5">
+                  <Icon name="calendar" size={14} className="text-blue-200" />
+                  <span className="text-[10px] font-bold text-blue-200 sm:hidden">Tanggal:</span>
+                </div>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-[11px] font-bold text-white bg-transparent outline-none cursor-pointer [color-scheme:dark]"
+                />
+              </div>
+            </div>
+            <Icon name="activity" size={110} className="absolute -right-6 -bottom-6 text-white opacity-10 pointer-events-none" />
+          </div>
+
+          {/* KPI CARDS (2-COL ON MOBILE, 5-COL ON DESKTOP) */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
+            <StatCard
+              className="col-span-2 lg:col-span-1"
+              title="Total Aktivasi HC"
+              value={renderStatValue(totalPelangganAktif)}
+              icon="activity"
+              bg="bg-orange-50"
+              iconColor="text-orange-500"
+              infoTooltip="Total seluruh Aktivasi HC dari Dashboard E16."
             />
-          </div>
-        </div>
-        <Icon name="activity" size={110} className="absolute -right-6 -bottom-6 text-white opacity-10 pointer-events-none" />
-      </div>
 
-      {/* KPI CARDS (2-COL ON MOBILE, 5-COL ON DESKTOP) */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
-        <StatCard
-          className="col-span-2 lg:col-span-1"
-          title="Total Aktivasi HC"
-          value={renderStatValue(totalPelangganAktif)}
-          icon="activity"
-          bg="bg-orange-50"
-          iconColor="text-orange-500"
-          infoTooltip="Total seluruh Aktivasi HC dari Dashboard E16."
-        />
+            <StatCard
+              title="Aktivasi Harian"
+              value={renderStatValue(totalAktivasiHarian)}
+              icon="check-circle"
+              bg="bg-emerald-50"
+              iconColor="text-emerald-500"
+              infoTooltip={`Total aktivasi pada tanggal ${formattedDate}`}
+            />
 
-        <StatCard
-          title="Aktivasi Harian"
-          value={renderStatValue(totalAktivasiHarian)}
-          icon="check-circle"
-          bg="bg-emerald-50"
-          iconColor="text-emerald-500"
-          infoTooltip={`Total aktivasi pada tanggal ${formattedDate}`}
-        />
-
-        <div
-          onClick={() => { if (kendalaList.length > 0 && !isSyncing) setShowKendalaModal(true); }}
-          className={kendalaList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-rose-200" : ""}
-          title={kendalaList.length > 0 && !isSyncing ? "Klik untuk melihat detail pelanggan yang terkendala" : ""}
-        >
-          <StatCard
-            title="Kendala Harian"
-            value={renderStatValue(totalKendalaHarian)}
-            icon="alert-triangle"
-            bg="bg-rose-50"
-            iconColor="text-rose-500"
-            infoTooltip={`Total pelanggan yang masih dalam status Kendala`}
-          />
-        </div>
-
-        <div
-          onClick={() => { if (visitList.length > 0 && !isSyncing) setShowVisitModal(true); }}
-          className={visitList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-purple-200" : ""}
-          title={visitList.length > 0 && !isSyncing ? "Klik untuk melihat detail tiket visit/gangguan" : ""}
-        >
-          <StatCard
-            title="Visit / Gangguan"
-            value={renderStatValue(totalVisitHarian)}
-            icon="headset"
-            bg="bg-purple-50"
-            iconColor="text-purple-500"
-            infoTooltip={`Total tiket visit/gangguan pada tanggal ${formattedDate}`}
-          />
-        </div>
-
-        <div
-          onClick={() => { if (totalDismantledHarian > 0 && !isSyncing) setShowDismantledModal(true); }}
-          className={totalDismantledHarian > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-slate-300" : ""}
-          title={totalDismantledHarian > 0 && !isSyncing ? "Klik untuk melihat rincian pelanggan dismantled" : ""}
-        >
-          <StatCard
-            title="Dismantled Harian"
-            value={renderStatValue(totalDismantledHarian)}
-            icon="x-circle"
-            bg="bg-slate-100"
-            iconColor="text-slate-600"
-            infoTooltip={`Total pelanggan yang di-dismantle pada tanggal ${formattedDate}`}
-          />
-        </div>
-      </div>
-
-      {/* --- CARD: REGISTRASI PELANGGAN HARI INI --- */}
-      <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 border-b border-slate-50 pb-2.5 sm:pb-3 gap-2.5 sm:gap-3">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-              <Icon name="user-plus" size={16} className="sm:hidden" />
-              <span className="hidden sm:inline-flex"><Icon name="user-plus" size={20} /></span>
-            </div>
-            <div>
-              <h3 className="text-[13px] sm:text-[15px] font-bold text-slate-800 tracking-tight leading-snug">Registrasi Pelanggan Hari Ini</h3>
-              <p className="text-[9px] sm:text-[11px] text-slate-400">Total pendaftaran (sales) baru pada {formattedDate}</p>
-            </div>
-          </div>
-          <div className="bg-blue-600 text-white px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-sm font-bold shadow-sm shadow-blue-500/20 shrink-0 w-full sm:w-auto text-center flex items-center justify-center">
-            Total: {renderStatValue(totalRegistrasiHarian, 'total')}
-          </div>
-        </div>
-
-        {/* Grid Stasiun ala mobile.html */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-          {registrasiPerStasiun.map((item, idx) => (
             <div
-              key={idx}
-              onClick={() => {
-                if (item.total > 0 && !isSyncing) setSelectedRegStation(item.stasiun);
-              }}
-              className={`flex justify-between items-center border border-slate-100 rounded-lg p-2.5 transition-all group ${item.total > 0 && !isSyncing ? 'bg-white cursor-pointer hover:bg-blue-50 hover:border-blue-300 shadow-sm hover:shadow active:scale-95' : 'bg-slate-50/60 opacity-80'}`}
-              title={item.total > 0 && !isSyncing ? `Lihat pendaftar dari stasiun ${toProperCase(item.stasiun)}` : "Belum ada pendaftar"}
+              onClick={() => { if (kendalaList.length > 0 && !isSyncing) setShowKendalaModal(true); }}
+              className={kendalaList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-rose-200" : ""}
+              title={kendalaList.length > 0 && !isSyncing ? "Klik untuk melihat detail pelanggan yang terkendala" : ""}
             >
-              <span className={`text-[9px] sm:text-[11px] font-bold uppercase tracking-wide truncate mr-1.5 ${item.total > 0 ? 'text-slate-700 group-hover:text-blue-700' : 'text-slate-400'}`}>
-                {toProperCase(item.stasiun)}
-              </span>
-              <span className={`text-xs sm:text-base font-black shrink-0 ${item.total > 0 ? 'text-blue-600' : 'text-slate-300'}`}>
-                {renderStatValue(item.total, 'compact')}
-              </span>
+              <StatCard
+                title="Kendala Harian"
+                value={renderStatValue(totalKendalaHarian)}
+                icon="alert-triangle"
+                bg="bg-rose-50"
+                iconColor="text-rose-500"
+                infoTooltip={`Total pelanggan yang masih dalam status Kendala`}
+              />
             </div>
-          ))}
-        </div>
-      </div>
-      {/* --- AKHIR CARD REGISTRASI --- */}
 
-      {/* 2 KOLOM: Raihan & Report */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 items-start">
-        {/* RAIHAN AKTIVASI */}
-        <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm flex flex-col w-full h-full relative">
-          {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 rounded-xl flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+            <div
+              onClick={() => { if (visitList.length > 0 && !isSyncing) setShowVisitModal(true); }}
+              className={visitList.length > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-purple-200" : ""}
+              title={visitList.length > 0 && !isSyncing ? "Klik untuk melihat detail tiket visit/gangguan" : ""}
+            >
+              <StatCard
+                title="Visit / Gangguan"
+                value={renderStatValue(totalVisitHarian)}
+                icon="headset"
+                bg="bg-purple-50"
+                iconColor="text-purple-500"
+                infoTooltip={`Total tiket visit/gangguan pada tanggal ${formattedDate}`}
+              />
+            </div>
 
-          <div className="flex items-center mb-0.5 sm:mb-1 gap-2">
-            <Icon name="train" className="text-emerald-500 shrink-0" size={18} />
-            <h2 className="text-[13px] sm:text-base lg:text-lg font-bold text-slate-800">Raihan Aktivasi Harian per Stasiun</h2>
+            <div
+              onClick={() => { if (totalDismantledHarian > 0 && !isSyncing) setShowDismantledModal(true); }}
+              className={totalDismantledHarian > 0 && !isSyncing ? "cursor-pointer transform transition-all duration-200 hover:scale-[1.02] active:scale-95 rounded-xl ring-2 ring-transparent hover:ring-slate-300" : ""}
+              title={totalDismantledHarian > 0 && !isSyncing ? "Klik untuk melihat rincian pelanggan dismantled" : ""}
+            >
+              <StatCard
+                title="Dismantled Harian"
+                value={renderStatValue(totalDismantledHarian)}
+                icon="x-circle"
+                bg="bg-slate-100"
+                iconColor="text-slate-600"
+                infoTooltip={`Total pelanggan yang di-dismantle pada tanggal ${formattedDate}`}
+              />
+            </div>
           </div>
-          <p className="text-slate-400 text-[9.5px] sm:text-xs mb-3.5 sm:mb-6 ml-6 sm:ml-7">Progres aktivasi pada tanggal <span className="font-semibold">{formattedDate}</span></p>
-          <div className="w-full flex-1"><TrainChart data={dynamicStationData} /></div>
-        </div>
 
-        {/* REPORT PETUGAS */}
-        <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm flex flex-col h-full relative">
-          {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 rounded-xl flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
-
-          <div className="flex justify-between items-start mb-2.5 sm:mb-4 gap-2">
-            <div>
-              <h2 className="text-[13px] sm:text-base lg:text-lg font-bold text-slate-800">Report Petugas Lapangan</h2>
-              <p className="text-slate-400 text-[9.5px] sm:text-xs mt-0.5">Data pekerjaan pada <span className="font-semibold">{formattedDate}</span></p>
+          {/* --- CARD: REGISTRASI PELANGGAN HARI INI --- */}
+          <div className="bg-white p-3.5 sm:p-4 lg:p-5 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 border-b border-slate-50 pb-2.5 sm:pb-3 gap-2.5 sm:gap-3">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+                  <Icon name="user-plus" size={16} className="sm:hidden" />
+                  <span className="hidden sm:inline-flex"><Icon name="user-plus" size={20} /></span>
+                </div>
+                <div>
+                  <h3 className="text-[13px] sm:text-[15px] font-bold text-slate-800 tracking-tight leading-snug">Registrasi Pelanggan Hari Ini</h3>
+                  <p className="text-[9px] sm:text-[11px] text-slate-400">Total pendaftaran (sales) baru pada {formattedDate}</p>
+                </div>
+              </div>
+              <div className="bg-blue-600 text-white px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-sm font-bold shadow-sm shadow-blue-500/20 shrink-0 w-full sm:w-auto text-center flex items-center justify-center">
+                Total: {renderStatValue(totalRegistrasiHarian, 'total')}
+              </div>
             </div>
 
-            {/* BAST PARTNER BADGE (POJOK KANAN KARTU) */}
-            <div className="flex items-center shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setBastInitialFilter(
-                    bastComparison.unbastCount > 0
-                      ? 'UNBAST'
-                      : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
-                  );
-                  setShowBastModal(true);
-                }}
-                className={`group relative flex items-center gap-2 sm:gap-2.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border transition-all duration-200 text-left cursor-pointer active:scale-95 ${
-                  bastComparison.hasDiscrepancy
-                    ? 'bg-gradient-to-r from-amber-50 via-orange-50 to-amber-100/80 border-amber-300 shadow-xs hover:shadow-md hover:border-amber-400 hover:from-amber-100/70 hover:to-orange-100/90 ring-2 ring-amber-400/25'
-                    : 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border-emerald-200/90 shadow-xs hover:shadow-md hover:border-emerald-300 hover:from-emerald-100/60 hover:to-teal-100/80'
-                }`}
-                title={
-                  bastComparison.hasDiscrepancy
-                    ? `Perhatian: Terdapat selisih data (${
+            {/* Grid Stasiun ala mobile.html */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+              {registrasiPerStasiun.map((item, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (item.total > 0 && !isSyncing) setSelectedRegStation(item.stasiun);
+                  }}
+                  className={`flex justify-between items-center border border-slate-100 rounded-lg p-2.5 transition-all group ${item.total > 0 && !isSyncing ? 'bg-white cursor-pointer hover:bg-blue-50 hover:border-blue-300 shadow-sm hover:shadow active:scale-95' : 'bg-slate-50/60 opacity-80'}`}
+                  title={item.total > 0 && !isSyncing ? `Lihat pendaftar dari stasiun ${toProperCase(item.stasiun)}` : "Belum ada pendaftar"}
+                >
+                  <span className={`text-[9px] sm:text-[11px] font-bold uppercase tracking-wide truncate mr-1.5 ${item.total > 0 ? 'text-slate-700 group-hover:text-blue-700' : 'text-slate-400'}`}>
+                    {toProperCase(item.stasiun)}
+                  </span>
+                  <span className={`text-xs sm:text-base font-black shrink-0 ${item.total > 0 ? 'text-blue-600' : 'text-slate-300'}`}>
+                    {renderStatValue(item.total, 'compact')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* --- AKHIR CARD REGISTRASI --- */}
+
+          {/* 2 KOLOM: Raihan & Report */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 items-start">
+            {/* RAIHAN AKTIVASI */}
+            <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm flex flex-col w-full h-full relative">
+              {isSyncing && <div className="absolute inset-0 bg-white/80 z-10 rounded-xl flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+
+              <div className="flex items-center mb-0.5 sm:mb-1 gap-2">
+                <Icon name="train" className="text-emerald-500 shrink-0" size={18} />
+                <h2 className="text-[13px] sm:text-base lg:text-lg font-bold text-slate-800">Raihan Aktivasi Harian per Stasiun</h2>
+              </div>
+              <p className="text-slate-400 text-[9.5px] sm:text-xs mb-3.5 sm:mb-6 ml-6 sm:ml-7">Progres aktivasi pada tanggal <span className="font-semibold">{formattedDate}</span></p>
+              <div className="w-full flex-1"><TrainChart data={dynamicStationData} /></div>
+            </div>
+
+            {/* REPORT PETUGAS */}
+            <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl border border-slate-200/80 lg:border-slate-100 shadow-sm flex flex-col h-full relative">
+              {isSyncing && <div className="absolute inset-0 bg-white/80 z-10 rounded-xl flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+
+              <div className="flex justify-between items-start mb-2.5 sm:mb-4 gap-2">
+                <div>
+                  <h2 className="text-[13px] sm:text-base lg:text-lg font-bold text-slate-800">Report Petugas Lapangan</h2>
+                  <p className="text-slate-400 text-[9.5px] sm:text-xs mt-0.5">Data pekerjaan pada <span className="font-semibold">{formattedDate}</span></p>
+                </div>
+
+                {/* BAST PARTNER BADGE (POJOK KANAN KARTU) */}
+                <div className="flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBastInitialFilter(
                         bastComparison.unbastCount > 0
+                          ? 'UNBAST'
+                          : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                      );
+                      setShowBastModal(true);
+                    }}
+                    className={`group relative flex items-center gap-2 sm:gap-2.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border transition-all duration-200 text-left cursor-pointer active:scale-95 ${bastComparison.hasDiscrepancy
+                      ? 'bg-gradient-to-r from-amber-50 via-orange-50 to-amber-100/80 border-amber-300 shadow-xs hover:shadow-md hover:border-amber-400 hover:from-amber-100/70 hover:to-orange-100/90 ring-2 ring-amber-400/25'
+                      : 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border-emerald-200/90 shadow-xs hover:shadow-md hover:border-emerald-300 hover:from-emerald-100/60 hover:to-teal-100/80'
+                      }`}
+                    title={
+                      bastComparison.hasDiscrepancy
+                        ? `Perhatian: Terdapat selisih data (${bastComparison.unbastCount > 0
                           ? `${bastComparison.unbastCount} belum BAST`
                           : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} belum dilaporkan` : `${bastComparison.diff} data berbeda`)
-                      }). Klik untuk melihat komparasi BAST!`
-                    : "Klik untuk melihat komparasi dan daftar BAST (Aktivasi Web Partner) hari ini"
-                }
-              >
-                {/* Notif Ping Badge Dot saat ada selisih */}
-                {bastComparison.hasDiscrepancy && (
-                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 z-10" title="Ada selisih laporan!">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 text-[9px] font-black text-white items-center justify-center shadow-xs">
-                      !
-                    </span>
-                  </span>
-                )}
-
-                <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0 ${
-                  bastComparison.hasDiscrepancy ? 'bg-amber-600' : 'bg-emerald-600'
-                }`}>
-                  <Icon name={bastComparison.hasDiscrepancy ? 'alert-triangle' : 'check-check'} size={14} className="text-white" />
-                </div>
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-1">
-                    <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-none ${
-                      bastComparison.hasDiscrepancy ? 'text-amber-900' : 'text-emerald-800'
-                    }`}>
-                      BAST
-                    </span>
-                    {isSelectedToday && !bastComparison.hasDiscrepancy && (
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                        }). Klik untuk melihat komparasi BAST!`
+                        : "Klik untuk melihat komparasi dan daftar BAST (Aktivasi Web Partner) hari ini"
+                    }
+                  >
+                    {/* Notif Ping Badge Dot saat ada selisih */}
+                    {bastComparison.hasDiscrepancy && (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 z-10" title="Ada selisih laporan!">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 text-[9px] font-black text-white items-center justify-center shadow-xs">
+                          !
+                        </span>
                       </span>
                     )}
-                  </div>
-                  <span className={`text-[8.5px] sm:text-[9.5px] font-semibold mt-0.5 ${
-                    bastComparison.hasDiscrepancy ? 'text-amber-700' : 'text-emerald-600/90'
-                  }`}>
-                    {bastComparison.hasDiscrepancy
-                      ? (bastComparison.unbastCount > 0 ? `${bastComparison.unbastCount} Blm BAST` : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : 'Ada Selisih'))
-                      : (isSelectedToday ? 'Web Partner' : 'Aktivasi')}
-                  </span>
-                </div>
-                <div className={`ml-0.5 pl-2 sm:pl-2.5 border-l flex items-baseline ${
-                  bastComparison.hasDiscrepancy ? 'border-amber-300/90' : 'border-emerald-200/90'
-                }`}>
-                  <span className={`text-sm sm:text-base lg:text-lg font-black font-mono tracking-tight ${
-                    bastComparison.hasDiscrepancy ? 'text-amber-950' : 'text-emerald-950'
-                  }`}>
-                    {isBastLoading ? (
-                      <span className={`inline-block w-4 h-4 border-2 border-t-transparent rounded-full animate-spin ${
-                        bastComparison.hasDiscrepancy ? 'border-amber-600' : 'border-emerald-600'
-                      }`}></span>
-                    ) : (
-                      bastDisplayCount
-                    )}
-                  </span>
-                </div>
-              </button>
-            </div>
-          </div>
 
-          <div className="flex flex-col gap-2 mb-3 sm:mb-4">
-            {/* Filter Chips Pill */}
-            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <button
-                onClick={() => setPetugasMode('aktivasi')}
-                className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'aktivasi' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'aktivasi' ? 'bg-blue-500' : 'bg-slate-300'}`}></div>
-                  Aktivasi
+                    <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0 ${bastComparison.hasDiscrepancy ? 'bg-amber-600' : 'bg-emerald-600'
+                      }`}>
+                      <Icon name={bastComparison.hasDiscrepancy ? 'alert-triangle' : 'check-check'} size={14} className="text-white" />
+                    </div>
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1">
+                        <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-none ${bastComparison.hasDiscrepancy ? 'text-amber-900' : 'text-emerald-800'
+                          }`}>
+                          BAST
+                        </span>
+                        {isSelectedToday && !bastComparison.hasDiscrepancy && (
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[8.5px] sm:text-[9.5px] font-semibold mt-0.5 ${bastComparison.hasDiscrepancy ? 'text-amber-700' : 'text-emerald-600/90'
+                        }`}>
+                        {bastComparison.hasDiscrepancy
+                          ? (bastComparison.unbastCount > 0 ? `${bastComparison.unbastCount} Blm BAST` : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : 'Ada Selisih'))
+                          : (isSelectedToday ? 'Web Partner' : 'Aktivasi')}
+                      </span>
+                    </div>
+                    <div className={`ml-0.5 pl-2 sm:pl-2.5 border-l flex items-baseline ${bastComparison.hasDiscrepancy ? 'border-amber-300/90' : 'border-emerald-200/90'
+                      }`}>
+                      <span className={`text-sm sm:text-base lg:text-lg font-black font-mono tracking-tight ${bastComparison.hasDiscrepancy ? 'text-amber-950' : 'text-emerald-950'
+                        }`}>
+                        {isBastLoading ? (
+                          <span className={`inline-block w-4 h-4 border-2 border-t-transparent rounded-full animate-spin ${bastComparison.hasDiscrepancy ? 'border-amber-600' : 'border-emerald-600'
+                            }`}></span>
+                        ) : (
+                          bastDisplayCount
+                        )}
+                      </span>
+                    </div>
+                  </button>
                 </div>
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'aktivasi' ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-500'}`}>
-                  {dailyStats.aktivasi}
-                </span>
-              </button>
+              </div>
 
-              <button
-                onClick={() => setPetugasMode('ikr')}
-                className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'ikr' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'ikr' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                  IKR
+              <div className="flex flex-col gap-2 mb-3 sm:mb-4">
+                {/* Filter Chips Pill */}
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <button
+                    onClick={() => setPetugasMode('aktivasi')}
+                    className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'aktivasi' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'aktivasi' ? 'bg-blue-500' : 'bg-slate-300'}`}></div>
+                      Aktivasi
+                    </div>
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'aktivasi' ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-500'}`}>
+                      {dailyStats.aktivasi}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setPetugasMode('ikr')}
+                    className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'ikr' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'ikr' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                      IKR
+                    </div>
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'ikr' ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-500'}`}>
+                      {dailyStats.ikr}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setPetugasMode('kendala')}
+                    className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'kendala' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'kendala' ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
+                      Kendala
+                    </div>
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'kendala' ? 'bg-rose-200 text-rose-800' : 'bg-slate-200 text-slate-500'}`}>
+                      {totalKendalaHarian}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setPetugasMode('dismantled')}
+                    className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'dismantled' ? 'bg-slate-200 border-slate-300 text-slate-800' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'dismantled' ? 'bg-slate-700' : 'bg-slate-300'}`}></div>
+                      Dismantled
+                    </div>
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'dismantled' ? 'bg-slate-300 text-slate-800' : 'bg-slate-200 text-slate-500'}`}>
+                      {totalDismantledHarian}
+                    </span>
+                  </button>
                 </div>
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'ikr' ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-500'}`}>
-                  {dailyStats.ikr}
-                </span>
-              </button>
 
-              <button
-                onClick={() => setPetugasMode('kendala')}
-                className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'kendala' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'kendala' ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
-                  Kendala
+                {/* Status / Notifikasi Sinkronisasi & Selisih BAST */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* 1. NOTIFIKASI SELISIH BAST VS REPORT PETUGAS */}
+                  {bastComparison.hasDiscrepancy && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBastInitialFilter(
+                          bastComparison.unbastCount > 0
+                            ? 'UNBAST'
+                            : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                        );
+                        setShowBastModal(true);
+                      }}
+                      className="text-[10px] sm:text-xs font-bold bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900 px-2.5 py-1.5 rounded-lg border border-amber-300 inline-flex items-center shadow-xs cursor-pointer hover:bg-amber-100 hover:border-amber-400 hover:shadow-sm transition-all group w-max active:scale-95"
+                      title="Klik untuk melihat komparasi dan daftar pelanggan selisih BAST"
+                    >
+                      <span className="relative flex h-2 w-2 mr-1.5 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                      <Icon name="alert-triangle" size={12} className="mr-1.5 text-amber-600 shrink-0" />
+                      <span>
+                        Selisih BAST:{' '}
+                        <span className="font-black text-amber-950 underline decoration-amber-400 underline-offset-2">
+                          {bastComparison.unbastCount > 0
+                            ? `${bastComparison.unbastCount} Belum BAST`
+                            : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : `${bastComparison.diff} Data Berbeda`)}
+                        </span>{' '}
+                        ({bastComparison.totalBast} BAST vs {bastComparison.totalReported} Report)
+                      </span>
+                      <Icon name="chevron-right" size={11} className="ml-1.5 text-amber-600 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    </button>
+                  )}
+
+                  {/* 2. NOTIFIKASI SELISIH IKR VS AKTIVASI (JIKA ADA) */}
+                  {discrepancyList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDiscrepancyModal(true)}
+                      className="text-[10px] sm:text-xs font-bold bg-[#fffbeb] text-[#b45309] px-2.5 py-1.5 rounded-lg border border-[#fcd34d] inline-flex items-center shadow-xs cursor-pointer hover:bg-[#fef3c7] hover:border-amber-400 transition-all group w-max active:scale-95"
+                      title="Klik untuk melihat selisih IKR vs Aktivasi"
+                    >
+                      <Icon name="alert-circle" size={12} className="mr-1.5 text-[#f59e0b] shrink-0" />
+                      <span>Selisih IKR vs Aktivasi: {discrepancyList.length} data</span>
+                      <Icon name="chevron-right" size={11} className="ml-1 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    </button>
+                  )}
+
+                  {/* 3. JIKA SEMUA SINKRON (TIDAK ADA SELISIH BAST DAN TIDAK ADA SELISIH IKR) */}
+                  {!bastComparison.hasDiscrepancy && discrepancyList.length === 0 && (
+                    <div className="text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1.5 rounded-lg border border-emerald-200 inline-flex items-center shadow-xs w-max">
+                      <Icon name="check-circle" size={12} className="mr-1.5 text-emerald-500 shrink-0" />
+                      Semua Data Laporan &amp; BAST Sinkron ({bastComparison.totalReported}/{bastComparison.totalBast})
+                    </div>
+                  )}
                 </div>
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'kendala' ? 'bg-rose-200 text-rose-800' : 'bg-slate-200 text-slate-500'}`}>
-                  {totalKendalaHarian}
-                </span>
-              </button>
+              </div>
 
-              <button
-                onClick={() => setPetugasMode('dismantled')}
-                className={`px-2.5 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold transition-colors border flex items-center ${petugasMode === 'dismantled' ? 'bg-slate-200 border-slate-300 text-slate-800' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${petugasMode === 'dismantled' ? 'bg-slate-700' : 'bg-slate-300'}`}></div>
-                  Dismantled
-                </div>
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${petugasMode === 'dismantled' ? 'bg-slate-300 text-slate-800' : 'bg-slate-200 text-slate-500'}`}>
-                  {totalDismantledHarian}
-                </span>
-              </button>
-            </div>
+              {/* MOBILE LIST LEADERBOARD ALA mobile.html */}
+              <div className="lg:hidden space-y-1.5 pt-1">
+                {chartPetugasData.length === 0 ? (
+                  <div className="text-center text-[11px] text-slate-400 py-6">Belum ada data {petugasMode} di tanggal ini.</div>
+                ) : (
+                  chartPetugasData.map((item, idx) => {
+                    const currentVal = petugasMode === 'aktivasi' ? item.aktivasi : petugasMode === 'ikr' ? item.ikr : petugasMode === 'dismantled' ? item.dismantled : item.kendala;
+                    const maxVal = Math.max(...chartPetugasData.map(p => petugasMode === 'aktivasi' ? p.aktivasi : petugasMode === 'ikr' ? p.ikr : petugasMode === 'dismantled' ? p.dismantled : p.kendala), 1);
+                    const percentage = (currentVal / maxVal) * 100;
+                    const barColor = petugasMode === 'aktivasi' ? 'bg-blue-500' : petugasMode === 'ikr' ? 'bg-emerald-500' : petugasMode === 'dismantled' ? 'bg-slate-600' : 'bg-rose-500';
+                    const textColor = petugasMode === 'aktivasi' ? 'text-blue-600' : petugasMode === 'ikr' ? 'text-emerald-600' : petugasMode === 'dismantled' ? 'text-slate-700' : 'text-rose-600';
+                    const cleanUsername = String(item.nama || '').replace('@', '');
 
-            {/* Status / Notifikasi Sinkronisasi & Selisih BAST */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* 1. NOTIFIKASI SELISIH BAST VS REPORT PETUGAS */}
-              {bastComparison.hasDiscrepancy && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBastInitialFilter(
-                      bastComparison.unbastCount > 0
-                        ? 'UNBAST'
-                        : (bastComparison.unreportedCount > 0 ? 'UNREPORTED' : 'ALL')
+                    return (
+                      <div key={idx} className="flex items-center gap-2.5 py-1 px-1 rounded-lg">
+                        <div className="w-[85px] shrink-0 text-right">
+                          <p className="text-[10px] font-bold text-slate-700 truncate">@{cleanUsername}</p>
+                          <p className="text-[8px] text-slate-400 truncate">{toProperCase(item.stasiun)}</p>
+                        </div>
+
+                        <div className="flex-1 flex items-center gap-2">
+                          <div className={`h-3.5 ${barColor} rounded-sm transition-all duration-700 ease-out`} style={{ width: `${percentage}%` }}></div>
+                          <span className={`text-[11px] font-black ${textColor}`}>{currentVal}</span>
+                        </div>
+                      </div>
                     );
-                    setShowBastModal(true);
-                  }}
-                  className="text-[10px] sm:text-xs font-bold bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900 px-2.5 py-1.5 rounded-lg border border-amber-300 inline-flex items-center shadow-xs cursor-pointer hover:bg-amber-100 hover:border-amber-400 hover:shadow-sm transition-all group w-max active:scale-95"
-                  title="Klik untuk melihat komparasi dan daftar pelanggan selisih BAST"
-                >
-                  <span className="relative flex h-2 w-2 mr-1.5 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                  </span>
-                  <Icon name="alert-triangle" size={12} className="mr-1.5 text-amber-600 shrink-0" />
-                  <span>
-                    Selisih BAST:{' '}
-                    <span className="font-black text-amber-950 underline decoration-amber-400 underline-offset-2">
-                      {bastComparison.unbastCount > 0
-                        ? `${bastComparison.unbastCount} Belum BAST`
-                        : (bastComparison.unreportedCount > 0 ? `${bastComparison.unreportedCount} Belum Lapor` : `${bastComparison.diff} Data Berbeda`)}
-                    </span>{' '}
-                    ({bastComparison.totalBast} BAST vs {bastComparison.totalReported} Report)
-                  </span>
-                  <Icon name="chevron-right" size={11} className="ml-1.5 text-amber-600 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                </button>
-              )}
+                  })
+                )}
+              </div>
 
-              {/* 2. NOTIFIKASI SELISIH IKR VS AKTIVASI (JIKA ADA) */}
-              {discrepancyList.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowDiscrepancyModal(true)}
-                  className="text-[10px] sm:text-xs font-bold bg-[#fffbeb] text-[#b45309] px-2.5 py-1.5 rounded-lg border border-[#fcd34d] inline-flex items-center shadow-xs cursor-pointer hover:bg-[#fef3c7] hover:border-amber-400 transition-all group w-max active:scale-95"
-                  title="Klik untuk melihat selisih IKR vs Aktivasi"
-                >
-                  <Icon name="alert-circle" size={12} className="mr-1.5 text-[#f59e0b] shrink-0" />
-                  <span>Selisih IKR vs Aktivasi: {discrepancyList.length} data</span>
-                  <Icon name="chevron-right" size={11} className="ml-1 opacity-70 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                </button>
-              )}
+              {/* DESKTOP CHART VIEW (>= lg) ASLI */}
+              <div className="hidden lg:block flex-1 relative min-h-[260px] sm:min-h-[300px]">
+                <div className="absolute inset-0 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
+                  {chartPetugasData.length > 0 ? (
+                    <div style={{ height: `${dynamicHeight}px`, minWidth: '180px', width: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
+                        <BarChart data={chartPetugasData} layout="vertical" margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
+                          <XAxis type="number" hide />
+                          <YAxis dataKey="chartKey" type="category" axisLine={false} tickLine={false} width={dynamicYAxisWidth} tick={<CustomYAxisTick />} />
+                          <Tooltip cursor={{ fill: '#f8fafc' }} content={<CustomTooltipPetugas />} />
 
-              {/* 3. JIKA SEMUA SINKRON (TIDAK ADA SELISIH BAST DAN TIDAK ADA SELISIH IKR) */}
-              {!bastComparison.hasDiscrepancy && discrepancyList.length === 0 && (
-                <div className="text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1.5 rounded-lg border border-emerald-200 inline-flex items-center shadow-xs w-max">
-                  <Icon name="check-circle" size={12} className="mr-1.5 text-emerald-500 shrink-0" />
-                  Semua Data Laporan &amp; BAST Sinkron ({bastComparison.totalReported}/{bastComparison.totalBast})
+                          {petugasMode === 'aktivasi' && (
+                            <Bar dataKey="aktivasi" name="Aktivasi" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#3b82f6' }} isAnimationActive={isInitialChartAnimationActive()} />
+                          )}
+                          {petugasMode === 'ikr' && (
+                            <Bar dataKey="ikr" name="IKR" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#10b981' }} isAnimationActive={isInitialChartAnimationActive()} />
+                          )}
+                          {petugasMode === 'kendala' && (
+                            <Bar dataKey="kendala" name="Kendala" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#f43f5e' }} isAnimationActive={isInitialChartAnimationActive()} />
+                          )}
+                          {petugasMode === 'dismantled' && (
+                            <Bar dataKey="dismantled" name="Dismantled" fill="#475569" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#475569' }} isAnimationActive={isInitialChartAnimationActive()} />
+                          )}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-300 min-h-[200px]">
+                      <Icon name="bar-chart-2" size={40} className="mb-2 opacity-20" />
+                      <p className="text-xs sm:text-sm font-medium">Belum ada data {petugasMode.toUpperCase()} di tanggal ini</p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
-
-          {/* MOBILE LIST LEADERBOARD ALA mobile.html */}
-          <div className="lg:hidden space-y-1.5 pt-1">
-            {chartPetugasData.length === 0 ? (
-              <div className="text-center text-[11px] text-slate-400 py-6">Belum ada data {petugasMode} di tanggal ini.</div>
-            ) : (
-              chartPetugasData.map((item, idx) => {
-                const currentVal = petugasMode === 'aktivasi' ? item.aktivasi : petugasMode === 'ikr' ? item.ikr : petugasMode === 'dismantled' ? item.dismantled : item.kendala;
-                const maxVal = Math.max(...chartPetugasData.map(p => petugasMode === 'aktivasi' ? p.aktivasi : petugasMode === 'ikr' ? p.ikr : petugasMode === 'dismantled' ? p.dismantled : p.kendala), 1);
-                const percentage = (currentVal / maxVal) * 100;
-                const barColor = petugasMode === 'aktivasi' ? 'bg-blue-500' : petugasMode === 'ikr' ? 'bg-emerald-500' : petugasMode === 'dismantled' ? 'bg-slate-600' : 'bg-rose-500';
-                const textColor = petugasMode === 'aktivasi' ? 'text-blue-600' : petugasMode === 'ikr' ? 'text-emerald-600' : petugasMode === 'dismantled' ? 'text-slate-700' : 'text-rose-600';
-                const cleanUsername = String(item.nama || '').replace('@', '');
-
-                return (
-                  <div key={idx} className="flex items-center gap-2.5 py-1 px-1 rounded-lg">
-                    <div className="w-[85px] shrink-0 text-right">
-                      <p className="text-[10px] font-bold text-slate-700 truncate">@{cleanUsername}</p>
-                      <p className="text-[8px] text-slate-400 truncate">{toProperCase(item.stasiun)}</p>
-                    </div>
-
-                    <div className="flex-1 flex items-center gap-2">
-                      <div className={`h-3.5 ${barColor} rounded-sm transition-all duration-700 ease-out`} style={{ width: `${percentage}%` }}></div>
-                      <span className={`text-[11px] font-black ${textColor}`}>{currentVal}</span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* DESKTOP CHART VIEW (>= lg) ASLI */}
-          <div className="hidden lg:block flex-1 relative min-h-[260px] sm:min-h-[300px]">
-            <div className="absolute inset-0 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
-              {chartPetugasData.length > 0 ? (
-                <div style={{ height: `${dynamicHeight}px`, minWidth: '180px', width: '100%' }}>
-                  <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
-                    <BarChart data={chartPetugasData} layout="vertical" margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
-                      <XAxis type="number" hide />
-                      <YAxis dataKey="chartKey" type="category" axisLine={false} tickLine={false} width={dynamicYAxisWidth} tick={<CustomYAxisTick />} />
-                      <Tooltip cursor={{ fill: '#f8fafc' }} content={<CustomTooltipPetugas />} />
-
-                      {petugasMode === 'aktivasi' && (
-                        <Bar dataKey="aktivasi" name="Aktivasi" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#3b82f6' }} />
-                      )}
-                      {petugasMode === 'ikr' && (
-                        <Bar dataKey="ikr" name="IKR" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#10b981' }} />
-                      )}
-                      {petugasMode === 'kendala' && (
-                        <Bar dataKey="kendala" name="Kendala" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#f43f5e' }} />
-                      )}
-                      {petugasMode === 'dismantled' && (
-                        <Bar dataKey="dismantled" name="Dismantled" fill="#475569" radius={[0, 4, 4, 0]} barSize={16} label={{ position: 'right', fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
-                      )}
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300 min-h-[200px]">
-                  <Icon name="bar-chart-2" size={40} className="mb-2 opacity-20" />
-                  <p className="text-xs sm:text-sm font-medium">Belum ada data {petugasMode.toUpperCase()} di tanggal ini</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
         </>
       )}
 
       {/* Tampilan Rollout & PO */}
       {viewMode === 'performansi' && (
         <div className="relative">
-          {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+          {isSyncing && <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
 
           <ExecutiveRolloutTracker
             dynamicStationData={dynamicStationData}
@@ -7507,117 +7910,117 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
 
       {/* Riwayat */}
       {viewMode === 'dashboard' && (
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col min-h-[300px] relative">
-        {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col min-h-[300px] relative">
+          {isSyncing && <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div></div>}
 
-        <div className="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-50 gap-4">
-          <div className="flex items-center gap-3">
-            <h2 className="font-bold text-slate-800 flex items-center">
-              <Icon name="clock" className="mr-2 text-blue-500" size={18} />
-              Riwayat Aktivasi
-            </h2>
-            <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-tighter hidden sm:inline-block">
-              {formattedDate}
-            </span>
-          </div>
-
-          <div className="relative w-full sm:w-48">
-            {isHistoryDropdownOpen && (
-              <div className="fixed inset-0 z-[55]" onClick={() => setIsHistoryDropdownOpen(false)}></div>
-            )}
-
-            <div
-              onClick={() => setIsHistoryDropdownOpen(!isHistoryDropdownOpen)}
-              className={`w-full px-3 py-2 bg-slate-50 border ${isHistoryDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg text-xs font-semibold text-slate-600 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
-            >
-              <div className="flex items-center gap-2 truncate">
-                <Icon name="filter" size={14} className="text-slate-400 shrink-0" />
-                <span className="truncate">{historyFilter || 'Semua Stasiun'}</span>
-              </div>
-              <Icon name={isHistoryDropdownOpen ? "chevron-up" : "chevron-down"} size={14} className="text-slate-400 shrink-0 ml-2" />
+          <div className="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-50 gap-4">
+            <div className="flex items-center gap-3">
+              <h2 className="font-bold text-slate-800 flex items-center">
+                <Icon name="clock" className="mr-2 text-blue-500" size={18} />
+                Riwayat Aktivasi
+              </h2>
+              <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-tighter hidden sm:inline-block">
+                {formattedDate}
+              </span>
             </div>
 
-            {isHistoryDropdownOpen && (
-              <div className="absolute right-0 top-full mt-2 w-full bg-white border border-slate-100 shadow-xl rounded-xl py-1.5 z-[60] animate-dropdown max-h-48 overflow-y-auto">
-                <div
-                  onClick={() => { setHistoryFilter(''); setIsHistoryDropdownOpen(false); }}
-                  className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center ${historyFilter === '' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                >
-                  Semua Stasiun
-                  {historyFilter === '' && <Icon name="check" size={12} className="ml-auto" />}
-                </div>
-                {uniqueHistoryStations.map((st, i) => (
-                  <div
-                    key={i}
-                    onClick={() => { setHistoryFilter(st); setIsHistoryDropdownOpen(false); }}
-                    className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center ${historyFilter === st ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                  >
-                    {st}
-                    {historyFilter === st && <Icon name="check" size={12} className="ml-auto" />}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+            <div className="relative w-full sm:w-48">
+              {isHistoryDropdownOpen && (
+                <div className="fixed inset-0 z-[55]" onClick={() => setIsHistoryDropdownOpen(false)}></div>
+              )}
 
-        <div className="flex-1 overflow-auto max-h-[500px] custom-scrollbar rounded-b-xl">
-          <div className="divide-y divide-slate-100 pb-2">
-            {historyAktivasi.length > 0 ? (
-              historyAktivasi.map((item, i) => (
-                <div key={i} className="p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-                  <div className="flex items-start gap-3 flex-1 min-w-0 w-full">
-                    <div className="p-1.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0 mt-0.5">
-                      <Icon name="check-circle" size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <h4 className="font-bold text-[12px] sm:text-[13px] text-slate-800 truncate">{item.namaPelanggan || 'Tanpa Nama'}</h4>
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[8px] sm:text-[9px] font-bold rounded border border-slate-200 shrink-0">
-                          {toProperCase(item.stasiun)}
-                        </span>
-                      </div>
-                      <p className="text-[9.5px] sm:text-[11px] text-slate-500 mb-1.5 truncate">{item.alamat || '-'}</p>
-                      <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-2.5 gap-y-1 text-[8.5px] sm:text-[11px] font-semibold sm:font-medium text-slate-500 sm:text-slate-600">
-                        <span className="flex items-center" title="ID Pelanggan"><Icon name="hash" size={9} className="mr-1 text-slate-400" />{item.idPelanggan || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
-                        <span className="flex items-center" title="ODP Aktual"><Icon name="box" size={9} className="mr-1 text-slate-400" />{item.odpAktual || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
-                        <span className="flex items-center" title="Port"><Icon name="link" size={9} className="mr-1 text-slate-400" />Port {item.portOdp || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
-                        <span className="flex items-center" title="Kabel Precon"><Icon name="git-commit" size={9} className="mr-1 text-slate-400" />{item.kabelPrecon || '-'}</span>
-                        <span className="text-slate-300 hidden sm:inline">â€¢</span>
-                        <span className="flex items-center text-slate-500" title="SN ONT"><Icon name="cpu" size={9} className="mr-1 text-slate-400" />{item.snOnt || '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between w-[calc(100%-36px)] sm:w-auto shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 gap-1.5 ml-9 sm:ml-0">
-                    <div className="text-[8.5px] sm:text-[10px] text-slate-400 font-medium flex items-center">
-                      <Icon name="clock" size={9} className="mr-1" />
-                      {item.time} WIB
-                    </div>
-                    <div className="flex items-center gap-1 text-[8.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                      <Icon name="user" size={9} />
-                      {item.petugasAktivasi || '-'}
-                    </div>
-                  </div>
+              <div
+                onClick={() => setIsHistoryDropdownOpen(!isHistoryDropdownOpen)}
+                className={`w-full px-3 py-2 bg-slate-50 border ${isHistoryDropdownOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} rounded-lg text-xs font-semibold text-slate-600 flex justify-between items-center cursor-pointer transition-all hover:bg-slate-100 relative z-[56] select-none`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <Icon name="filter" size={14} className="text-slate-400 shrink-0" />
+                  <span className="truncate">{historyFilter || 'Semua Stasiun'}</span>
                 </div>
-              ))
-            ) : (
-              <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 h-full min-h-[200px]">
-                <Icon name="inbox" size={48} className="mb-3 opacity-20" />
-                <p className="text-sm font-medium">Belum ada riwayat aktivasi {historyFilter ? `untuk ${historyFilter}` : 'di tanggal ini'}</p>
+                <Icon name={isHistoryDropdownOpen ? "chevron-up" : "chevron-down"} size={14} className="text-slate-400 shrink-0 ml-2" />
               </div>
-            )}
+
+              {isHistoryDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-full bg-white border border-slate-100 shadow-xl rounded-xl py-1.5 z-[60] animate-dropdown max-h-48 overflow-y-auto">
+                  <div
+                    onClick={() => { setHistoryFilter(''); setIsHistoryDropdownOpen(false); }}
+                    className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center ${historyFilter === '' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+                  >
+                    Semua Stasiun
+                    {historyFilter === '' && <Icon name="check" size={12} className="ml-auto" />}
+                  </div>
+                  {uniqueHistoryStations.map((st, i) => (
+                    <div
+                      key={i}
+                      onClick={() => { setHistoryFilter(st); setIsHistoryDropdownOpen(false); }}
+                      className={`px-4 py-2.5 text-xs cursor-pointer transition-colors flex items-center ${historyFilter === st ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+                    >
+                      {st}
+                      {historyFilter === st && <Icon name="check" size={12} className="ml-auto" />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto max-h-[500px] custom-scrollbar rounded-b-xl">
+            <div className="divide-y divide-slate-100 pb-2">
+              {historyAktivasi.length > 0 ? (
+                historyAktivasi.map((item, i) => (
+                  <div key={i} className="p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                    <div className="flex items-start gap-3 flex-1 min-w-0 w-full">
+                      <div className="p-1.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0 mt-0.5">
+                        <Icon name="check-circle" size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h4 className="font-bold text-[12px] sm:text-[13px] text-slate-800 truncate">{item.namaPelanggan || 'Tanpa Nama'}</h4>
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[8px] sm:text-[9px] font-bold rounded border border-slate-200 shrink-0">
+                            {toProperCase(item.stasiun)}
+                          </span>
+                        </div>
+                        <p className="text-[9.5px] sm:text-[11px] text-slate-500 mb-1.5 truncate">{item.alamat || '-'}</p>
+                        <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-2.5 gap-y-1 text-[8.5px] sm:text-[11px] font-semibold sm:font-medium text-slate-500 sm:text-slate-600">
+                          <span className="flex items-center" title="ID Pelanggan"><Icon name="hash" size={9} className="mr-1 text-slate-400" />{item.idPelanggan || '-'}</span>
+                          <span className="text-slate-300 hidden sm:inline">&bull;</span>
+                          <span className="flex items-center" title="ODP Aktual"><Icon name="box" size={9} className="mr-1 text-slate-400" />{item.odpAktual || '-'}</span>
+                          <span className="text-slate-300 hidden sm:inline">&bull;</span>
+                          <span className="flex items-center" title="Port"><Icon name="link" size={9} className="mr-1 text-slate-400" />Port {item.portOdp || '-'}</span>
+                          <span className="text-slate-300 hidden sm:inline">&bull;</span>
+                          <span className="flex items-center" title="Kabel Precon"><Icon name="git-commit" size={9} className="mr-1 text-slate-400" />{item.kabelPrecon || '-'}</span>
+                          <span className="text-slate-300 hidden sm:inline">&bull;</span>
+                          <span className="flex items-center text-slate-500" title="SN ONT"><Icon name="cpu" size={9} className="mr-1 text-slate-400" />{item.snOnt || '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between w-[calc(100%-36px)] sm:w-auto shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 gap-1.5 ml-9 sm:ml-0">
+                      <div className="text-[8.5px] sm:text-[10px] text-slate-400 font-medium flex items-center">
+                        <Icon name="clock" size={9} className="mr-1" />
+                        {item.time} WIB
+                      </div>
+                      <div className="flex items-center gap-1 text-[8.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                        <Icon name="user" size={9} />
+                        {item.petugasAktivasi || '-'}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400 h-full min-h-[200px]">
+                  <Icon name="inbox" size={48} className="mb-3 opacity-20" />
+                  <p className="text-sm font-medium">Belum ada riwayat aktivasi {historyFilter ? `untuk ${historyFilter}` : 'di tanggal ini'}</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* --- MODAL SELISIH LAPORAN --- */}
       {showDiscrepancyModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDiscrepancyModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setShowDiscrepancyModal(false)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
@@ -7727,7 +8130,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {/* --- MODAL KENDALA HARIAN --- */}
       {showKendalaModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowKendalaModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setShowKendalaModal(false)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
@@ -7829,7 +8232,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {/* --- MODAL VISIT / GANGGUAN --- */}
       {showVisitModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowVisitModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setShowVisitModal(false)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
@@ -8024,7 +8427,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {/* --- MODAL DAFTAR REGISTRASI STASIUN --- */}
       {selectedRegStation && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setSelectedRegStation(null)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setSelectedRegStation(null)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
@@ -8050,7 +8453,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                       const isMissing = !sales;
                       if (isMandiri) sales = 'Daftar Mandiri';
                       else if (isMissing) sales = '-';
-                      
+
                       return (
                         <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between gap-2.5">
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -8062,11 +8465,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{cust.idPelanggan || '-'}</span>
                                 <span className="text-[8.5px] uppercase font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{toProperCase(cust.stasiun)}</span>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${
-                                  isMandiri || isMissing
-                                    ? 'bg-slate-50 text-slate-500 border-slate-200 italic font-normal'
-                                    : 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
-                                }`}>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${isMandiri || isMissing
+                                  ? 'bg-slate-50 text-slate-500 border-slate-200 italic font-normal'
+                                  : 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                                  }`}>
                                   <Icon name="user" size={9} className={(isMandiri || isMissing) ? "text-slate-400" : "text-blue-500"} />
                                   {sales}
                                 </span>
@@ -8117,11 +8519,10 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
                             <td className="px-6 py-3 font-mono text-xs text-slate-600 font-medium">{cust.idPelanggan || '-'}</td>
                             <td className="px-6 py-3 font-bold text-slate-800">{cust.namaPelanggan || 'Tanpa Nama'}</td>
                             <td className="px-6 py-3">
-                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
-                                isMandiri || isMissing
-                                  ? 'bg-slate-100 text-slate-500 border-slate-200 italic font-normal'
-                                  : 'bg-blue-50 text-blue-700 border-blue-200'
-                              }`}>
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${isMandiri || isMissing
+                                ? 'bg-slate-100 text-slate-500 border-slate-200 italic font-normal'
+                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                                }`}>
                                 <Icon name="user" size={12} className={(isMandiri || isMissing) ? "text-slate-400" : "text-blue-500"} />
                                 {sales}
                               </span>
@@ -8165,7 +8566,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       {/* --- MODAL DAFTAR DISMANTLED --- */}
       {showDismantledModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDismantledModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setShowDismantledModal(false)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[95vh] overflow-hidden">
             <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div>
@@ -8329,7 +8730,7 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         onClose={() => setShowBastModal(false)}
         bastData={partnerBastData.length > 0 ? partnerBastData : (data.pelangganData || []).filter(p => {
           const isAkt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase().includes('sudah') ||
-                        String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
+            String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').toLowerCase() === 'aktif';
           const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAkt ? (p.tanggalRegistrasi || p.createdAt) : '');
           return standardizeDate(rawAkt) === selectedDate;
         }).map(p => ({
@@ -8645,7 +9046,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
         .animated-polyline { animation: dash-animation 1s linear infinite; }
         @keyframes dash-animation { to { stroke-dashoffset: -20; } }
       `}</style>
-      <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-950/70" onClick={onClose}></div>
 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[92vh] max-h-[92vh] relative z-10 animate-modal flex flex-col overflow-hidden border border-slate-100">
         {/* Header */}
@@ -8671,7 +9072,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                 )}
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                {customer?.alamat ? `Alamat: ${customer.alamat} â€¢ ` : ''}
+                {customer?.alamat ? `Alamat: ${customer.alamat} \u2022 ` : ''}
                 Koordinat: {customer?.latitude || '-'}, {customer?.longitude || '-'}
               </p>
             </div>
@@ -8853,7 +9254,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                 <div ref={mapRef} className="w-full h-full relative z-0" />
 
                 {/* Floating Legend Overlay */}
-                <div className="absolute top-3 left-3 z-[500] bg-white/95 backdrop-blur-md px-3 py-2.5 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-semibold text-slate-700 space-y-1.5 hidden sm:block">
+                <div className="absolute top-3 left-3 z-[500] bg-white px-3 py-2.5 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-semibold text-slate-700 space-y-1.5 hidden sm:block">
                   <div
                     onClick={handleCenterCustomer}
                     className="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors"
@@ -8879,7 +9280,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                 {/* Floating Top-Right Controls Bar (Unified Flex Container - Bebas Tabrakan) */}
                 <div className="absolute top-3 right-3 z-[500] flex items-center gap-2">
                   {/* Switcher Tipe Peta */}
-                  <div className="flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl border border-slate-200/90 shadow-md">
+                  <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200/90 shadow-md">
                     <button
                       type="button"
                       onClick={() => setBasemapType('streets')}
@@ -8912,7 +9313,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
 
                 {/* Floating Selected ODP Banner at Bottom of Map */}
                 {selectedOdp && (
-                  <div className="absolute bottom-4 left-4 right-4 z-[500] max-w-xl mx-auto bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-xl flex items-center justify-between gap-3 animate-fade">
+                  <div className="absolute bottom-4 left-4 right-4 z-[500] max-w-xl mx-auto bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xl flex items-center justify-between gap-3 animate-fade">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-black text-xs sm:text-sm text-slate-800 truncate">
@@ -8927,7 +9328,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
                           <Icon name="navigation" size={12} className={isRouting ? 'animate-spin' : ''} />
                           {isRouting ? 'Menghitung jalur kabel...' : realRouteDistance !== null ? `${realRouteDistance} meter (Jalur Kabel)` : `~${selectedOdp.distance} meter (Tarik Lurus)`}
                         </span>
-                        <span className="text-slate-400">â€¢</span>
+                        <span className="text-slate-400">&bull;</span>
                         <span className="text-slate-500">{toProperCase(selectedOdp.stasiun || '')}</span>
                       </div>
                     </div>
@@ -9319,7 +9720,7 @@ function QuickScanCoverageModal({
   };
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-2.5 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/70 animate-fade">
       {/* Toast Alert */}
       {toastMsg && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[110] bg-slate-900 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-slate-700 animate-dropdown">
@@ -9789,7 +10190,7 @@ function QuickScanCoverageModal({
                 <strong className="text-slate-800">{targetList.length}</strong> pelanggan hasil scan.
                 {stats.covered > 0 && (
                   <span className="ml-1 text-emerald-700 font-bold hidden md:inline">
-                    â€¢ {stats.covered} pelanggan siap diproses penarikan jaringan!
+                    {'\u2022'} {stats.covered} pelanggan siap diproses penarikan jaringan!
                   </span>
                 )}
               </>
@@ -9848,7 +10249,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
   }, [onClose, dontShowAgain]);
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/50 backdrop-blur-md animate-fade">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 animate-fade">
       <div className="bg-white rounded-2xl shadow-2xl shadow-slate-950/40 w-full max-w-[490px] flex flex-col relative z-10 animate-modal overflow-hidden border-0 outline-none">
         {/* HEADER MODAL COMPACT */}
         <div className="relative px-4 py-3 sm:px-5 sm:py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white overflow-hidden shrink-0">
@@ -9857,9 +10258,9 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-1">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/15 backdrop-blur-md border border-white/20 text-white tracking-wide shadow-xs">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/20 border border-white/20 text-white tracking-wide shadow-xs">
                 <Icon name="sparkles" size={11} className="text-amber-300" />
-                <span>Pembaruan v2.6</span>
+                <span>Pembaruan v2.7</span>
               </span>
               <button
                 type="button"
@@ -9882,79 +10283,79 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 
         {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Penambahan Peta Pelanggan (GIS) */}
+          {/* FITUR 1: Monitoring Performansi Tim Lapangan */}
           <div
-            onClick={() => onTryFeature('peta-pelanggan', dontShowAgain)}
+            onClick={() => onTryFeature('team', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Visualisasi Peta Pelanggan"
+            title="Klik untuk buka Monitoring Performansi Tim Lapangan"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="map-pin" size={16} />
+                <Icon name="users" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-                    Peta Sebaran Pelanggan (GIS)
+                    Monitoring Performansi Tim Lapangan
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
-                    Menu Peta Pelanggan
+                    Menu Monitoring Tim
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Visualisasi sebaran pelanggan interaktif berbasis koordinat GPS, filter stasiun & status aktivasi, serta integrasi titik ODP aktual untuk memudahkan analisis jangkauan jaringan.
+                  Evaluasi performansi tim teknisi per stasiun & TL, plotting tim harian, serta rincian tugas terintegrasi.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* FITUR 2: Badge BAST dari Web Partner Starlite di Tabel Report Petugas */}
+          {/* FITUR 2: Monitoring Gangguan Massal (Gamas) */}
           <div
-            onClick={() => onTryFeature('dashboard', dontShowAgain)}
+            onClick={() => onTryFeature('gamas', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-rose-50/50 via-white to-white border border-rose-100/80 hover:border-rose-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Klik untuk buka Monitoring Gangguan Massal (Gamas)"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-red-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="activity" size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-rose-600 transition-colors">
+                    Monitoring Gangguan Massal (Gamas)
+                  </h3>
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-100/80 text-rose-700">
+                    Menu Monitoring Gamas
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  Dashboard pemantauan dan tracking tiket gangguan massal (Gamas) real-time untuk penanganan insiden jaringan terpadu.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* FITUR 3: Coverage Area Realtime dari API Partner */}
+          <div
+            onClick={() => onTryFeature('coverage', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Dashboard Report Petugas"
+            title="Klik untuk buka ODP Coverage Area"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="check-circle" size={16} />
+                <Icon name="map" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Badge BAST Web Partner Starlite
+                    Coverage Area Realtime dari API Partner
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
-                    Report Petugas Lapangan
+                    Menu ODP Coverage
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Penambahan badge BAST live dari API Web Partner pada header Report Petugas Lapangan, lengkap dengan pop-up rincian dan komparasi real-time status laporan harian.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* FITUR 3: Sinkronisasi Nama Sales dari API Partner */}
-          <div
-            onClick={() => onTryFeature('database', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-amber-50/50 via-white to-white border border-amber-100/80 hover:border-amber-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Data Pelanggan & Sinkronkan"
-          >
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="refresh-cw" size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-amber-600 transition-colors">
-                    Sinkronisasi Nama Sales API Partner
-                  </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100/80 text-amber-800">
-                    Tombol Sinkronkan Data
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-snug">
-                  Tombol "Sinkronkan Data" kini otomatis memicu sinkronisasi nama sales dari API Partner ke database secara langsung tanpa mengubah data koordinat maupun status aktivasi.
+                  Peta jangkauan dan coverage area ODP yang tersinkronisasi langsung secara real-time dari API Partner Starlite.
                 </p>
               </div>
             </div>
@@ -9983,10 +10384,10 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             </button>
             <button
               type="button"
-              onClick={() => onTryFeature('peta-pelanggan', dontShowAgain)}
+              onClick={() => onTryFeature('team', dontShowAgain)}
               className="px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
             >
-              <span>Jelajahi Fitur</span>
+              <span>Buka Monitoring Tim</span>
               <Icon name="arrow-right" size={13} />
             </button>
           </div>
@@ -10000,7 +10401,41 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 // ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
-function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
+function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
+  const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Tipe penugasan WO operasional (visit, aktivasi, dismantle)
+  const initialWoTask = useMemo(() => {
+    if (initialTask) return initialTask;
+    const rawAkt = String(data?.aktivasi || '').trim().toLowerCase();
+    const globalStat = String(getGlobalStatusStr(data || {})).toUpperCase();
+    if (rawAkt === 'ready to dismantle' || rawAkt === 'suspend' || rawAkt === 'dismantled' || globalStat.includes('DISMANTLE') || globalStat.includes('SUSPEND')) {
+      return 'dismantle';
+    }
+    if (rawAkt === 'belum' || rawAkt === 'waiting' || rawAkt === 'kendala' || globalStat.includes('KENDALA')) {
+      return 'aktivasi';
+    }
+    return 'visit';
+  }, [initialTask, data]);
+
+  const [woTaskType, setWoTaskType] = useState(initialWoTask);
+
+  useEffect(() => {
+    if (initialTask) {
+      setWoTaskType(initialTask);
+    } else if (data) {
+      const rawAkt = String(data?.aktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(data || {})).toUpperCase();
+      if (rawAkt === 'ready to dismantle' || rawAkt === 'suspend' || rawAkt === 'dismantled' || globalStat.includes('DISMANTLE') || globalStat.includes('SUSPEND')) {
+        setWoTaskType('dismantle');
+      } else if (rawAkt === 'belum' || rawAkt === 'waiting' || rawAkt === 'kendala' || globalStat.includes('KENDALA')) {
+        setWoTaskType('aktivasi');
+      } else {
+        setWoTaskType('visit');
+      }
+    }
+  }, [initialTask, data]);
+
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
     namaPelanggan: data?.namaPelanggan || '',
@@ -10008,7 +10443,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     alamat: data?.alamat || '',
     stasiun: data?.stasiun || '',
     nomorHp: data?.nomorHp || '',
-    odpAktual: data?.odpAktual || '',
+    odpAktual: data?.odpAktual || data?.odp || data?.kodeOdp || '',
     portOdp: data?.portOdp || '',
     snOnt: data?.snOnt || '',
     latitude: data?.latitude || '',
@@ -10018,11 +10453,15 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     issueKendala: data?.issueKendala || '',
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
-    petugas: '', // Note: This still stores the Name in state for the UI dropdown
+    petugas: data?.petugasIkr || data?.petugasAktivasi || '',
     petugasIkr: data?.petugasIkr || '',
     petugasAktivasi: data?.petugasAktivasi || '',
-    tanggalDismantle: data?.tanggalDismantle || '',
-    reasonDismantle: data?.reasonDismantle || ''
+    tglIkr: data?.tglIkr ? (String(data.tglIkr).includes('T') ? data.tglIkr.split('T')[0] : String(data.tglIkr).split(' ')[0]) : todayDateStr,
+    tanggalDismantle: data?.tanggalDismantle ? (String(data.tanggalDismantle).includes('T') ? data.tanggalDismantle.split('T')[0] : String(data.tanggalDismantle).split(' ')[0]) : todayDateStr,
+    reasonDismantle: data?.reasonDismantle || '',
+    alasanDismantle: 'Permintaan Berhenti Langganan',
+    catatanAktivasi: '',
+    catatanDismantle: ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -10034,6 +10473,20 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   const [editValue, setEditValue] = useState('');
   const [showCoveragePopup, setShowCoveragePopup] = useState(false);
 
+  // Status tampilan global untuk badge profil
+  const displayStatusStr = useMemo(() => {
+    const rawAkt = String(internalData?.aktivasi || '').trim().toLowerCase();
+    const globalStat = String(getGlobalStatusStr(internalData || {})).toUpperCase();
+    if (globalStat.includes('KENDALA')) return 'KENDALA';
+    if (rawAkt === 'sudah') return 'AKTIF';
+    if (rawAkt === 'belum') return 'WAITING';
+    if (rawAkt === 'kendala') return 'KENDALA';
+    if (rawAkt === 'ready to dismantle') return 'READY TO DISMANTLE';
+    if (rawAkt === 'dismantled') return 'DISMANTLED';
+    if (rawAkt === 'suspend') return 'SUSPEND';
+    return getGlobalStatusStr(internalData || {});
+  }, [internalData]);
+
   // <--- STATE UNTUK DROPDOWN PETUGAS
   const [isPetugasOpen, setIsPetugasOpen] = useState(false);
   const [petugasSearch, setPetugasSearch] = useState('');
@@ -10043,7 +10496,7 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
     try {
       const cached = getCachedData('otas_teknisi_cache');
       if (cached && Array.isArray(cached) && cached.length > 0) return cached;
-    } catch (e) {}
+    } catch (e) { }
     return [];
   }, [petugasList]);
 
@@ -10058,6 +10511,19 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
       return nama.includes(q) || username.includes(q) || stasiun.includes(q);
     });
   }, [effectivePetugasList, petugasSearch]);
+
+  const selectedPetugasObj = useMemo(() => {
+    if (!formData.petugas || !effectivePetugasList || effectivePetugasList.length === 0) return null;
+    const pName = String(formData.petugas).trim().toLowerCase();
+    const cleanP = pName.replace(/^@/, '');
+    const matches = effectivePetugasList.filter(t =>
+      String(t.nama || '').trim().toLowerCase() === pName ||
+      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanP ||
+      String(t.id || '') === pName
+    );
+    if (matches.length === 0) return null;
+    return matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0];
+  }, [formData.petugas, effectivePetugasList]);
 
   // STATE UNTUK CUSTOM DROPDOWN KELUHAN
   const [isKeluhanOpen, setIsKeluhanOpen] = useState(false);
@@ -10107,13 +10573,16 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
   let title = ""; let icon = "";
   if (type === 'edit') { title = "Edit Data Pelanggan"; icon = "edit"; }
   else if (type === 'add') { title = "Tambah Pelanggan Baru"; icon = "user-plus"; }
-  else if (type === 'log') { title = "Input Visit / Gangguan"; icon = "headset"; }
+  else if (type === 'log') {
+    if (woTaskType === 'aktivasi') { title = "Penugasan WO: Aktivasi / IKR Baru"; icon = "zap"; }
+    else if (woTaskType === 'dismantle') { title = "Penugasan WO: Dismantle / Tarik Perangkat"; icon = "package-minus"; }
+    else { title = "Penugasan WO: Visit / Gangguan"; icon = "wrench"; }
+  }
   else if (type === 'detail') { title = "Detail Profil Pelanggan"; icon = "user"; }
 
   const formatDateStr = (dateStr) => {
     if (!dateStr) return '-';
-    if (typeof dateStr === 'string' && dateStr.includes('T')) return dateStr.split('T')[0];
-    return dateStr;
+    return formatDateDisplay(dateStr) || dateStr;
   };
 
   const getDriveDirectUrl = (url) => {
@@ -10238,16 +10707,18 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
   const handleSave = () => {
     try {
-      // --- LOGIKA HELPDESK (INPUT VISIT) ---
+      // --- LOGIKA WO OPERASIONAL (VISIT, AKTIVASI, DISMANTLE) ---
       if (type === 'log') {
-        if (!formData.catatanKendala.trim()) { setMessage({ type: 'error', text: 'Deskripsi wajib diisi!' }); return; }
-        setIsSaving(true); setMessage(null);
-
-        // --- PERBAIKAN LOGIKA PETUGAS DISINI ---
-        let usernamePetugas = formData.petugas; // Defaultnya nama jika gagal ketemu
         const listTeknisi = (petugasList && petugasList.length > 0) ? petugasList : effectivePetugasList;
+        let usernamePetugas = formData.petugas;
         if (formData.petugas && listTeknisi.length > 0) {
-          const teknisiTerpilih = listTeknisi.find(t => t.nama === formData.petugas || t.username === formData.petugas);
+          const cleanInput = String(formData.petugas).replace(/^@/, '').toLowerCase().trim();
+          const matches = listTeknisi.filter(t =>
+            String(t.username || '').replace(/^@/, '').toLowerCase().trim() === cleanInput ||
+            String(t.nama || '').trim().toLowerCase() === cleanInput ||
+            String(t.nama || '').trim().toLowerCase() === String(formData.petugas).trim().toLowerCase()
+          );
+          const teknisiTerpilih = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0];
           if (teknisiTerpilih && teknisiTerpilih.username) {
             usernamePetugas = teknisiTerpilih.username.startsWith('@')
               ? teknisiTerpilih.username
@@ -10255,25 +10726,188 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           }
         }
 
-        const payload = {
-          idPelanggan: data.idPelanggan || '', namaPelanggan: data.namaPelanggan || '', stasiun: data.stasiun || '',
-          keluhan: formData.keluhan || '', catatan: formData.catatanKendala || '', snOnt: data.snOnt || '',
-          odpAktual: data.kodeOdp || data.odpAktual || '', portOdp: data.portOdp || '',
-          nomorHp: data.nomorHp || '', latitude: data.latitude || '', longitude: data.longitude || '',
-          petugas: usernamePetugas
-        };
+        // 1. TUGAS VISIT GANGGUAN
+        if (woTaskType === 'visit') {
+          if (!formData.catatanKendala.trim()) {
+            setMessage({ type: 'error', text: 'Deskripsi kendala wajib diisi!' });
+            return;
+          }
+          setIsSaving(true);
+          setMessage(null);
 
-        const finalizeSuccessLog = () => {
-          try { if (onLocalVisitUpdate) onLocalVisitUpdate('add', payload); } catch (e) { console.error("Abaikan error tabel:", e); }
-          setIsSaving(false); setIsSuccess(true);
-          setTimeout(() => onClose(false), 1500);
-        };
+          const payload = {
+            idPelanggan: data.idPelanggan || '',
+            namaPelanggan: data.namaPelanggan || '',
+            stasiun: data.stasiun || '',
+            keluhan: formData.keluhan || '',
+            catatan: formData.catatanKendala || '',
+            snOnt: data.snOnt || '',
+            odpAktual: data.kodeOdp || data.odpAktual || '',
+            portOdp: data.portOdp || '',
+            nomorHp: data.nomorHp || '',
+            latitude: data.latitude || '',
+            longitude: data.longitude || '',
+            petugas: usernamePetugas
+          };
 
-        // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
-        sendTelegramVisitDM(payload, listTeknisi);
+          const finalizeSuccessLog = () => {
+            try { if (onLocalVisitUpdate) onLocalVisitUpdate('add', payload); } catch (e) { console.error("Abaikan error tabel:", e); }
+            setIsSaving(false);
+            setIsSuccess(true);
+            setTimeout(() => onClose(false), 1500);
+          };
 
-        finalizeSuccessLog();
-        return;
+          sendTelegramVisitDM(payload, listTeknisi);
+          finalizeSuccessLog();
+          return;
+        }
+
+        // 2. TUGAS AKTIVASI / IKR
+        if (woTaskType === 'aktivasi') {
+          if (!formData.petugas || !String(formData.petugas).trim()) {
+            setMessage({ type: 'error', text: 'Pilih atau tentukan teknisi IKR yang ditugaskan terlebih dahulu!' });
+            return;
+          }
+          setIsSaving(true);
+          setMessage(null);
+
+          const formatTgl = (tgl) => {
+            if (!tgl) return null;
+            if (tgl.includes('T')) {
+              let f = tgl.replace('T', ' ');
+              if (f.length === 16) f += ':00';
+              return f;
+            }
+            if (/^\d{4}-\d{2}-\d{2}$/.test(tgl)) return `${tgl} 09:00:00`;
+            return tgl;
+          };
+
+          const tglIkrFormatted = formatTgl(formData.tglIkr);
+          const catatanBaru = formData.catatanAktivasi?.trim()
+            ? (data?.catatan ? `${data.catatan}\n[WO AKTIVASI] ${formData.catatanAktivasi.trim()}` : `[WO AKTIVASI] ${formData.catatanAktivasi.trim()}`)
+            : (data?.catatan || '');
+
+          const updateData = {
+            petugas_ikr: usernamePetugas,
+            petugas_aktivasi: usernamePetugas,
+            tgl_ikr: tglIkrFormatted,
+            catatan: catatanBaru
+          };
+
+          const doSaveAktivasi = async () => {
+            try {
+              const { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
+              if (sbErr) throw sbErr;
+
+              const localUpdated = {
+                ...data,
+                petugasIkr: usernamePetugas,
+                petugasAktivasi: usernamePetugas,
+                tglIkr: tglIkrFormatted,
+                catatan: catatanBaru
+              };
+
+              if (onLocalPelangganUpdate) onLocalPelangganUpdate([localUpdated]);
+
+              const telePayload = {
+                idPelanggan: data.idPelanggan || '',
+                namaPelanggan: data.namaPelanggan || '',
+                stasiun: data.stasiun || '',
+                alamat: data.alamat || '',
+                latitude: data.latitude || '',
+                longitude: data.longitude || '',
+                nomorHp: data.nomorHp || '',
+                odpAktual: data.kodeOdp || data.odpAktual || '',
+                portOdp: data.portOdp || '',
+                tglIkr: formData.tglIkr || '',
+                catatan: formData.catatanAktivasi || '',
+                petugas: usernamePetugas
+              };
+              sendTelegramAktivasiDM(telePayload, listTeknisi);
+
+              setIsSaving(false);
+              setIsSuccess(true);
+              setTimeout(() => onClose(false), 1500);
+            } catch (err) {
+              console.error("Gagal simpan WO Aktivasi:", err);
+              setIsSaving(false);
+              setMessage({ type: 'error', text: err.message || 'Gagal menyimpan penugasan WO Aktivasi' });
+            }
+          };
+
+          doSaveAktivasi();
+          return;
+        }
+
+        // 3. TUGAS DISMANTLE / TARIK PERANGKAT
+        if (woTaskType === 'dismantle') {
+          if (!formData.petugas || !String(formData.petugas).trim()) {
+            setMessage({ type: 'error', text: 'Pilih atau tentukan teknisi penarikan dismantle terlebih dahulu!' });
+            return;
+          }
+          setIsSaving(true);
+          setMessage(null);
+
+          const tglDismantle = formData.tanggalDismantle || new Date().toISOString().split('T')[0];
+          const reasonStr = `[WO DISMANTLE] Teknisi: ${usernamePetugas} | Alasan: ${formData.alasanDismantle || 'Permintaan Berhenti Langganan'}${formData.catatanDismantle?.trim() ? ` | Catatan: ${formData.catatanDismantle.trim()}` : ''}`;
+
+          const updateData = {
+            status_aktivasi: 'Ready To Dismantle',
+            tanggal_dismantle: tglDismantle,
+            reason_dismantle: reasonStr
+          };
+          if (formData.snOnt && formData.snOnt.trim()) {
+            updateData.sn_ont = formData.snOnt.trim();
+          }
+
+          const doSaveDismantle = async () => {
+            try {
+              const { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
+              if (sbErr) throw sbErr;
+
+              const localUpdated = {
+                ...data,
+                aktivasi: 'Ready To Dismantle',
+                statusAktivasi: 'Ready To Dismantle',
+                status_aktivasi: 'Ready To Dismantle',
+                tanggalDismantle: tglDismantle,
+                tanggal_dismantle: tglDismantle,
+                reasonDismantle: reasonStr,
+                reason_dismantle: reasonStr,
+                ...(formData.snOnt && formData.snOnt.trim() ? { snOnt: formData.snOnt.trim(), sn_ont: formData.snOnt.trim() } : {})
+              };
+
+              if (onLocalPelangganUpdate) onLocalPelangganUpdate([localUpdated]);
+
+              const telePayload = {
+                idPelanggan: data.idPelanggan || '',
+                namaPelanggan: data.namaPelanggan || '',
+                stasiun: data.stasiun || '',
+                alamat: data.alamat || '',
+                latitude: data.latitude || '',
+                longitude: data.longitude || '',
+                nomorHp: data.nomorHp || '',
+                snOnt: formData.snOnt || data.snOnt || '',
+                tanggalDismantle: tglDismantle,
+                reasonDismantle: formData.alasanDismantle || 'Permintaan Berhenti Langganan',
+                catatan: formData.catatanDismantle || '',
+                petugas: usernamePetugas
+              };
+              sendTelegramDismantleDM(telePayload, listTeknisi);
+
+              setIsSaving(false);
+              setIsSuccess(true);
+              setTimeout(() => onClose(false), 1500);
+            } catch (err) {
+              console.error("Gagal simpan WO Dismantle:", err);
+              setIsSaving(false);
+              setMessage({ type: 'error', text: err.message || 'Gagal menyimpan penugasan WO Dismantle' });
+            }
+          };
+
+          doSaveDismantle();
+          return;
+        }
       } // <--- KURUNG KURAWAL INI YANG SEBELUMNYA HILANG
 
       // --- LOGIKA PELANGGAN BARU ---
@@ -10428,28 +11062,56 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 animate-modal flex flex-col max-h-[85vh] sm:max-h-[90vh] overflow-hidden">
 
         {isSaving && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-[999] flex flex-col items-center justify-center animate-fade">
+          <div className="absolute inset-0 bg-white/95 z-[999] flex flex-col items-center justify-center animate-fade">
             <div className="w-14 h-14 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4 shadow-md"></div>
             <h3 className="text-base font-bold text-slate-800">
-              {type === 'add' ? 'Menyimpan Pelanggan Baru...' : type === 'log' ? 'Membuat Tiket Visit...' : 'Menyimpan Perubahan...'}
+              {type === 'add'
+                ? 'Menyimpan Pelanggan Baru...'
+                : type === 'log'
+                  ? (woTaskType === 'aktivasi'
+                      ? 'Menyimpan & Mengirim WO Aktivasi...'
+                      : woTaskType === 'dismantle'
+                        ? 'Menyimpan & Mengirim WO Dismantle...'
+                        : 'Membuat Tiket Visit...')
+                  : 'Menyimpan Perubahan...'}
             </h3>
           </div>
         )}
 
         {/* LAYAR NOTIFIKASI SUKSES (TAMBAHKAN KODE INI) */}
         {isSuccess && (
-          <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-[1000] flex flex-col items-center justify-center animate-fade">
+          <div className="absolute inset-0 bg-white/95 z-[1000] flex flex-col items-center justify-center animate-fade">
             <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mb-5 shadow-lg border-4 border-white transform transition-transform animate-bounce">
               <Icon name="check" size={40} strokeWidth={3} />
             </div>
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">Berhasil!</h2>
-            <p className="text-sm font-medium text-slate-500 mt-2">Data Telah Tersimpan.</p>
+            <p className="text-sm font-medium text-slate-500 mt-2">
+              {type === 'log'
+                ? (woTaskType === 'aktivasi'
+                    ? 'Penugasan WO Aktivasi / IKR berhasil disimpan.'
+                    : woTaskType === 'dismantle'
+                      ? 'Penugasan WO Dismantle berhasil disimpan.'
+                      : 'Tiket visit berhasil dibuat & diteruskan.')
+                : 'Data Telah Tersimpan.'}
+            </p>
           </div>
         )}
 
         <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
           <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center">
-            <Icon name={icon} size={18} className={`mr-2 ${type === 'log' ? 'text-amber-500' : 'text-blue-600'}`} />
+            <Icon
+              name={icon}
+              size={18}
+              className={`mr-2 ${
+                type === 'log'
+                  ? (woTaskType === 'aktivasi'
+                      ? 'text-emerald-600'
+                      : woTaskType === 'dismantle'
+                        ? 'text-orange-600'
+                        : 'text-rose-600')
+                  : 'text-blue-600'
+              }`}
+            />
             {title}
           </h2>
           <button onClick={() => !isSaving && onClose(false)} disabled={isSaving} className="p-1.5 sm:p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"><Icon name="x" size={18} /></button>
@@ -10490,12 +11152,12 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                 {renderEditableDetailRow({ label: "Tanggal Aktivasi", fieldKey: "tglAktivasi", valueOverride: formatDateStr(internalData.tglAktivasi) })}
                 {['DISMANTLED', 'DISMANTLE'].includes(String(internalData.aktivasi).toUpperCase()) ? (
                   <>
-                    {internalData.tanggalDismantle && renderEditableDetailRow({ label: "Tanggal Dismantle", fieldKey: "tanggalDismantle", valueOverride: internalData.tanggalDismantle ? internalData.tanggalDismantle.substring(0, 10) : '-' })}
+                    {internalData.tanggalDismantle && renderEditableDetailRow({ label: "Tanggal Dismantle", fieldKey: "tanggalDismantle", valueOverride: internalData.tanggalDismantle ? (formatDateDisplay(internalData.tanggalDismantle) || internalData.tanggalDismantle) : '-' })}
                     {internalData.reasonDismantle && renderEditableDetailRow({ label: "Alasan Dismantle", fieldKey: "reasonDismantle", fullWidth: true })}
                   </>
                 ) : (
                   <>
-                    {internalData.tanggalBerakhir && renderEditableDetailRow({ label: "Tanggal Berakhir", fieldKey: "tanggalBerakhir", valueOverride: internalData.tanggalBerakhir ? internalData.tanggalBerakhir.substring(0, 10) : '-' })}
+                    {internalData.tanggalBerakhir && renderEditableDetailRow({ label: "Tanggal Berakhir", fieldKey: "tanggalBerakhir", valueOverride: internalData.tanggalBerakhir ? (formatDateDisplay(internalData.tanggalBerakhir) || internalData.tanggalBerakhir) : '-' })}
                     {(internalData.telatBayarHari !== null && internalData.telatBayarHari !== undefined) && renderEditableDetailRow({ label: "Telat Bayar", fieldKey: "telatBayarHari", valueOverride: `${internalData.telatBayarHari} Hari` })}
                   </>
                 )}
@@ -10741,10 +11403,10 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                       {statusOptions.map((opt, i) => (
                         <div
                           key={i}
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setFormData(prev => ({ ...prev, aktivasi: opt.value })); 
-                            setIsStatusOpen(false); 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFormData(prev => ({ ...prev, aktivasi: opt.value }));
+                            setIsStatusOpen(false);
                           }}
                           className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
                         >
@@ -10764,29 +11426,100 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
           )}
 
           {/* ======================================================== */}
-          {/* TAMPILAN INPUT VISIT HELPDESK */}
+          {/* TAMPILAN WO OPERASIONAL: VISIT, AKTIVASI, DISMANTLE */}
           {/* ======================================================== */}
           {type === 'log' && (
-            <div className="space-y-5 pb-4">
+            <div className="space-y-4 pb-4">
               {message && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-3 mb-4">
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-3">
                   <Icon name="alert-circle" size={18} className="text-rose-500 shrink-0 mt-0.5" />
                   <p className="text-xs font-medium leading-relaxed text-rose-700">{message.text}</p>
                 </div>
               )}
 
-              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3">
-                <Icon name="info" size={18} className="text-blue-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-blue-700 leading-relaxed font-medium">
-                  Silakan catat keluhan dan deskripsi kendala pelanggan dengan detail. Sistem akan membuatkan tiket visit baru yang akan diteruskan ke tim lapangan untuk segera ditindaklanjuti.
-                </p>
+              {/* 3-TAB PILL SWITCHER TUGAS WO */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={woTaskType === 'visit'}
+                  onClick={() => { setWoTaskType('visit'); setMessage(null); }}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    woTaskType === 'visit'
+                      ? 'bg-rose-600 text-white shadow-sm shadow-rose-500/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon name="wrench" size={14} />
+                  <span>WO Visit Gangguan</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={woTaskType === 'aktivasi'}
+                  onClick={() => { setWoTaskType('aktivasi'); setMessage(null); }}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    woTaskType === 'aktivasi'
+                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon name="zap" size={14} />
+                  <span>WO Aktivasi / IKR</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={woTaskType === 'dismantle'}
+                  onClick={() => { setWoTaskType('dismantle'); setMessage(null); }}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    woTaskType === 'dismantle'
+                      ? 'bg-orange-600 text-white shadow-sm shadow-orange-500/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon name="package-minus" size={14} />
+                  <span>WO Dismantle</span>
+                </button>
               </div>
 
+              {/* CONTEXTUAL BANNER */}
+              {woTaskType === 'visit' && (
+                <div className="p-3 bg-rose-50/70 border border-rose-200/80 rounded-xl flex items-start gap-2.5">
+                  <Icon name="info" size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-rose-800 leading-relaxed font-medium">
+                    Catat keluhan gangguan pelanggan dan tugaskan teknisi lapangan untuk investigasi ke lokasi. Sistem otomatis mengirimkan notifikasi penugasan ke Telegram teknisi.
+                  </p>
+                </div>
+              )}
+              {woTaskType === 'aktivasi' && (
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-start gap-2.5">
+                  <Icon name="info" size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-emerald-800 leading-relaxed font-medium">
+                    Tugaskan teknisi IKR untuk penarikan drop core dan aktivasi ONT pelanggan baru. Detail pelanggan, tikor, ODP, dan jadwal instalasi otomatis dikirimkan ke Telegram teknisi.
+                  </p>
+                </div>
+              )}
+              {woTaskType === 'dismantle' && (
+                <div className="p-3 bg-orange-50/70 border border-orange-200/80 rounded-xl flex items-start gap-2.5">
+                  <Icon name="info" size={16} className="text-orange-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-orange-800 leading-relaxed font-medium">
+                    Tugaskan teknisi untuk penarikan perangkat ONT dan adaptor di lokasi pelanggan, serta memperbarui status sistem ke Ready To Dismantle. Notifikasi penugasan dikirimkan ke Telegram teknisi.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* KOLOM KIRI: DATA PELANGGAN */}
                 <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-inner h-max">
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-200">
-                    <Icon name="file-text" size={16} className="text-slate-500" />
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Data Pelanggan</h3>
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                    <div className="flex items-center gap-2">
+                      <Icon name="file-text" size={16} className="text-slate-500" />
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Data Pelanggan</h3>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-slate-200/80 text-slate-700">
+                      {displayStatusStr}
+                    </span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     {renderEditableDetailRow({ label: "Nama Pelanggan", fieldKey: "namaPelanggan", fullWidth: true, readOnly: true })}
@@ -10800,35 +11533,17 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                   </div>
                 </div>
 
+                {/* KOLOM KANAN: FORM BERDASARKAN woTaskType */}
                 <div className="space-y-4">
-                  <div className="relative z-[70]">
-                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Keluhan Pelanggan <span className="text-rose-500">*</span></label>
-                    {isKeluhanOpen && <div className="fixed inset-0 z-[65]" onClick={() => setIsKeluhanOpen(false)}></div>}
-                    <div
-                      onClick={() => !isSaving && setIsKeluhanOpen(!isKeluhanOpen)}
-                      className={`w-full p-3 bg-white border ${isKeluhanOpen ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200'} rounded-xl text-sm font-bold text-slate-700 flex justify-between items-center transition-all shadow-sm ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
-                    >
-                      <span className="truncate">{formData.keluhan}</span>
-                      <Icon name={isKeluhanOpen ? "chevron-up" : "chevron-down"} size={16} className="text-slate-400 shrink-0 ml-2" />
-                    </div>
-                    {isKeluhanOpen && !isSaving && (
-                      <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 shadow-2xl rounded-xl py-1.5 z-[75] animate-dropdown overflow-y-auto max-h-48 custom-scrollbar">
-                        {keluhanOptionsList.map((opt, i) => (
-                          <div
-                            key={i} onClick={() => { setFormData(prev => ({ ...prev, keluhan: opt })); setIsKeluhanOpen(false); }}
-                            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors flex items-center ${formData.keluhan === opt ? 'bg-amber-50 text-amber-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
-                          >
-                            {opt}{formData.keluhan === opt && <Icon name="check" size={14} className="ml-auto text-amber-600" />}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 3. TUGASKAN TEKNISI (MATCHING DATA GANGGUAN VIEW) */}
+                  {/* SELECTOR TUGASKAN TEKNISI (SHARED UNTUK SEMUA TIPE) */}
                   <div className="relative z-[60]">
                     <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
-                      Tugaskan Teknisi <span className="text-slate-400 font-normal text-[10px] normal-case">(Opsional)</span>
+                      {woTaskType === 'aktivasi' ? 'Tugaskan Teknisi IKR' : woTaskType === 'dismantle' ? 'Tugaskan Teknisi Penarikan' : 'Tugaskan Teknisi'}
+                      {woTaskType === 'visit' ? (
+                        <span className="text-slate-400 font-normal text-[10px] normal-case ml-1">(Opsional)</span>
+                      ) : (
+                        <span className="text-rose-500 ml-1">*</span>
+                      )}
                     </label>
                     {isPetugasOpen && <div className="fixed inset-0 z-[55]" onClick={() => { setIsPetugasOpen(false); setPetugasSearch(''); }}></div>}
 
@@ -10858,26 +11573,42 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
 
                     {isPetugasOpen && !isSaving && (
                       <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-100 shadow-2xl rounded-xl py-1.5 z-[65] animate-dropdown overflow-y-auto max-h-48 custom-scrollbar">
-                        <div
-                          onClick={() => { setFormData(prev => ({ ...prev, petugas: '' })); setPetugasSearch(''); setIsPetugasOpen(false); }}
-                          className={`px-4 py-2.5 text-sm cursor-pointer flex items-center ${!formData.petugas ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}
-                        >
-                          -- Kosongkan / Belum Ditugaskan --
-                          {!formData.petugas && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
-                        </div>
-                        {filteredPetugasForLog.map((ptg, i) => (
+                        {woTaskType === 'visit' && (
                           <div
-                            key={i}
-                            onClick={() => { setFormData(prev => ({ ...prev, petugas: ptg.nama })); setPetugasSearch(''); setIsPetugasOpen(false); }}
-                            className={`px-4 py-2.5 text-sm cursor-pointer flex items-center transition-colors ${formData.petugas === ptg.nama ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+                            onClick={() => { setFormData(prev => ({ ...prev, petugas: '' })); setPetugasSearch(''); setIsPetugasOpen(false); }}
+                            className={`px-4 py-2.5 text-sm cursor-pointer flex items-center ${!formData.petugas ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}
                           >
-                            <div className="flex flex-col">
-                              <span>{ptg.nama}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">{ptg.username} · {ptg.stasiun}</span>
-                            </div>
-                            {formData.petugas === ptg.nama && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
+                            -- Kosongkan / Belum Ditugaskan --
+                            {!formData.petugas && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
                           </div>
-                        ))}
+                        )}
+                        {filteredPetugasForLog.map((ptg, i) => {
+                          const hasTelegram = Boolean(ptg.chatId || ptg.chat_id);
+                          return (
+                            <div
+                              key={i}
+                              onClick={() => { setFormData(prev => ({ ...prev, petugas: ptg.nama })); setPetugasSearch(ptg.nama); setIsPetugasOpen(false); }}
+                              className={`px-4 py-2.5 text-sm cursor-pointer flex items-center justify-between transition-colors ${formData.petugas === ptg.nama ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{ptg.nama}</span>
+                                  {hasTelegram ? (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
+                                      Telegram Aktif
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                                      Belum Link Telegram
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-normal">{ptg.username || 'Tanpa Username'} · {ptg.stasiun || 'Semua Stasiun'}</span>
+                              </div>
+                              {formData.petugas === ptg.nama && <Icon name="check" size={14} className="text-blue-600 shrink-0 ml-2" />}
+                            </div>
+                          );
+                        })}
                         {filteredPetugasForLog.length === 0 && (
                           <div className="px-4 py-3 text-sm text-slate-400 italic text-center">
                             Teknisi tidak ditemukan
@@ -10885,28 +11616,178 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
                         )}
                       </div>
                     )}
-                  </div>
 
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Deskripsi / Catatan <span className="text-rose-500">*</span></label>
-                    <textarea
-                      rows="6" name="catatanKendala" value={formData.catatanKendala} onChange={handleInputChange}
-                      placeholder="Misal: Pending besok pagi, janjian dengan pelanggan jam 10:00 untuk kunjungan teknisi, imbas gangguan massal tiang roboh, dsb..."
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all shadow-sm resize-none relative z-[50]" disabled={isSaving}
-                    ></textarea>
-                  </div>
-
-                  {riwayatSelesai.length > 0 && (
-                    <div className="flex items-center justify-between bg-amber-50 p-3.5 rounded-xl border border-amber-200 shadow-sm animate-fade">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600"><Icon name="history" size={16} /></div>
-                        <div>
-                          <span className="text-[11px] font-bold text-amber-800 block leading-tight">Pernah Gangguan</span>
-                          <span className="text-[9px] font-semibold text-amber-600/80 uppercase tracking-wider">{riwayatSelesai.length} Tiket Selesai</span>
+                    {selectedPetugasObj && !selectedPetugasObj.chatId && !selectedPetugasObj.chat_id && (
+                      <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl flex items-start gap-2 text-xs text-amber-900 animate-fade">
+                        <Icon name="alert-triangle" size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                        <div className="leading-snug">
+                          <span className="font-bold">Info Notifikasi Telegram:</span> Akun <strong>{selectedPetugasObj.nama}</strong> ({selectedPetugasObj.username || 'tanpa username'}) belum memiliki chatId Telegram. Penugasan tetap tersimpan ke sistem, namun pengiriman DM notifikasi otomatis dilewati.
                         </div>
                       </div>
-                      <button onClick={() => { onClose(false); if (onGoToHistory) onGoToHistory(internalData.idPelanggan); }} className="text-[10px] font-bold text-amber-700 bg-white hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-300 shadow-sm active:scale-95">Lihat Riwayat</button>
-                    </div>
+                    )}
+                  </div>
+
+                  {/* FORM KHUSUS WO VISIT */}
+                  {woTaskType === 'visit' && (
+                    <>
+                      <div className="relative z-[50]">
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Keluhan Pelanggan <span className="text-rose-500">*</span></label>
+                        {isKeluhanOpen && <div className="fixed inset-0 z-[45]" onClick={() => setIsKeluhanOpen(false)}></div>}
+                        <div
+                          onClick={() => !isSaving && setIsKeluhanOpen(!isKeluhanOpen)}
+                          className={`w-full p-3 bg-white border ${isKeluhanOpen ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200'} rounded-xl text-sm font-bold text-slate-700 flex justify-between items-center transition-all shadow-sm ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}
+                        >
+                          <span className="truncate">{formData.keluhan}</span>
+                          <Icon name={isKeluhanOpen ? "chevron-up" : "chevron-down"} size={16} className="text-slate-400 shrink-0 ml-2" />
+                        </div>
+                        {isKeluhanOpen && !isSaving && (
+                          <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 shadow-2xl rounded-xl py-1.5 z-[55] animate-dropdown overflow-y-auto max-h-48 custom-scrollbar">
+                            {keluhanOptionsList.map((opt, i) => (
+                              <div
+                                key={i} onClick={() => { setFormData(prev => ({ ...prev, keluhan: opt })); setIsKeluhanOpen(false); }}
+                                className={`px-4 py-2.5 text-sm cursor-pointer transition-colors flex items-center ${formData.keluhan === opt ? 'bg-amber-50 text-amber-700 font-bold' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+                              >
+                                {opt}{formData.keluhan === opt && <Icon name="check" size={14} className="ml-auto text-amber-600" />}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Deskripsi / Catatan Gangguan <span className="text-rose-500">*</span></label>
+                        <textarea
+                          rows="5" name="catatanKendala" value={formData.catatanKendala} onChange={handleInputChange}
+                          placeholder="Misal: LOS merah sejak pagi, perlu pengecekan patchcord dan redaman ODP..."
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all shadow-sm resize-none" disabled={isSaving}
+                        ></textarea>
+                      </div>
+
+                      {riwayatSelesai.length > 0 && (
+                        <div className="flex items-center justify-between bg-amber-50 p-3.5 rounded-xl border border-amber-200 shadow-sm animate-fade">
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600"><Icon name="history" size={16} /></div>
+                            <div>
+                              <span className="text-[11px] font-bold text-amber-800 block leading-tight">Pernah Gangguan</span>
+                              <span className="text-[9px] font-semibold text-amber-600/80 uppercase tracking-wider">{riwayatSelesai.length} Tiket Selesai</span>
+                            </div>
+                          </div>
+                          <button onClick={() => { onClose(false); if (onGoToHistory) onGoToHistory(internalData.idPelanggan); }} className="text-[10px] font-bold text-amber-700 bg-white hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-300 shadow-sm active:scale-95">Lihat Riwayat</button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* FORM KHUSUS WO AKTIVASI / IKR */}
+                  {woTaskType === 'aktivasi' && (
+                    <>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          Target Tanggal IKR / Aktivasi <span className="text-emerald-600">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          name="tglIkr"
+                          value={formData.tglIkr}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+                        />
+                      </div>
+
+                      <div className="p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon name="network" size={16} className="text-emerald-600" />
+                          <span className="text-xs font-bold text-slate-700">Titik Terminasi ODP</span>
+                        </div>
+                        <span className="text-xs font-bold text-emerald-700">
+                          {internalData.kodeOdp || internalData.odpAktual || 'Belum Ditentukan'} {internalData.portOdp ? `(Port ${internalData.portOdp})` : ''}
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          Catatan / Instruksi Pemasangan <span className="text-slate-400 font-normal text-[10px] normal-case">(Opsional)</span>
+                        </label>
+                        <textarea
+                          rows="4"
+                          name="catatanAktivasi"
+                          value={formData.catatanAktivasi}
+                          onChange={handleInputChange}
+                          placeholder="Misal: Pelanggan minta dipasang siang jam 13:00, hubungi nomor HP sebelum meluncur, jalur kabel via tiang depan rumah..."
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm resize-none"
+                          disabled={isSaving}
+                        ></textarea>
+                      </div>
+                    </>
+                  )}
+
+                  {/* FORM KHUSUS WO DISMANTLE */}
+                  {woTaskType === 'dismantle' && (
+                    <>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          Target Tanggal Penarikan <span className="text-orange-600">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          name="tanggalDismantle"
+                          value={formData.tanggalDismantle}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          SN ONT Target Perangkat <span className="text-slate-400 font-normal text-[10px] normal-case">(Opsional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          name="snOnt"
+                          value={formData.snOnt}
+                          onChange={handleInputChange}
+                          placeholder="SN ONT (cth: ZTEG..., HWTC...)"
+                          disabled={isSaving}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          Alasan Penarikan <span className="text-orange-600">*</span>
+                        </label>
+                        <select
+                          name="alasanDismantle"
+                          value={formData.alasanDismantle}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
+                        >
+                          <option value="Permintaan Berhenti Langganan">Permintaan Berhenti Langganan</option>
+                          <option value="Tunggakan Pembayaran">Tunggakan Pembayaran</option>
+                          <option value="Pindah Domisili / Relokasi">Pindah Domisili / Relokasi</option>
+                          <option value="Kendala Jaringan / LOS Permanen">Kendala Jaringan / LOS Permanen</option>
+                          <option value="Lainnya">Lainnya</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">
+                          Catatan / Instruksi Penarikan <span className="text-slate-400 font-normal text-[10px] normal-case">(Opsional)</span>
+                        </label>
+                        <textarea
+                          rows="3"
+                          name="catatanDismantle"
+                          value={formData.catatanDismantle}
+                          onChange={handleInputChange}
+                          placeholder="Misal: Amankan modem ONT + adaptor power, pastikan surat serah terima ditandatangani pelanggan..."
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm resize-none"
+                          disabled={isSaving}
+                        ></textarea>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -10921,9 +11802,28 @@ function ActionModal({ type, data, onClose, onGoToCoverage, visitData = [], onGo
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all transform active:scale-95 disabled:opacity-0 flex items-center ${type === 'add' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : type === 'log' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'}`}
+              className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all transform active:scale-95 disabled:opacity-50 flex items-center ${
+                type === 'add'
+                  ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
+                  : type === 'log'
+                    ? (woTaskType === 'aktivasi'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/30'
+                        : woTaskType === 'dismantle'
+                          ? 'bg-orange-600 hover:bg-orange-700 shadow-orange-500/30'
+                          : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30')
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
+              }`}
             >
-              {type === 'add' ? 'Simpan Pelanggan Baru' : type === 'log' ? 'Input Visit' : 'Simpan Perubahan'}
+              <Icon name="send" size={15} className="mr-1.5" />
+              {type === 'add'
+                ? 'Simpan Pelanggan Baru'
+                : type === 'log'
+                  ? (woTaskType === 'aktivasi'
+                      ? (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Aktivasi')
+                      : woTaskType === 'dismantle'
+                        ? (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Dismantle')
+                        : (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Visit'))
+                  : 'Simpan Perubahan'}
             </button>
           </div>
         ) : (
@@ -11577,7 +12477,7 @@ function MonitoringGamasView() {
       {/* â”€â”€ MODAL INPUT GAMAS â”€â”€ */}
       {showInputModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade" onClick={() => !isSubmitting && setShowInputModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => !isSubmitting && setShowInputModal(false)}></div>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[540px] overflow-hidden animate-modal border border-slate-100 relative z-10">
             {/* Header */}
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-white">
@@ -11686,7 +12586,7 @@ function MonitoringGamasView() {
 // ==========================================
 // HALAMAN: MANAJEMEN TIKET GANGGUAN (DENGAN FITUR RESOLVE & DELETE)
 // ==========================================
-function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onRefresh, onLocalVisitUpdate }) {
+function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onRefresh, onLocalVisitUpdate, onPartnerVisitRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [stationFilter, setStationFilter] = useState('');
@@ -11708,6 +12608,172 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const [isStationDropdownOpen, setIsStationDropdownOpen] = useState(false);
   const [isTimeDropdownOpen, setIsTimeDropdownOpen] = useState(false);
+
+  // ========== STATE PARTNER VISIT INTEGRATION (WEB MITRA) ==========
+  const [partnerVisits, setPartnerVisits] = useState([]);
+  const [isPartnerLoading, setIsPartnerLoading] = useState(false);
+  const [partnerLastSync, setPartnerLastSync] = useState(null);
+  const [partnerError, setPartnerError] = useState(null);
+  const [partnerFilterMode, setPartnerFilterMode] = useState('need_input'); // 'need_input' | 'open' | 'all'
+  const [isPartnerCardCollapsed, setIsPartnerCardCollapsed] = useState(false);
+
+  const loadPartnerVisits = async () => {
+    setIsPartnerLoading(true);
+    setPartnerError(null);
+    try {
+      const res = await fetchPartnerVisits();
+      if (res && res.success) {
+        setPartnerVisits(res.data || []);
+        setPartnerLastSync(res.lastSync || new Date());
+        if (typeof onPartnerVisitRefresh === 'function') onPartnerVisitRefresh();
+      } else {
+        setPartnerError(res?.error || 'Gagal memuat data dari Partner API');
+      }
+    } catch (err) {
+      setPartnerError(err.message || 'Terjadi kesalahan jaringan');
+    } finally {
+      setIsPartnerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPartnerVisits();
+  }, []);
+
+  // Cek apakah tiket pelanggan ini sudah tercatat di OpsTracker
+  const isTicketAlreadyInOpsTracker = (partnerTicket) => {
+    const custId = String(partnerTicket.customerId || '').trim().toLowerCase();
+    if (!custId) return false;
+    const todayStr = getTodayWibDateString();
+
+    return (visitData || []).some(v => {
+      const vCustId = String(v.idPelanggan || '').trim().toLowerCase();
+      if (vCustId !== custId) return false;
+
+      // Cek tanggal tiket apakah hari ini
+      const vDate = v.timestamp ? standardizeDate(v.timestamp) : '';
+      if (vDate === todayStr) return true;
+
+      // Jika tiket berstatus OPEN / aktif di OpsTracker
+      const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase());
+      if (!isDone) return true;
+
+      return false;
+    });
+  };
+
+  // Handler pemicu otomatis form input tiket baru
+  const handleTriggerNewTicketFromPartner = (partnerTicket) => {
+    const custId = String(partnerTicket.customerId || '').trim();
+
+    // 1. Cari pelanggan di database lokal
+    const matchedCust = (pelangganData || []).find(p =>
+      String(p.idPelanggan || '').trim().toLowerCase() === custId.toLowerCase()
+    );
+
+    if (matchedCust) {
+      setNewTicketSelectedPelanggan(matchedCust);
+    } else {
+      setNewTicketSelectedPelanggan({
+        idPelanggan: custId,
+        namaPelanggan: partnerTicket.customerName,
+        stasiun: partnerTicket.stationName,
+        odpAktual: partnerTicket.odp,
+        telepon: partnerTicket.customerPhone,
+        alamat: partnerTicket.customerAddress
+      });
+    }
+
+    // 2. Mapping jenis keluhan
+    let matchedKeluhan = 'Tindak Lanjut Visit Teknisi';
+    const rawCategory = (
+      (partnerTicket.problemCategory || '') + ' ' +
+      (partnerTicket.subProblemCategory || '') + ' ' +
+      (partnerTicket.problemDescription || '') + ' ' +
+      (partnerTicket.notes || '')
+    ).toLowerCase();
+
+    if (rawCategory.includes('los') || rawCategory.includes('merah')) {
+      matchedKeluhan = 'Modem LOS / Nyala Merah';
+    } else if (rawCategory.includes('mati') || rawCategory.includes('no internet') || rawCategory.includes('tidak ada internet')) {
+      matchedKeluhan = 'Tidak Ada Internet';
+    } else if (rawCategory.includes('putus-putus') || rawCategory.includes('lambat') || rawCategory.includes('slow')) {
+      matchedKeluhan = 'Koneksi Putus-Putus / Lambat';
+    } else if (rawCategory.includes('kabel') || rawCategory.includes('jatuh')) {
+      matchedKeluhan = 'Kabel Putus / Jatuh';
+    } else if (rawCategory.includes('ganti ont') || rawCategory.includes('modem rusak') || rawCategory.includes('perangkat')) {
+      matchedKeluhan = 'Perangkat Mati / Modem Rusak';
+    }
+
+    setNewTicketKeluhan(matchedKeluhan);
+
+    // 3. Isi deskripsi / catatan dengan keluhan dari Partner (misal 'Internet Mati')
+    let cleanProblem = '';
+    if (partnerTicket.problemCategory) {
+      cleanProblem = String(partnerTicket.problemCategory).replace(/^\d+[\.\-\s]*/, '').trim();
+    }
+    if (!cleanProblem && partnerTicket.notes) {
+      cleanProblem = String(partnerTicket.notes).trim();
+    }
+    if (!cleanProblem && partnerTicket.problemDescription) {
+      cleanProblem = String(partnerTicket.problemDescription).trim();
+    }
+    if (!cleanProblem) {
+      cleanProblem = matchedKeluhan || 'Internet Mati';
+    }
+
+    setNewTicketCatatan(cleanProblem);
+
+    // 4. Tugaskan teknisi hanya jika di Web Partner sudah ada teknisi lapangan spesifik
+    const fieldTechName = (partnerTicket.teknisiName && partnerTicket.teknisiName !== '-')
+      ? String(partnerTicket.teknisiName).trim()
+      : '';
+
+    if (fieldTechName) {
+      const candidate = fieldTechName.toLowerCase();
+      const matchedPtg = (petugasList || []).find(ptg => {
+        const ptgNama = String(ptg.nama || '').trim().toLowerCase();
+        if (ptgNama.length < 3 || ptgNama === 'ba') return false;
+        return candidate.includes(ptgNama) || ptgNama.includes(candidate);
+      });
+      if (matchedPtg) {
+        setNewTicketPetugas(matchedPtg.nama || matchedPtg.username);
+      } else {
+        setNewTicketPetugas(fieldTechName);
+      }
+    } else {
+      // Belum ada teknisi lapangan di partner -> biarkan kosong agar operator memilih sendiri
+      setNewTicketPetugas('');
+    }
+
+    setNewTicketPetugasSearch('');
+    setNewTicketSearch('');
+    setNewTicketIsKeluhanOpen(false);
+    setNewTicketIsPetugasOpen(false);
+    setNewTicketError('');
+    setShowNewTicketModal(true);
+  };
+
+  const partnerStats = useMemo(() => {
+    const list = partnerVisits || [];
+    const total = list.length;
+    const openTickets = list.filter(t => t.isOpen);
+    const needInputCount = openTickets.filter(t => !isTicketAlreadyInOpsTracker(t)).length;
+    const recordedCount = list.filter(t => isTicketAlreadyInOpsTracker(t)).length;
+    const doneCount = list.filter(t => t.isDone).length;
+    return { total, openTickets, needInputCount, recordedCount, doneCount };
+  }, [partnerVisits, visitData]);
+
+  const displayedPartnerVisits = useMemo(() => {
+    const list = partnerVisits || [];
+    if (partnerFilterMode === 'need_input') {
+      return list.filter(t => t.isOpen && !isTicketAlreadyInOpsTracker(t));
+    }
+    if (partnerFilterMode === 'open') {
+      return list.filter(t => t.isOpen);
+    }
+    return list;
+  }, [partnerVisits, partnerFilterMode, visitData]);
 
   // Pagination State for Data Gangguan
   const [currentPageVisit, setCurrentPageVisit] = useState(1);
@@ -11822,38 +12888,43 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       timestamp: localTimestamp
     };
 
-    const finalize = () => {
-      try { if (onLocalVisitUpdate) onLocalVisitUpdate('add', payload); } catch (e) { }
-      setNewTicketIsSaving(false);
-      setNewTicketSuccess(true);
-      setTimeout(() => { setShowNewTicketModal(false); resetNewTicketModal(); }, 1500);
-    };
-
     // Kirim notifikasi DM Telegram langsung ke teknisi yang ditugaskan
     sendTelegramVisitDM(payload, listTeknisi);
 
     try {
-      const { error: sbErr } = await supabase.from('log_visit').insert({
-        timestamp: localTimestamp,
-        id_pelanggan: payload.idPelanggan,
-        nama_pelanggan: payload.namaPelanggan,
-        stasiun: payload.stasiun,
-        keluhan: payload.keluhan,
-        catatan: payload.catatan,
-        status_visit: 'OPEN',
-        odp: payload.odpAktual,
-        port: payload.portOdp,
-        sn_ont: payload.snOnt,
-        nomor_hp: payload.nomorHp,
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-        petugas: payload.petugas
-      });
-      if (sbErr) throw sbErr;
-      finalize();
+      if (onLocalVisitUpdate) {
+        await onLocalVisitUpdate('add', payload);
+      } else {
+        const { error: sbErr } = await supabase.from('log_visit').insert({
+          timestamp: localTimestamp,
+          id_pelanggan: payload.idPelanggan,
+          nama_pelanggan: payload.namaPelanggan,
+          stasiun: payload.stasiun,
+          keluhan: payload.keluhan,
+          catatan: payload.catatan,
+          status_visit: 'OPEN',
+          odp: payload.odpAktual,
+          port: payload.portOdp,
+          sn_ont: payload.snOnt,
+          nomor_hp: payload.nomorHp,
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+          petugas: payload.petugas
+        });
+        if (sbErr) throw sbErr;
+      }
+      setNewTicketIsSaving(false);
+      setNewTicketSuccess(true);
+      setTimeout(() => {
+        setShowNewTicketModal(false);
+        resetNewTicketModal();
+        if (typeof onRefresh === 'function') onRefresh();
+        loadPartnerVisits();
+      }, 1500);
     } catch (err) {
       console.warn("Supabase insert error:", err);
-      finalize();
+      setNewTicketIsSaving(false);
+      setNewTicketError('Gagal menyimpan tiket: ' + (err.message || err));
     }
   };
 
@@ -12140,7 +13211,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
 
             {/* LOADING OVERLAY DI DALAM MODAL HAPUS */}
             {isProcessing && (
-              <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade">
+              <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade">
                 <div className="w-12 h-12 border-4 border-rose-100 border-t-rose-600 rounded-full animate-spin mb-3 shadow-md"></div>
                 <h3 className="text-sm font-bold text-slate-800">Menghapus Data...</h3>
                 <p className="text-[10px] font-semibold text-slate-500 mt-1 flex items-center gap-1.5 animate-pulse">
@@ -12151,7 +13222,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
             )}
 
             <div className="bg-rose-600 p-6 text-center relative overflow-hidden">
-              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm border border-white/30">
+              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 border border-white/30">
                 <Icon name="trash-2" size={28} className="text-white" />
               </div>
               <h3 className="text-xl font-black text-white tracking-wide">Hapus Tiket Visit</h3>
@@ -12178,7 +13249,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
 
             {/* LOADING OVERLAY DI DALAM MODAL SELESAI */}
             {isResolving && (
-              <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade">
+              <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade">
                 <div className="w-12 h-12 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin mb-3 shadow-md"></div>
                 <h3 className="text-sm font-bold text-slate-800">Menyimpan Perbaikan...</h3>
                 <p className="text-[10px] font-semibold text-slate-500 mt-1 flex items-center gap-1.5 animate-pulse">
@@ -12189,7 +13260,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
             )}
 
             <div className="bg-emerald-600 p-6 text-center relative overflow-hidden">
-              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 backdrop-blur-sm border border-white/30"><Icon name="check-circle" size={28} className="text-white" /></div>
+              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 border border-white/30"><Icon name="check-circle" size={28} className="text-white" /></div>
               <h3 className="text-xl font-black text-white relative z-10 tracking-wide">Penyelesaian Tiket</h3>
             </div>
             <div className="p-7">
@@ -12219,13 +13290,13 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       {/* ============================================================ */}
       {showNewTicketModal && ReactDOM.createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => !newTicketIsSaving && (setShowNewTicketModal(false), resetNewTicketModal())}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => !newTicketIsSaving && (setShowNewTicketModal(false), resetNewTicketModal())}></div>
 
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl relative z-10 animate-modal flex flex-col border border-slate-100 overflow-hidden">
 
             {/* Loading Overlay */}
             {newTicketIsSaving && (
-              <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[100] flex flex-col items-center justify-center rounded-2xl">
+              <div className="absolute inset-0 bg-white/95 z-[100] flex flex-col items-center justify-center rounded-2xl">
                 {/* Animated ring */}
                 <div className="relative w-20 h-20 mb-6">
                   <div className="absolute inset-0 rounded-full border-4 border-amber-100"></div>
@@ -12244,7 +13315,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
 
             {/* Success Overlay */}
             {newTicketSuccess && (
-              <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[100] flex flex-col items-center justify-center rounded-2xl">
+              <div className="absolute inset-0 bg-white/95 z-[100] flex flex-col items-center justify-center rounded-2xl">
                 <div className="relative mb-5">
                   <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center shadow-inner">
                     <Icon name="check-circle" size={40} className="text-emerald-500" />
@@ -12302,7 +13373,9 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       </div>
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{newTicketSelectedPelanggan.namaPelanggan}</p>
-                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">{newTicketSelectedPelanggan.idPelanggan} Â· {toProperCase(newTicketSelectedPelanggan.stasiun)}</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                          {newTicketSelectedPelanggan.idPelanggan}{newTicketSelectedPelanggan.stasiun ? ` • ${toProperCase(newTicketSelectedPelanggan.stasiun)}` : ''}
+                        </p>
                         {newTicketSelectedPelanggan.odpAktual && <p className="text-[10px] text-slate-400">ODP: {newTicketSelectedPelanggan.odpAktual}</p>}
                       </div>
                     </div>
@@ -12330,7 +13403,9 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                             className="px-4 py-3 cursor-pointer hover:bg-amber-50 border-b border-slate-50 last:border-0 flex flex-col group transition-all"
                           >
                             <span className="font-bold text-slate-800 text-sm group-hover:text-amber-700">{p.namaPelanggan}</span>
-                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">{p.idPelanggan} Â· {toProperCase(p.stasiun || '')}</span>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              {p.idPelanggan}{p.stasiun ? ` • ${toProperCase(p.stasiun)}` : ''}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -12416,7 +13491,9 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                       >
                         <div className="flex flex-col">
                           <span>{ptg.nama}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">{ptg.username} Â· {ptg.stasiun}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {ptg.username || ''}{ptg.username && ptg.stasiun ? ' • ' : ''}{ptg.stasiun ? toProperCase(ptg.stasiun) : ''}
+                          </span>
                         </div>
                         {newTicketPetugas === ptg.nama && <Icon name="check" size={14} className="ml-auto text-blue-600" />}
                       </div>
@@ -12564,8 +13641,270 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
       </div>
 
       {/* ============================================================ */}
-      {/* 2. SECTION LIST TIKET VISIT */}
+      {/* 1.5. SECTION TIKET VISIT PARTNER (WEB MITRA) */}
       {/* ============================================================ */}
+      <div id="section-partner-visits" className="bg-white rounded-2xl shadow-sm border border-slate-200/80 mb-5 overflow-hidden transition-all duration-200">
+        {/* Top Header Banner */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 bg-linear-to-r from-amber-500/5 via-orange-500/5 to-transparent flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 border border-amber-500/20 shadow-2xs">
+              <Icon name="radio" size={20} className="text-amber-600 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
+                  Tiket Visit Partner Hari Ini
+                </h2>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Live Web Mitra
+                </span>
+                {partnerStats.needInputCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
+                    <Icon name="alert-circle" size={12} />
+                    {partnerStats.needInputCount} Perlu Diinput ke OpsTracker
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Sinkronisasi tiket visit dari portal Partner Starlite untuk input cepat ke OpsTracker
+                {partnerLastSync && (
+                  <span className="text-slate-400 ml-1.5 font-medium">
+                    • Terakhir dicek {partnerLastSync.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Action buttons & counters */}
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+            {/* Quick filter pills */}
+            <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200/60 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setPartnerFilterMode('need_input')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${partnerFilterMode === 'need_input'
+                  ? 'bg-white text-amber-700 shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-800'
+                  }`}
+              >
+                <span>Perlu Input</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${partnerStats.needInputCount > 0
+                  ? 'bg-rose-500 text-white font-black'
+                  : 'bg-slate-200 text-slate-600'
+                  }`}>
+                  {partnerStats.needInputCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPartnerFilterMode('open')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${partnerFilterMode === 'open'
+                  ? 'bg-white text-blue-700 shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-800'
+                  }`}
+              >
+                <span>Open di Partner</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-600">
+                  {partnerStats.openTickets.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPartnerFilterMode('all')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${partnerFilterMode === 'all'
+                  ? 'bg-white text-slate-900 shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-800'
+                  }`}
+              >
+                <span>Semua</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-600">
+                  {partnerStats.total}
+                </span>
+              </button>
+            </div>
+
+            {/* Refresh Button */}
+            <button
+              type="button"
+              onClick={loadPartnerVisits}
+              disabled={isPartnerLoading}
+              title="Sinkronkan Ulang dari Web Partner"
+              className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <Icon name="refresh-cw" size={16} className={isPartnerLoading ? 'animate-spin text-amber-600' : ''} />
+            </button>
+
+            {/* Collapse toggle */}
+            <button
+              type="button"
+              onClick={() => setIsPartnerCardCollapsed(!isPartnerCardCollapsed)}
+              title={isPartnerCardCollapsed ? "Buka Kartu" : "Tutup Kartu"}
+              className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-all cursor-pointer"
+            >
+              <Icon name={isPartnerCardCollapsed ? "chevron-down" : "chevron-up"} size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Card Body */}
+        {!isPartnerCardCollapsed && (
+          <div className="p-4 sm:p-5">
+            {/* Error state */}
+            {partnerError && (
+              <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-700">
+                <div className="flex items-center gap-2">
+                  <Icon name="alert-triangle" size={16} className="text-rose-600 shrink-0" />
+                  <span>{partnerError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadPartnerVisits}
+                  className="px-2.5 py-1 bg-white border border-rose-300 rounded-lg font-bold text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
+                >
+                  Coba Lagi
+                </button>
+              </div>
+            )}
+
+            {/* Loading State */}
+            {isPartnerLoading && (partnerVisits || []).length === 0 ? (
+              <div className="py-10 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <Icon name="loader" size={26} className="animate-spin text-amber-500" />
+                <p className="text-xs font-semibold">Mengambil data tiket visit hari ini dari Web Partner...</p>
+              </div>
+            ) : displayedPartnerVisits.length === 0 ? (
+              <div className="py-8 text-center flex flex-col items-center justify-center bg-slate-50/70 border border-dashed border-slate-200 rounded-xl px-4">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2">
+                  <Icon name="check" size={20} />
+                </div>
+                <p className="text-sm font-bold text-slate-700">
+                  {partnerFilterMode === 'need_input'
+                    ? 'Semua tiket visit partner hari ini sudah tercatat di OpsTracker!'
+                    : 'Tidak ada tiket visit partner pada kategori filter ini.'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {partnerFilterMode === 'need_input' && partnerStats.total > 0
+                    ? `Total ${partnerStats.total} tiket hari ini sudah diproses (${partnerStats.recordedCount} tercatat di OpsTracker).`
+                    : 'Data visit partner hari ini bersih atau belum ada tiket baru.'}
+                </p>
+                {partnerFilterMode === 'need_input' && partnerStats.total > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPartnerFilterMode('all')}
+                    className="mt-3 px-3 py-1.5 text-xs font-bold text-blue-600 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                  >
+                    Lihat Semua ({partnerStats.total} Tiket)
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                {displayedPartnerVisits.map((item) => {
+                  const isRecorded = isTicketAlreadyInOpsTracker(item);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-xl border transition-all duration-150 flex flex-col justify-between ${isRecorded
+                        ? 'bg-slate-50/60 border-slate-200/80 opacity-85 hover:opacity-100'
+                        : 'bg-white border-amber-300/80 shadow-xs hover:shadow-md hover:border-amber-400'
+                        }`}
+                    >
+                      <div>
+                        {/* Header item: ID Pelanggan + Status Partner */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md font-mono text-xs font-black bg-blue-50 text-blue-700 border border-blue-200">
+                              {item.customerId || '-'}
+                            </span>
+                            {item.stationName && (
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                {item.stationName}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${item.badgeColor || 'bg-slate-100 text-slate-700'}`}>
+                            {item.statusLabel}
+                          </span>
+                        </div>
+
+                        {/* Nama Pelanggan */}
+                        <div className="mb-2">
+                          <h3 className="text-sm font-black text-slate-800 tracking-tight leading-snug">
+                            {item.customerName || 'Pelanggan Tanpa Nama'}
+                          </h3>
+                          <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                            <span>WO: {item.ticketNumber}</span>
+                            {item.timeFormatted && (
+                              <>
+                                <span>•</span>
+                                <span>{item.timeFormatted} WIB</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Kendala / Masalah */}
+                        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 mb-3 text-xs">
+                          <div className="font-bold text-slate-700 flex items-center gap-1.5">
+                            <Icon name="alert-circle" size={13} className="text-rose-500 shrink-0" />
+                            <span className="line-clamp-1">{item.problemCategory || 'Kategori tidak spesifik'}</span>
+                          </div>
+                          {(item.problemDescription || item.notes) && (
+                            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 italic">
+                              "{item.problemDescription || item.notes}"
+                            </p>
+                          )}
+                          {item.odp && (
+                            <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                              <span>ODP: <strong className="text-slate-700">{item.odp}</strong>{item.port ? ` / P${item.port}` : ''}</span>
+                              {item.snOnt && <span>• SN: {item.snOnt}</span>}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info Teknisi / Lead */}
+                        <div className="text-[11px] text-slate-500 mb-3 flex items-center justify-between">
+                          <span className="truncate">
+                            Lead: <strong className="text-slate-700">{item.leadName || '-'}</strong>
+                          </span>
+                          {item.teknisiName && item.teknisiName !== '-' && (
+                            <span className="truncate">
+                              Teknisi: <strong className="text-slate-700">{item.teknisiName}</strong>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Button */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                        {isRecorded ? (
+                          <div className="w-full py-1.5 px-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5">
+                            <Icon name="check" size={14} className="text-emerald-600" />
+                            <span>Sudah Tercatat di OpsTracker</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleTriggerNewTicketFromPartner(item)}
+                            className="w-full py-2 px-3 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 active:scale-[0.98] text-white text-xs font-bold shadow-2xs hover:shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Icon name="zap" size={14} className="text-white fill-white" />
+                            <span>Input ke OpsTracker</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       {/* 2. UNIFIED CONTAINER: DAFTAR TIKET VISIT GANGGUAN */}
       {/* ============================================================ */}
       <div id="section-tickets" className="bg-white rounded-2xl shadow-sm border border-slate-200/80 relative z-20 flex flex-col mb-5">
@@ -12757,7 +14096,7 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
                 <div className="flex items-center justify-between text-[9px] text-slate-500 pt-1 border-t border-slate-50">
                   <div className="flex items-center gap-1">
                     <Icon name="clock" size={10} className="text-blue-500" />
-                    <span>{displayDate} {displayTime && `â€¢ ${displayTime}`}</span>
+                    <span>{displayDate} {displayTime && `\u2022 ${displayTime}`}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Icon name="user" size={10} className="text-purple-500" />
@@ -13228,14 +14567,14 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col h-[85vh] overflow-hidden">
 
         {isSaving && !isSuccess && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade">
+          <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade">
             <div className="w-14 h-14 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4 shadow-md"></div>
             <h3 className="text-base font-bold text-slate-800">Menyimpan Status {bulkData.length} Pelanggan...</h3>
           </div>
         )}
 
         {isSuccess && (
-          <div className="absolute inset-0 bg-emerald-500/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade text-white">
+          <div className="absolute inset-0 bg-emerald-500/95 z-50 flex flex-col items-center justify-center animate-fade text-white">
             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-2xl mb-4 animate-bounce">
               <Icon name="check" size={40} className="text-emerald-500" />
             </div>
@@ -13468,7 +14807,7 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 animate-modal flex flex-col overflow-hidden">
 
         {isDeleting && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center animate-fade">
+          <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade">
             <div className="w-14 h-14 border-4 border-rose-100 border-t-rose-600 rounded-full animate-spin mb-4 shadow-md"></div>
             <h3 className="text-base font-bold text-slate-800">Menghapus {selectedData.length} Pelanggan...</h3>
             <p className="text-xs font-semibold text-slate-500 mt-2 flex items-center gap-2 animate-pulse">
@@ -13482,7 +14821,7 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
           <div className="absolute top-0 right-0 opacity-10 transform translate-x-4 -translate-y-4">
             <Icon name="alert-triangle" size={120} className="text-white" />
           </div>
-          <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 backdrop-blur-sm border border-white/30">
+          <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 relative z-10 border border-white/30">
             <Icon name="trash-2" size={28} className="text-white" />
           </div>
           <h3 className="text-xl font-black text-white relative z-10 tracking-wide">Hapus Permanen?</h3>
@@ -13545,12 +14884,13 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const [filterStation, setFilterStation] = useState(initialStationFilter);
   const [filterSales, setFilterSales] = useState('');
   const [filterStatus, setFilterStatus] = useState(initialStatusFilter ? [initialStatusFilter] : []);
+  const [dismantleWoFilter, setDismantleWoFilter] = useState('ALL'); // 'ALL' | 'WITH_WO' | 'WITHOUT_WO'
 
   const [tempFilterStation, setTempFilterStation] = useState('');
   const [tempFilterSales, setTempFilterSales] = useState('');
   const [tempFilterStatus, setTempFilterStatus] = useState([]);
 
-  const [actionModal, setActionModal] = useState({ type: null, data: null });
+  const [actionModal, setActionModal] = useState({ type: null, data: null, initialTask: null });
   const [openKendalaId, setOpenKendalaId] = useState(null);
 
   const [selectedIds, setSelectedIds] = useState([]);
@@ -13570,13 +14910,25 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     { val: 'KENDALA', label: 'Kendala' }
   ];
 
-  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus]);
+  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus, dismantleWoFilter]);
+
+  useEffect(() => {
+    if (!filterStatus || !filterStatus.includes('READY TO DISMANTLE')) {
+      setDismantleWoFilter('ALL');
+    }
+  }, [filterStatus]);
 
   useEffect(() => {
     if (initialStatusFilter) {
       setFilterStatus([initialStatusFilter]);
     }
   }, [initialStatusFilter]);
+
+  useEffect(() => {
+    if (initialStationFilter !== undefined && initialStationFilter !== '') {
+      setFilterStation(initialStationFilter);
+    }
+  }, [initialStationFilter]);
 
   useEffect(() => {
     if (!isFilterModalOpen) {
@@ -13612,6 +14964,27 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     });
   }, [pelangganData, tempFilterStation]);
 
+  // Hitung metrik sub-kategori Ready To Dismantle (Semua vs Sudah Ada WO vs Belum Ada WO)
+  const dismantleCounts = useMemo(() => {
+    if (!pelangganData || !Array.isArray(pelangganData)) return { all: 0, withWo: 0, withoutWo: 0 };
+    let all = 0, withWo = 0, withoutWo = 0;
+    pelangganData.forEach(item => {
+      const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
+      const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
+      if (!matchStation || !matchSales) return;
+
+      const rawAkt = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+      if (rawAkt === 'ready to dismantle' || rawAkt === 'dismantling' || globalStat === 'READY TO DISMANTLE') {
+        all++;
+        const wo = getWoDismantleInfo(item);
+        if (wo?.hasWo) withWo++;
+        else withoutWo++;
+      }
+    });
+    return { all, withWo, withoutWo };
+  }, [pelangganData, filterStation, filterSales]);
+
   const filteredData = useMemo(() => {
     if (!pelangganData || !Array.isArray(pelangganData)) return [];
 
@@ -13631,8 +15004,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
       let finalStatus = 'WAITING';
       if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
       else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
-      else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
-      else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
+      else if (rawAktivasi === 'ready to dismantle' || rawAktivasi === 'dismantling' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
+      else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
       else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
       else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
       else if (rawIkr === 'sudah') finalStatus = 'SUDAH IKR';
@@ -13648,7 +15021,17 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           } else if (fStatus === 'KENDALA') {
             return finalStatus === 'KENDALA';
           } else if (fStatus === 'READY TO DISMANTLE') {
-            return finalStatus === 'READY TO DISMANTLE';
+            const isMatch = finalStatus === 'READY TO DISMANTLE';
+            if (!isMatch) return false;
+            if (dismantleWoFilter === 'WITH_WO') {
+              const wo = getWoDismantleInfo(item);
+              return Boolean(wo?.hasWo);
+            }
+            if (dismantleWoFilter === 'WITHOUT_WO') {
+              const wo = getWoDismantleInfo(item);
+              return !Boolean(wo?.hasWo);
+            }
+            return true;
           } else if (fStatus === 'DISMANTLED') {
             return finalStatus === 'DISMANTLED';
           } else if (fStatus === 'SUSPEND') {
@@ -13665,21 +15048,95 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     });
 
     if (sortAgeOrder) {
-      filtered.sort((a, b) => {
-        const getAge = (item) => {
-          const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
-          const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
-          let finalStatus = 'WAITING';
-          if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
-          else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') finalStatus = 'AKTIF';
-          else if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
-          else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
-          else if (rawAktivasi === 'suspend' || globalStat === 'SUSPEND') finalStatus = 'SUSPEND';
-          else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
-          else finalStatus = globalStat;
+      const parseDateToTimestamp = (raw) => {
+        if (!raw) return null;
+        let str = String(raw).trim();
+        if (!str || str === '-' || str.toLowerCase() === 'null') return null;
 
-          // 1. JIKA STATUS SUSPEND / READY TO DISMANTLE / DISMANTLE / DISMANTLED: Hitung dari telatBayarHari atau tanggalBerakhir
-          if (finalStatus === 'SUSPEND' || finalStatus === 'READY TO DISMANTLE' || finalStatus === 'DISMANTLE' || finalStatus === 'DISMANTLED') {
+        const m = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:[,\s]+(\d{1,2})[:.](\d{1,2})(?:[:.](\d{1,2}))?)?/);
+        if (m) {
+          const day = parseInt(m[1], 10);
+          const month = parseInt(m[2], 10) - 1;
+          let year = parseInt(m[3], 10);
+          if (year < 100) year += 2000;
+          const hour = parseInt(m[4] || 0, 10);
+          const min = parseInt(m[5] || 0, 10);
+          const sec = parseInt(m[6] || 0, 10);
+          const d = new Date(year, month, day, hour, min, sec);
+          if (!isNaN(d.getTime())) return d.getTime();
+        }
+
+        const std = standardizeDate(str);
+        if (std) {
+          const d = new Date(std);
+          if (!isNaN(d.getTime())) return d.getTime();
+        }
+
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.getTime();
+        return null;
+      };
+
+      const getFinalStatus = (item) => {
+        const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
+        const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+        if (globalStat.includes('KENDALA')) return 'KENDALA';
+        if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') return 'AKTIF';
+        if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') return 'READY TO DISMANTLE';
+        if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') return 'DISMANTLED';
+        if (rawAktivasi === 'suspend' || globalStat === 'SUSPEND') return 'SUSPEND';
+        if (rawAktivasi === 'kendala') return 'KENDALA';
+        return globalStat;
+      };
+
+      const STATUS_ORDER = {
+        'WAITING': 1,
+        'KENDALA': 2,
+        'AKTIF': 3,
+        'SUSPEND': 4,
+        'READY TO DISMANTLE': 5,
+        'DISMANTLED': 6
+      };
+
+      filtered.sort((a, b) => {
+        const statusA = getFinalStatus(a);
+        const statusB = getFinalStatus(b);
+
+        // Jika status berbeda (misal saat tidak difilter/view semua), urutkan berdasarkan grup status
+        if (statusA !== statusB) {
+          const orderA = STATUS_ORDER[statusA] || 99;
+          const orderB = STATUS_ORDER[statusB] || 99;
+          return sortAgeOrder === 'asc' ? orderA - orderB : orderB - orderA;
+        }
+
+        // 1. JIKA STATUS AKTIF: Urutkan berdasarkan Tanggal Aktivasi
+        if (statusA === 'AKTIF') {
+          const timeA = parseDateToTimestamp(a.tglAktivasi || a.timestampAktivasi || a.tglIkr);
+          const timeB = parseDateToTimestamp(b.tglAktivasi || b.timestampAktivasi || b.tglIkr);
+
+          if (timeA === null && timeB !== null) return 1;
+          if (timeB === null && timeA !== null) return -1;
+          if (timeA === null && timeB === null) return 0;
+
+          // desc: Terbaru ke terlama; asc: Terlama ke terbaru
+          return sortAgeOrder === 'desc' ? timeB - timeA : timeA - timeB;
+        }
+
+        // 2. JIKA STATUS DISMANTLED: Urutkan berdasarkan Tanggal Dismantle
+        if (statusA === 'DISMANTLED') {
+          const timeA = parseDateToTimestamp(a.tanggalDismantle);
+          const timeB = parseDateToTimestamp(b.tanggalDismantle);
+
+          if (timeA === null && timeB !== null) return 1;
+          if (timeB === null && timeA !== null) return -1;
+          if (timeA === null && timeB === null) return 0;
+
+          return sortAgeOrder === 'desc' ? timeB - timeA : timeA - timeB;
+        }
+
+        // 3. JIKA STATUS SUSPEND / READY TO DISMANTLE: Urutkan hari keterlambatan bayar
+        if (statusA === 'SUSPEND' || statusA === 'READY TO DISMANTLE') {
+          const getTelat = (item) => {
             if (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) {
               return Number(item.telatBayarHari);
             }
@@ -13695,41 +15152,51 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 }
               }
             }
-            return -999999;
-          }
+            return null;
+          };
 
-          // 2. JIKA STATUS WAITING / KENDALA: Hitung umur WO dari tanggal registrasi
-          if ((finalStatus === 'WAITING' || finalStatus === 'KENDALA') && item.tanggalRegistrasi) {
-            const stdDate = standardizeDate(item.tanggalRegistrasi);
-            if (stdDate) {
-              const regDate = new Date(stdDate);
-              if (!isNaN(regDate.getTime())) {
-                const today = new Date();
-                const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                const regDateZero = new Date(regDate.getFullYear(), regDate.getMonth(), regDate.getDate());
-                return Math.floor((todayZero - regDateZero) / (1000 * 60 * 60 * 24));
+          const telatA = getTelat(a);
+          const telatB = getTelat(b);
+          if (telatA === null && telatB !== null) return 1;
+          if (telatB === null && telatA !== null) return -1;
+          if (telatA === null && telatB === null) return 0;
+
+          return sortAgeOrder === 'desc' ? telatB - telatA : telatA - telatB;
+        }
+
+        // 4. JIKA STATUS WAITING / KENDALA: Urutkan umur WO dari tanggal registrasi
+        if (statusA === 'WAITING' || statusA === 'KENDALA') {
+          const getUmurWo = (item) => {
+            if (item.tanggalRegistrasi) {
+              const stdDate = standardizeDate(item.tanggalRegistrasi);
+              if (stdDate) {
+                const regDate = new Date(stdDate);
+                if (!isNaN(regDate.getTime())) {
+                  const today = new Date();
+                  const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                  const regDateZero = new Date(regDate.getFullYear(), regDate.getMonth(), regDate.getDate());
+                  return Math.floor((todayZero - regDateZero) / (1000 * 60 * 60 * 24));
+                }
               }
             }
-          }
+            return null;
+          };
 
-          return -999999;
-        };
+          const umurA = getUmurWo(a);
+          const umurB = getUmurWo(b);
+          if (umurA === null && umurB !== null) return 1;
+          if (umurB === null && umurA !== null) return -1;
+          if (umurA === null && umurB === null) return 0;
 
-        const ageA = getAge(a);
-        const ageB = getAge(b);
+          return sortAgeOrder === 'desc' ? umurB - umurA : umurA - umurB;
+        }
 
-        if (ageA === -999999 && ageB !== -999999) return 1;
-        if (ageB === -999999 && ageA !== -999999) return -1;
-        if (ageA === -999999 && ageB === -999999) return 0;
-
-        if (sortAgeOrder === 'asc') return ageA - ageB;
-        if (sortAgeOrder === 'desc') return ageB - ageA;
         return 0;
       });
     }
 
     return filtered;
-  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder]);
+  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder, dismantleWoFilter]);
 
   const summaryCounts = useMemo(() => {
     const counts = { WAITING: 0, AKTIF: 0, SUSPEND: 0, 'READY TO DISMANTLE': 0, DISMANTLED: 0, KENDALA: 0 };
@@ -13740,13 +15207,13 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         if (!matchStation || !matchSales) return;
 
         const rawIkr = String(item.ikr || item.statusIkr || '').trim().toLowerCase();
-        const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
+        const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
         const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
         let finalStatus = 'WAITING';
         if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
         else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
-        else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
-        else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
+        else if (rawAktivasi === 'ready to dismantle' || rawAktivasi === 'dismantling' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
+        else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
         else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
         else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
         else if (rawIkr === 'sudah') finalStatus = 'SUDAH IKR';
@@ -14015,6 +15482,63 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           })
         )}
       </div>
+
+      {/* FILTER CEPAT HELPDESK UNTUK WO DISMANTLE (SEDANG DIAMBIL) */}
+      {filterStatus && filterStatus.includes('READY TO DISMANTLE') && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50 border border-amber-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Icon name="wrench" size={14} className="text-white" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-amber-900 leading-tight">
+                Prioritas : Pelanggan Ready To Dismantle
+              </h4>
+              <p className="text-[10px] sm:text-xs text-amber-800/80 mt-0.5">
+                ID pelanggan yang sudah muncul WO Dismantle ke teknisi.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 w-full sm:w-auto flex-wrap">
+            <button
+              type="button"
+              onClick={() => setDismantleWoFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dismantleWoFilter === 'ALL'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-amber-200 hover:bg-amber-50'}`}
+            >
+              Semua ({dismantleCounts.all})
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismantleWoFilter('WITH_WO')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_WO'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/50'}`}
+              title="Pelanggan yang sudah ada WO Dismantle dan ditugaskan ke teknisi"
+            >
+              <span>Sudah Ada WO (Sedang Diambil)</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                {dismantleCounts.withWo}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismantleWoFilter('WITHOUT_WO')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dismantleWoFilter === 'WITHOUT_WO'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-amber-200 hover:bg-amber-50'}`}
+              title="Pelanggan yang belum diterbitkan WO"
+            >
+              <span>Belum Ada WO</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ml-1 ${dismantleWoFilter === 'WITHOUT_WO' ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {dismantleCounts.withoutWo}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header Actions */}
       <div className="bg-white p-2.5 sm:p-4 rounded-lg sm:rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-2.5 sm:gap-4 justify-between items-center relative z-50 mb-2.5 sm:mb-4">
@@ -14456,33 +15980,65 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   </div>
 
                   <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                      {displayStatusStr}
-                    </span>
-                    {umurWoStr && (
-                      <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>
-                        <Icon name="clock" size={8} /> {umurWoStr}
-                      </span>
-                    )}
-                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
+                    {displayStatusStr === 'READY TO DISMANTLE' ? (
+                      (() => {
+                        const woInfo = getWoDismantleInfo(item);
+                        return (
+                          <div className="flex flex-col items-end gap-1">
+                            {woInfo?.hasWo ? (
+                              <>
+                                <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                                  SEDANG DIAMBIL
+                                </span>
+                                <span className="text-[8px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-0.5 max-w-[130px] truncate" title={`IKR : ${woInfo.teknisi}`}>
+                                  <Icon name="wrench" size={8} className="text-blue-500 shrink-0" />
+                                  IKR : {woInfo.teknisi}
+                                </span>
+                              </>
+                            ) : (
+                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                                {displayStatusStr}
+                              </span>
+                            )}
+                            {(Number(item.telatBayarHari) > 0) && (
+                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                                <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ) : (
                       <>
-                        {(Number(item.telatBayarHari) > 0) && (
-                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
-                            <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
+                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                          {displayStatusStr}
+                        </span>
+                        {umurWoStr && (
+                          <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>
+                            <Icon name="clock" size={8} /> {umurWoStr}
                           </span>
                         )}
-                        {item.tanggalBerakhir && (
-                          <span className="text-[8px] font-medium text-slate-400">
-                            Exp: {item.tanggalBerakhir.substring(0, 10)}
-                          </span>
+                        {displayStatusStr === 'SUSPEND' && (
+                          <>
+                            {(Number(item.telatBayarHari) > 0) && (
+                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                                <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
+                              </span>
+                            )}
+                            {item.tanggalBerakhir && (
+                              <span className="text-[8px] font-medium text-slate-400">
+                                Exp: {formatDateDisplay(item.tanggalBerakhir)}
+                              </span>
+                            )}
+                          </>
                         )}
                       </>
                     )}
                     {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
                       <div className="flex flex-col items-start gap-1 mt-1 w-full">
                         {item.tanggalDismantle ? (
-                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
-                            <Icon name="calendar" size={8} className="text-rose-400" /> Dismantle: {item.tanggalDismantle.substring(0, 10)}
+                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title={`Tanggal Dismantle: ${formatDateDisplay(item.tanggalDismantle)}`}>
+                            <Icon name="calendar" size={8} className="text-rose-400" /> Dismantle: {formatDateDisplay(item.tanggalDismantle)}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
@@ -14503,6 +16059,40 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         })()}
                       </div>
                     )}
+                    {(displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') && (
+                      <div className="flex flex-col items-end gap-1 mt-0.5">
+                        {(() => {
+                          const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+                          const tglAkt = formatDateDisplay(rawAkt);
+                          return tglAkt ? (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded" title={`Tanggal Aktivasi: ${tglAkt}`}>
+                              <Icon name="calendar" size={8} className="text-emerald-500" /> Aktivasi: {tglAkt}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded" title="Tanggal Aktivasi tidak tercatat">
+                              <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Aktivasi: -
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {(displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && (
+                      <div className="flex flex-col items-end gap-1 mt-0.5">
+                        {(() => {
+                          const rawReg = item.tanggalRegistrasi || item.createdAt;
+                          const tglReg = formatDateDisplay(rawReg);
+                          return tglReg ? (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded" title={`Tanggal Registrasi: ${tglReg}`}>
+                              <Icon name="calendar" size={8} className="text-amber-500" /> Registrasi: {tglReg}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded" title="Tanggal Registrasi tidak tercatat">
+                              <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Registrasi: -
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -14512,7 +16102,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                 {/* Kendala Mobile Row */}
                 {(() => {
-                  if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') return null;
+                  if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
                   if (!hasKendala && !issueText) return null;
@@ -14546,15 +16136,24 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   </div>
 
                   <div className="flex items-center gap-1.5">
-                    <button onClick={() => setActionModal({ type: 'detail', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors flex items-center justify-center">
+                    <button onClick={() => setActionModal({ type: 'detail', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors flex items-center justify-center" title="Detail Profil">
                       <Icon name="eye" size={12} />
                     </button>
-                    <button onClick={() => setActionModal({ type: 'edit', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors flex items-center justify-center">
+                    <button onClick={() => setActionModal({ type: 'edit', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors flex items-center justify-center" title="Edit Data">
                       <Icon name="edit" size={12} />
                     </button>
-                    <button onClick={() => setActionModal({ type: 'log', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors flex items-center justify-center">
-                      <Icon name="headset" size={12} />
-                    </button>
+                    {(() => {
+                      const woProps = getWoActionProps(displayStatusStr);
+                      return (
+                        <button
+                          onClick={() => setActionModal({ type: 'log', data: item, initialTask: woProps.task })}
+                          className={`p-1.5 rounded transition-colors flex items-center justify-center ${woProps.btnClass}`}
+                          title={woProps.title}
+                        >
+                          <Icon name={woProps.icon} size={12} />
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -14569,12 +16168,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         </div>
 
         {/* === DESKTOP TABLE VIEW === */}
-        <div className="hidden md:block overflow-auto flex-1">
-          <table className="w-full text-sm text-left whitespace-nowrap relative">
-            <thead className="sticky top-0 z-20 bg-slate-50 text-slate-500 font-bold shadow-sm outline outline-1 outline-slate-200">
+        <div className="hidden md:block overflow-x-auto overflow-y-auto flex-1">
+          <table className="w-full text-sm text-left relative">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-slate-500 font-bold shadow-xs outline outline-1 outline-slate-200">
               <tr>
                 {/* Kolom Checkbox Header */}
-                <th className="px-4 py-4 w-12 text-center">
+                <th className="px-3 py-3.5 w-12 text-center shrink-0">
                   <div className="flex items-center justify-center">
                     <input
                       type="checkbox"
@@ -14584,11 +16183,11 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     />
                   </div>
                 </th>
-                <th className="px-4 py-4">ID PEL</th>
-                <th className="px-6 py-4">NAMA & ALAMAT</th>
-                <th className="px-6 py-4">KONTAK & LOKASI</th>
-                <th className="px-6 py-4">STASIUN & SALES</th>
-                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
+                <th className="px-3 py-3.5 w-28 text-left text-xs uppercase tracking-wider font-bold">ID PEL</th>
+                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[180px] max-w-[260px]">NAMA & ALAMAT</th>
+                <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">KONTAK & LOKASI</th>
+                <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">STASIUN & SALES</th>
+                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[260px] cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
                   <div className="flex items-center">
                     STATUS
                     {sortAgeOrder === 'asc' && <Icon name="chevron-up" size={14} className="ml-1 text-blue-500" />}
@@ -14596,7 +16195,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     {!sortAgeOrder && <Icon name="chevrons-up-down" size={14} className="ml-1 text-slate-300" />}
                   </div>
                 </th>
-                <th className="px-6 py-4 text-center">AKSI</th>
+                <th className="px-3 py-3.5 w-28 text-center text-xs uppercase tracking-wider font-bold shrink-0">AKSI</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -14604,46 +16203,46 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 Array.from({ length: 8 }).map((_, idx) => (
                   <tr key={idx} className="animate-pulse">
                     {/* Checkbox Skeleton */}
-                    <td className="px-4 py-4 text-center">
+                    <td className="px-3 py-3 text-center w-12">
                       <div className="flex items-center justify-center">
                         <div className="w-4 h-4 rounded bg-slate-200"></div>
                       </div>
                     </td>
                     {/* ID Pelanggan Skeleton */}
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3 w-28">
                       <div className="h-4 w-20 bg-slate-200 rounded"></div>
                     </td>
                     {/* Nama & Alamat Skeleton */}
-                    <td className="px-6 py-4">
-                      <div className="space-y-2">
-                        <div className="h-4 w-36 sm:w-44 bg-slate-200 rounded"></div>
-                        <div className="h-3 w-52 sm:w-64 bg-slate-100 rounded"></div>
+                    <td className="px-4 py-3 min-w-[180px] max-w-[260px]">
+                      <div className="space-y-1.5">
+                        <div className="h-4 w-36 bg-slate-200 rounded"></div>
+                        <div className="h-3 w-48 bg-slate-100 rounded"></div>
                       </div>
                     </td>
                     {/* Kontak & Lokasi Skeleton */}
-                    <td className="px-6 py-4">
-                      <div className="space-y-2">
+                    <td className="px-4 py-3 w-36">
+                      <div className="space-y-1.5">
                         <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
                         <div className="h-3.5 w-20 bg-slate-100 rounded"></div>
                       </div>
                     </td>
                     {/* Stasiun & Sales Skeleton */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 w-36">
                       <div className="space-y-1.5">
                         <div className="h-4 w-20 bg-slate-200 rounded"></div>
                         <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
                       </div>
                     </td>
                     {/* Status Skeleton */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 min-w-[200px] max-w-[260px]">
                       <div className="flex items-center gap-2">
                         <div className="h-6 w-20 bg-slate-200 rounded-full"></div>
                         <div className="h-5 w-14 bg-slate-100 rounded-md"></div>
                       </div>
                     </td>
                     {/* Aksi Skeleton */}
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex justify-center gap-2">
+                    <td className="px-3 py-3 text-center w-28">
+                      <div className="flex justify-center gap-1.5">
                         <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
                         <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
                         <div className="w-7 h-7 bg-slate-100 rounded-md"></div>
@@ -14724,7 +16323,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   <tr key={idx} className={`transition-colors ${isSelected ? 'bg-blue-50/60 hover:bg-blue-50/80' : 'hover:bg-slate-50'}`}>
 
                     {/* Checkbox Row */}
-                    <td className="px-4 py-4 text-center">
+                    <td className="px-3 py-3 text-center w-12 shrink-0">
                       <div className="flex items-center justify-center">
                         <input
                           type="checkbox"
@@ -14735,48 +16334,48 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       </div>
                     </td>
 
-                    <td className="px-4 py-4 font-semibold text-slate-700 font-mono">{item.idPelanggan || '-'}</td>
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-slate-800">{item.namaPelanggan || 'Tanpa Nama'}</div>
-                      <div className="text-xs text-slate-500 max-w-xs truncate" title={item.alamat}>{item.alamat || '-'}</div>
+                    <td className="px-3 py-3 font-semibold text-slate-700 font-mono text-xs w-28 whitespace-nowrap truncate" title={item.idPelanggan}>{item.idPelanggan || '-'}</td>
+                    <td className="px-4 py-3 min-w-[180px] max-w-[260px]">
+                      <div className="font-bold text-slate-800 text-xs sm:text-sm truncate" title={item.namaPelanggan}>{item.namaPelanggan || 'Tanpa Nama'}</div>
+                      <div className="text-[11px] text-slate-500 truncate max-w-[240px]" title={item.alamat}>{item.alamat || '-'}</div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1.5">
+                    <td className="px-4 py-3 w-36 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
                         {waLink ? (
-                          <a href={waLink} target="_blank" rel="noreferrer" className="flex items-center text-xs text-emerald-600 hover:text-emerald-700 font-semibold transition-colors">
-                            <Icon name="phone" size={12} className="mr-1.5" /> {item.nomorHp}
+                          <a href={waLink} target="_blank" rel="noreferrer" className="flex items-center text-xs text-emerald-600 hover:text-emerald-700 font-semibold transition-colors truncate">
+                            <Icon name="phone" size={11} className="mr-1 shrink-0" />
+                            <span className="truncate">{item.nomorHp}</span>
                           </a>
                         ) : (
-                          <span className="text-xs text-slate-400 flex items-center"><Icon name="phone" size={12} className="mr-1.5" /> -</span>
+                          <span className="text-xs text-slate-400 flex items-center"><Icon name="phone" size={11} className="mr-1 shrink-0" /> -</span>
                         )}
 
                         {item.latitude && item.longitude ? (
                           <a href={`https://maps.google.com/?q=${item.latitude},${item.longitude}`} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors">
-                            <Icon name="map-pin" size={12} className="mr-1.5" /> Lihat Peta
+                            <Icon name="map-pin" size={11} className="mr-1 shrink-0" /> Lihat Peta
                           </a>
                         ) : (
-                          <span className="text-xs text-slate-400 flex items-center"><Icon name="map-pin" size={12} className="mr-1.5" /> -</span>
+                          <span className="text-xs text-slate-400 flex items-center"><Icon name="map-pin" size={11} className="mr-1 shrink-0" /> -</span>
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 w-36 whitespace-nowrap">
                       <div className="flex flex-col items-start gap-1">
-                        <span className="font-semibold text-slate-800 text-[13px]">
+                        <span className="font-semibold text-slate-800 text-xs truncate max-w-[130px]" title={item.stasiun}>
                           {toProperCase(item.stasiun) || '-'}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <Icon name="user" size={11} className="text-slate-400 shrink-0" />
-                          <span className={`text-[10.5px] font-medium leading-none px-1.5 py-0.5 rounded ${
-                            item.namaSales === 'Daftar Mandiri' || item.namaSales === '-' || !item.namaSales
-                              ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
-                              : 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
-                            }`}>
+                          <Icon name="user" size={10} className="text-slate-400 shrink-0" />
+                          <span className={`text-[10px] font-medium leading-none px-1.5 py-0.5 rounded truncate max-w-[120px] ${item.namaSales === 'Daftar Mandiri' || item.namaSales === '-' || !item.namaSales
+                            ? 'text-slate-500 bg-slate-100 border border-slate-200 italic'
+                            : 'text-blue-700 bg-blue-50 border border-blue-200 font-semibold'
+                            }`} title={item.namaSales || 'Daftar Mandiri'}>
                             {(item.namaSales === '-' || item.namaSales === 'Daftar Mandiri') ? 'Daftar Mandiri' : (item.namaSales || '-')}
                           </span>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 min-w-[200px] max-w-[260px]">
                       {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') ? (
                         <div className="flex flex-col items-start gap-1">
                           {/* 1. STATUS DISMANTLED */}
@@ -14786,9 +16385,9 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                           {/* 2. TGL DISMANTLED */}
                           {item.tanggalDismantle ? (
-                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${item.tanggalDismantle.substring(0, 10)}`}>
+                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${formatDateDisplay(item.tanggalDismantle)}`}>
                               <Icon name="calendar" size={9} className="text-rose-400" />
-                              Dismantle: {item.tanggalDismantle.substring(0, 10)}
+                              Dismantle: {formatDateDisplay(item.tanggalDismantle)}
                             </span>
                           ) : (
                             <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Dismantle tidak tercatat">
@@ -14823,35 +16422,62 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                           )}
                         </div>
                       ) : (
-                        <div className="flex flex-col items-start">
+                        <div className="flex flex-col items-start gap-1">
                           {/* BARIS 1: BADGES STATUS & UMUR WO */}
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                              {displayStatusStr}
-                            </span>
-
-                            {/* INDIKATOR UMUR WO */}
-                            {umurWoStr && (
-                              <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
-                                <Icon name="clock" size={10} />
-                                {umurWoStr}
-                              </span>
-                            )}
-
-                            {/* INDIKATOR TELAT BAYAR & EXP (Hanya untuk Suspend & Ready To Dismantle) */}
-                            {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (
+                            {displayStatusStr === 'READY TO DISMANTLE' ? (
+                              (() => {
+                                const woDismantle = getWoDismantleInfo(item);
+                                return woDismantle?.hasWo ? (
+                                  <>
+                                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                                      SEDANG DIAMBIL
+                                    </span>
+                                    {Number(item.telatBayarHari) > 0 && (
+                                      <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                        <Icon name="clock" size={9} className="text-rose-500" />
+                                        Telat {item.telatBayarHari} Hari
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                                      READY TO DISMANTLE
+                                    </span>
+                                    {Number(item.telatBayarHari) > 0 && (
+                                      <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                        <Icon name="clock" size={9} className="text-rose-500" />
+                                        Telat {item.telatBayarHari} Hari
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()
+                            ) : (
                               <>
-                                {(Number(item.telatBayarHari) > 0) && (
-                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                                    <Icon name="clock" size={9} className="text-rose-500" />
-                                    Telat {item.telatBayarHari} Hari
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                                  {displayStatusStr}
+                                </span>
+
+                                {/* INDIKATOR UMUR WO */}
+                                {umurWoStr && (
+                                  <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
+                                    <Icon name="clock" size={10} />
+                                    {umurWoStr}
                                   </span>
                                 )}
-                                {item.tanggalBerakhir && (
-                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200" title="Tanggal Berakhir / Jatuh Tempo">
-                                    <Icon name="calendar" size={9} className="text-slate-400" />
-                                    Exp: {item.tanggalBerakhir.substring(0, 10)}
-                                  </span>
+
+                                {/* INDIKATOR TELAT BAYAR (Hanya untuk Suspend) */}
+                                {displayStatusStr === 'SUSPEND' && (
+                                  <>
+                                    {(Number(item.telatBayarHari) > 0) && (
+                                      <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                                        <Icon name="clock" size={9} className="text-rose-500" />
+                                        Telat {item.telatBayarHari} Hari
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </>
                             )}
@@ -14886,7 +16512,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                                     </p>
                                     <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
                                       <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
-                                      <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? standardizeDate(date) : '-'}</span>
+                                      <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? formatDateDisplay(date) : '-'}</span>
                                     </div>
 
                                     <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
@@ -14897,18 +16523,91 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                             )}
                           </div>
 
+                          {/* BARIS 2: EXP & STATUS WO (IKR / Belum Ada WO Side by Side) */}
+                          {(displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'SUSPEND') && (() => {
+                            const isReadyToDismantle = displayStatusStr === 'READY TO DISMANTLE';
+                            const woDismantle = isReadyToDismantle ? getWoDismantleInfo(item) : null;
+                            const hasExp = Boolean(item.tanggalBerakhir);
+                            const hasWo = Boolean(woDismantle?.hasWo);
+
+                            if (!hasExp && !isReadyToDismantle) return null;
+
+                            return (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {hasExp && (
+                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200 shrink-0" title="Tanggal Berakhir / Jatuh Tempo">
+                                    <Icon name="calendar" size={9} className="text-slate-400" />
+                                    Exp: {formatDateDisplay(item.tanggalBerakhir)}
+                                  </span>
+                                )}
+
+                                {isReadyToDismantle && (
+                                  hasWo ? (
+                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0" title={`IKR : ${woDismantle.teknisi}`}>
+                                      <Icon name="wrench" size={9} className="text-blue-500 shrink-0" />
+                                      <span className="truncate max-w-[130px]">IKR : {woDismantle.teknisi}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200 shrink-0" title="Belum ada teknisi / WO dismantle">
+                                      Belum Ada WO
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* BARIS 1.5: TANGGAL AKTIVASI (Untuk Pelanggan Aktif) */}
+                          {(displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') && (
+                            (() => {
+                              const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+                              const tglAkt = formatDateDisplay(rawAkt);
+                              return tglAkt ? (
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200" title={`Tanggal Aktivasi: ${tglAkt}`}>
+                                  <Icon name="calendar" size={9} className="text-emerald-500" />
+                                  Aktivasi: {tglAkt}
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Aktivasi tidak tercatat">
+                                  <Icon name="calendar" size={9} className="text-slate-400" />
+                                  Tgl Aktivasi: -
+                                </span>
+                              );
+                            })()
+                          )}
+
+                          {/* BARIS 1.6: TANGGAL REGISTRASI (Untuk Pelanggan Baru / Waiting / Kendala) */}
+                          {(displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && (
+                            (() => {
+                              const rawReg = item.tanggalRegistrasi || item.createdAt;
+                              const tglReg = formatDateDisplay(rawReg);
+                              return tglReg ? (
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-amber-800 bg-amber-50 border border-amber-200" title={`Tanggal Registrasi: ${tglReg}`}>
+                                  <Icon name="calendar" size={9} className="text-amber-500" />
+                                  Registrasi: {tglReg}
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Registrasi tidak tercatat">
+                                  <Icon name="calendar" size={9} className="text-slate-400" />
+                                  Tgl Registrasi: -
+                                </span>
+                              );
+                            })()
+                          )}
+
                           {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
                           {(() => {
+                            if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
                             const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                             const issueText = issue && issue !== item.alamat ? issue : '';
 
                             if (!hasKendala && !issueText) return null;
                             return (
-                              <div className="col-span-full mt-1.5 flex flex-col gap-1.5">
+                              <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[250px]">
                                 {(hasKendala || issueText) && (
-                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2.5 py-1.5 rounded-md" title={item.issueKendala || issueText}>
+                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1 rounded-md" title={item.issueKendala || issueText}>
                                     <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                    <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
+                                    <span className="leading-snug font-bold italic line-clamp-2 break-words"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
                                   </div>
                                 )}
                               </div>
@@ -14917,7 +16616,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                           {/* BARIS 3: PETUGAS (JIKA ADA) */}
                           {(item.petugasIkr || item.petugasAktivasi) && (
-                            <div className="mt-1 flex items-center text-[10px] text-slate-400">
+                            <div className="mt-0.5 flex items-center text-[10px] text-slate-400">
                               <Icon name="user" size={10} className="mr-1 shrink-0" />
                               <span className="truncate max-w-[140px]">
                                 {item.petugasAktivasi || item.petugasIkr}
@@ -14927,11 +16626,22 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex justify-center gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setActionModal({ type: 'edit', data: item })} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors" title="Edit Data"><Icon name="edit" size={16} /></button>
-                        <button onClick={() => setActionModal({ type: 'log', data: item })} className="p-1.5 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-colors" title="Log Gangguan / Visit"><Icon name="wrench" size={16} /></button>
-                        <button onClick={() => setActionModal({ type: 'detail', data: item })} className="p-1.5 bg-slate-50 text-slate-600 rounded hover:bg-slate-200 transition-colors" title="Detail Profil"><Icon name="chevron-right" size={16} /></button>
+                    <td className="px-3 py-3 text-center w-28 shrink-0 whitespace-nowrap">
+                      <div className="flex justify-center items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => setActionModal({ type: 'edit', data: item })} className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition-colors" title="Edit Data"><Icon name="edit" size={15} /></button>
+                        {(() => {
+                          const woProps = getWoActionProps(displayStatusStr);
+                          return (
+                            <button
+                              onClick={() => setActionModal({ type: 'log', data: item, initialTask: woProps.task })}
+                              className={`p-1.5 rounded transition-colors ${woProps.btnClass}`}
+                              title={woProps.title}
+                            >
+                              <Icon name={woProps.icon} size={15} />
+                            </button>
+                          );
+                        })()}
+                        <button onClick={() => setActionModal({ type: 'detail', data: item })} className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded transition-colors" title="Detail Profil"><Icon name="chevron-right" size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -14985,8 +16695,9 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           <ActionModal
             type={actionModal.type}
             data={actionModal.data}
+            initialTask={actionModal.initialTask}
             onClose={(shouldRefresh) => {
-              setActionModal({ type: null, data: null });
+              setActionModal({ type: null, data: null, initialTask: null });
               if (shouldRefresh === true) onRefresh();
             }}
             onGoToCoverage={onGoToCoverage}
@@ -15062,6 +16773,48 @@ function CoverageGISView({ data, targetCoords }) {
   const boundaryLayerRef = useRef(null);
 
   const [showBoundaries, setShowBoundaries] = useState(true);
+  const [boundaries, setBoundaries] = useState(coverageBoundaries || []);
+  const [isLiveCoverage, setIsLiveCoverage] = useState(false);
+  const [isSyncingCoverage, setIsSyncingCoverage] = useState(false);
+  const [lastCoverageSync, setLastCoverageSync] = useState(null);
+
+  // Auto-fetch Live Coverage Boundary dari API Partner saat mount
+  useEffect(() => {
+    let isMounted = true;
+    const loadLiveCoverage = async () => {
+      setIsSyncingCoverage(true);
+      try {
+        const res = await fetchLiveCoverageBoundaries(false);
+        if (isMounted && res && res.data && res.data.length > 0) {
+          setBoundaries(res.data);
+          setIsLiveCoverage(!!res.isLive);
+          if (res.lastSync) setLastCoverageSync(res.lastSync);
+        }
+      } catch (err) {
+        console.warn("Coverage fetch error:", err);
+      } finally {
+        if (isMounted) setIsSyncingCoverage(false);
+      }
+    };
+    loadLiveCoverage();
+    return () => { isMounted = false; };
+  }, []);
+
+  const handleRefreshCoverage = async () => {
+    setIsSyncingCoverage(true);
+    try {
+      const res = await fetchLiveCoverageBoundaries(true);
+      if (res && res.data && res.data.length > 0) {
+        setBoundaries(res.data);
+        setIsLiveCoverage(!!res.isLive);
+        if (res.lastSync) setLastCoverageSync(res.lastSync);
+      }
+    } catch (err) {
+      console.warn("Coverage refresh error:", err);
+    } finally {
+      setIsSyncingCoverage(false);
+    }
+  };
 
   const [gmapsLink, setGmapsLink] = useState('');
   const [manualLat, setManualLat] = useState('');
@@ -15105,10 +16858,10 @@ function CoverageGISView({ data, targetCoords }) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.odpData]);
 
-  // Default: Pilih semua stasiun saat data ODP dimuat
+  // Default: Tampilkan boundary coverage saja diawal, titik ODP dipilih manual via filter stasiun
   useEffect(() => {
     if (availableStations.length > 0 && !hasInitializedStations) {
-      setSelectedStations(new Set(availableStations.map(s => s.name)));
+      setSelectedStations(new Set()); // Kosong secara default agar hanya coverage yang tampil diawal
       setHasInitializedStations(true);
     }
   }, [availableStations, hasInitializedStations]);
@@ -15219,7 +16972,7 @@ function CoverageGISView({ data, targetCoords }) {
     });
   }, [visibleOdps]);
 
-  // --- LAYER BOUNDARY COVERAGE (DARI FILE KML) ---
+  // --- LAYER BOUNDARY COVERAGE (DARI API PARTNER / FALLBACK JSON) ---
   useEffect(() => {
     if (!mapInstance.current || !window.L) return;
 
@@ -15232,7 +16985,7 @@ function CoverageGISView({ data, targetCoords }) {
 
     boundaryLayerRef.current = window.L.layerGroup().addTo(mapInstance.current);
 
-    (coverageBoundaries || []).forEach(feat => {
+    (boundaries || []).forEach(feat => {
       if (!feat.coordinates || feat.coordinates.length === 0) return;
 
       const polygon = window.L.polygon(feat.coordinates, {
@@ -15250,12 +17003,16 @@ function CoverageGISView({ data, targetCoords }) {
 
       polygon.bindPopup(`
         <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 180px;">
-          <div style="font-size:10px; font-weight:bold; color:#0284c7; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:flex; align-items:center; gap:4px;">
-            <span>ðŸ—ºï¸ Area Coverage Aktual</span>
+          <div style="font-size:10px; font-weight:bold; color:#0284c7; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; display:flex; align-items:center; justify-content:space-between; gap:4px;">
+            <span>🗺️ Area Coverage Aktual</span>
+            ${isLiveCoverage || feat.isLive ? '<span style="background:#dcfce7; color:#15803d; font-size:9px; padding:1px 6px; border-radius:4px; font-weight:bold;">LIVE API</span>' : '<span style="background:#e2e8f0; color:#475569; font-size:9px; padding:1px 6px; border-radius:4px; font-weight:bold;">OFFLINE</span>'}
           </div>
           <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 4px;">${feat.name}</strong>
           ${feat.description ? `<p style="font-size:10px; color:#64748b; margin-bottom:6px;">${feat.description}</p>` : ''}
-          <span style="font-size:9px; font-weight:600; color:#0369a1; background:#e0f2fe; padding:2px 6px; border-radius:4px;">${feat.coordinates.length} Titik Sudut</span>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:4px;">
+            <span style="font-size:9px; font-weight:600; color:#0369a1; background:#e0f2fe; padding:2px 6px; border-radius:4px;">${feat.coordinates.length} Titik Sudut</span>
+            ${feat.status !== undefined ? `<span style="font-size:9px; font-weight:bold; color:${feat.status ? '#16a34a' : '#dc2626'};">${feat.status ? 'Aktif' : 'Nonaktif'}</span>` : ''}
+          </div>
         </div>
       `);
 
@@ -15268,7 +17025,7 @@ function CoverageGISView({ data, targetCoords }) {
 
       boundaryLayerRef.current.addLayer(polygon);
     });
-  }, [showBoundaries]);
+  }, [showBoundaries, boundaries, isLiveCoverage]);
 
   // --- FUNGSI INTI EKSEKUSI KALKULASI ---
   const executeCoverageCalculation = (tLat, tLng, radius) => {
@@ -15592,7 +17349,7 @@ function CoverageGISView({ data, targetCoords }) {
 
                           {isSelected && realRouteDistance && (
                             <div className="text-[9px] bg-purple-100 text-purple-700 px-2 py-1 rounded border border-purple-200 font-bold flex items-center shadow-sm animate-fade">
-                              <Icon name="git-commit" size={10} className="mr-1" /> JALUR: Â±{realRouteDistance}m
+                              <Icon name="git-commit" size={10} className="mr-1" /> JALUR: ±{realRouteDistance}m
                             </div>
                           )}
                           {isSelected && !realRouteDistance && (
@@ -15636,12 +17393,12 @@ function CoverageGISView({ data, targetCoords }) {
         <div ref={mapRef} className="absolute inset-0" style={{ zIndex: 0 }}></div>
 
         {/* --- FLOATING CONTROLS DI ATAS PETA --- */}
-        <div className="absolute top-3 left-3 z-[400] flex flex-wrap items-center gap-2 max-w-[calc(100%-75px)]">
+        <div className="absolute top-3 left-14 z-[400] flex flex-wrap items-center gap-2 max-w-[calc(100%-80px)]">
           {/* Tombol Buka Legenda & Filter Stasiun */}
           <button
             type="button"
             onClick={() => setIsLegendOpen(prev => !prev)}
-            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${isLegendOpen
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 border transition-all cursor-pointer ${isLegendOpen
               ? 'bg-[#1e3a8a] text-white border-blue-900 shadow-blue-900/30'
               : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
               }`}
@@ -15654,30 +17411,12 @@ function CoverageGISView({ data, targetCoords }) {
             </span>
           </button>
 
-          {/* Toggle Coverage Boundary KML */}
-          <button
-            type="button"
-            onClick={() => setShowBoundaries(prev => !prev)}
-            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-2 border transition-all ${showBoundaries
-              ? 'bg-sky-700 text-white border-sky-800 shadow-sky-900/30'
-              : 'bg-white/95 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 shadow-slate-900/10'
-              }`}
-            title="Tampilkan / Sembunyikan Area Coverage Boundary dari KML"
-          >
-            <Icon name="map-pin" size={13} className={showBoundaries ? "text-sky-300" : "text-sky-600"} />
-            <span>Boundary Coverage</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${showBoundaries ? 'bg-sky-900 text-white' : 'bg-sky-50 text-sky-700 border border-sky-200/60'
-              }`}>
-              {coverageBoundaries.length} Area
-            </span>
-          </button>
-
           {/* Quick Toggle: Mode Cerdas Radius Terdekat */}
           {userLocation && (
             <button
               type="button"
               onClick={() => setSmartRadiusOnly(prev => !prev)}
-              className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md backdrop-blur-md flex items-center gap-1.5 border transition-all ${smartRadiusOnly
+              className={`px-3 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 border transition-all cursor-pointer ${smartRadiusOnly
                 ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/25'
                 : 'bg-white/95 text-slate-600 border-slate-200 hover:border-slate-300'
                 }`}
@@ -15692,16 +17431,34 @@ function CoverageGISView({ data, targetCoords }) {
             </button>
           )}
 
+          {/* Live Partner Boundary Badge & Sync Button */}
+          <div className="bg-white text-slate-700 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-md flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isLiveCoverage ? 'bg-emerald-500 animate-pulse' : 'bg-sky-500'}`}></span>
+            <span className="text-[11px] hidden sm:inline">{isLiveCoverage ? 'Live API Starlite' : 'Coverage Boundary'}</span>
+            <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200/60">
+              {boundaries.length} Area
+            </span>
+            <button
+              type="button"
+              onClick={handleRefreshCoverage}
+              disabled={isSyncingCoverage}
+              title="Sinkronisasi ulang boundary coverage langsung dari API Partner Starlite"
+              className={`p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer ${isSyncingCoverage ? 'animate-spin text-blue-600' : ''}`}
+            >
+              <Icon name="refresh-cw" size={12} />
+            </button>
+          </div>
+
           {/* Counter Badge */}
-          <div className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-xl border border-white/10 shadow-sm hidden sm:flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{visibleOdps.length} ODP tampil di peta</span>
+          <div className="bg-slate-900 text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-xl border border-white/10 shadow-sm hidden sm:flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${visibleOdps.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></span>
+            <span>{visibleOdps.length > 0 ? `${visibleOdps.length} ODP tampil di peta` : 'Titik ODP Nonaktif'}</span>
           </div>
         </div>
 
         {/* --- FLOATING LEGEND & STATION CHECKLIST DRAWER --- */}
         {isLegendOpen && (
-          <div className="absolute top-14 left-3 z-[401] w-72 sm:w-84 max-h-[calc(100%-75px)] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-fade">
+          <div className="absolute top-14 left-14 z-[401] w-72 sm:w-84 max-h-[calc(100%-75px)] bg-white rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-fade">
             {/* Header */}
             <div className="p-3 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
@@ -15775,11 +17532,13 @@ function CoverageGISView({ data, targetCoords }) {
                 </div>
               </div>
 
-              {/* Boundary Coverage KML */}
+              {/* Boundary Coverage KML / Partner API */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Area Boundary Coverage</span>
-                  <span className="text-[9px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200/60">Coverage KML</span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${isLiveCoverage ? 'text-emerald-700 bg-emerald-50 border-emerald-200/60' : 'text-sky-600 bg-sky-50 border-sky-200/60'}`}>
+                    {isLiveCoverage ? 'Live API Starlite' : 'Fallback JSON'}
+                  </span>
                 </div>
                 <div
                   onClick={() => setShowBoundaries(prev => !prev)}
@@ -15792,10 +17551,15 @@ function CoverageGISView({ data, targetCoords }) {
                     className="mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
                   />
                   <div>
-                    <strong className="text-[11px] text-sky-900 block font-bold leading-tight">Tampilkan Boundary Polygon ({coverageBoundaries.length} Area)</strong>
+                    <strong className="text-[11px] text-sky-900 block font-bold leading-tight">Tampilkan Boundary Polygon ({boundaries.length} Area)</strong>
                     <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                      Batas wilayah cakupan operasional aktual dari KML Coverage Desnarum.
+                      Batas wilayah cakupan operasional aktual tersinkronisasi langsung dari API Partner Starlite Indonesia.
                     </p>
+                    {lastCoverageSync && (
+                      <span className="text-[9px] text-slate-400 mt-1 block">
+                        Sinkron terakhir: {new Date(lastCoverageSync).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -15814,7 +17578,7 @@ function CoverageGISView({ data, targetCoords }) {
                     >
                       Pilih Semua
                     </button>
-                    <span className="text-slate-300">â€¢</span>
+                    <span className="text-slate-300">&bull;</span>
                     <button
                       type="button"
                       onClick={() => setSelectedStations(new Set())}
@@ -16108,7 +17872,7 @@ function LoginView({ onLogin }) {
         </form>
 
         <div className="mt-8 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-          Â© 2026 Desnarum. All rights reserved.
+          &copy; 2026 Desnarum. All rights reserved.
         </div>
       </div>
     </div>
