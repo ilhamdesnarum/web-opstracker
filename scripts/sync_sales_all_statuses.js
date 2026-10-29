@@ -39,7 +39,7 @@ async function batchUpsertSales(salesUpdates) {
   for (let i = 0; i < salesUpdates.length; i += CHUNK_SIZE) {
     const chunk = salesUpdates.slice(i, i + CHUNK_SIZE);
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_KEY,
