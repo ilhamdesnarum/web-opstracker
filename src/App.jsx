@@ -8007,12 +8007,21 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       .map(row => {
         const isAkt = String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase().includes('sudah') ||
           String(row.status_aktivasi || row.aktivasi || row.statusAktivasi || '').toLowerCase() === 'aktif';
+        const isIkr = String(row.status_ikr || row.ikr || row.statusIkr || '').toLowerCase().includes('sudah');
+
+        const isNonIkrStatus = ['suspend', 'dismantle', 'kendala', 'pending', 'belum'].some(st =>
+          String(row.status_ikr || '').toLowerCase().includes(st) ||
+          String(row.status_aktivasi || '').toLowerCase().includes(st)
+        );
+
         const rawAkt = row.tglAktivasi || row.timestampAktivasi || (isAkt ? (row.tanggalRegistrasi || row.createdAt) : '');
         const tIkr = standardizeDate(row.tglIkr);
         const tAkt = standardizeDate(rawAkt);
 
-        const isIkrSelected = tIkr === selectedDate;
-        const isAktSelected = tAkt === selectedDate && isAkt;
+        const isIkrSelected = isIkr && tIkr === selectedDate;
+        const isAktSelected = isAkt && tAkt === selectedDate;
+
+        if (isNonIkrStatus && !isAkt) return null;
 
         if (isIkrSelected && !isAktSelected) {
           return { ...row, discrepancyType: 'BELUM REPORT AKTIVASI' };

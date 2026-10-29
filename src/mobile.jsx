@@ -1714,11 +1714,22 @@ const MobileApp = () => {
   const discrepancyList = useMemo(() => {
     return (data.pelangganData || [])
       .map(row => {
+        const isAkt = String(row.statusAktivasi || row.status_aktivasi || row.aktivasi || '').toLowerCase().includes('sudah') ||
+          String(row.statusAktivasi || row.status_aktivasi || row.aktivasi || '').toLowerCase() === 'aktif';
+        const isIkr = String(row.statusIkr || row.status_ikr || row.ikr || '').toLowerCase().includes('sudah');
+
+        const isNonIkrStatus = ['suspend', 'dismantle', 'kendala', 'pending', 'belum'].some(st =>
+          String(row.statusIkr || row.status_ikr || '').toLowerCase().includes(st) ||
+          String(row.statusAktivasi || row.status_aktivasi || '').toLowerCase().includes(st)
+        );
+
         const tIkr = standardizeDate(row.tglIkr);
         const tAkt = standardizeDate(row.tglAktivasi || row.timestampAktivasi);
 
-        const isIkrSelected = tIkr === todayStr;
-        const isAktSelected = tAkt === todayStr;
+        const isIkrSelected = isIkr && tIkr === todayStr;
+        const isAktSelected = isAkt && tAkt === todayStr;
+
+        if (isNonIkrStatus && !isAkt) return null;
 
         if (isIkrSelected && !isAktSelected) {
           return { ...row, discrepancyType: 'BELUM REPORT AKTIVASI' };
