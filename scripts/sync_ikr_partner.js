@@ -212,18 +212,33 @@ async function syncStation(stationName, partnerId) {
       }
     }
 
+    if (page % 5 === 0 || items.length < 10) {
+      console.log(`   📄 Hal ${page}: ${seenIds.size} pelanggan diperiksa, ${totalIkrFound} IKR ditemukan...`);
+    }
+
+    // Flush ke Supabase tiap 50 data agar aman jika terjadi interupsi jaringan
+    if (updatesIkr.length >= 50) {
+      const chunk = updatesIkr.splice(0, updatesIkr.length);
+      await batchUpsert(chunk);
+    }
+    if (updatesSales.length >= 50) {
+      const chunk = updatesSales.splice(0, updatesSales.length);
+      await batchUpsert(chunk);
+    }
+
     if (items.length < 10) break;
     page++;
   }
 
+  // Flush sisa antrean
   if (updatesIkr.length > 0) {
-    console.log(`   💾 Upsert ${updatesIkr.length} data IKR Partner ke Supabase...`);
+    console.log(`   💾 Upsert sisa ${updatesIkr.length} data IKR Partner ke Supabase...`);
     await batchUpsert(updatesIkr);
   }
   if (updatesSales.length > 0) {
     await batchUpsert(updatesSales);
   }
-  if (updatesIkr.length === 0 && updatesSales.length === 0) {
+  if (totalIkrFound === 0) {
     console.log(`   ℹ️ Tidak ada data IKR untuk stasiun ini.`);
   }
 
