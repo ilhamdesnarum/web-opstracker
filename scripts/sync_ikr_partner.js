@@ -184,7 +184,7 @@ async function fetchPage(url, retries = 3) {
 async function syncStation(stationName, partnerId) {
   console.log(`\n📡 Mengambil data untuk Stasiun: ${stationName}...`);
   let page = 1;
-  const maxPages = parseInt(process.env.MAX_PAGES || '20', 10);
+  const maxPages = parseInt(process.env.MAX_PAGES || '9999', 10);
   const updatesIkr = [];
   const updatesSales = [];
   const seenIds = new Set();
