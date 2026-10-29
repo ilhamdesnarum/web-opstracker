@@ -118,6 +118,14 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
     ? import.meta.env.VITE_STARLITE_PARTNER_TOKEN
     : DEFAULT_PARTNER_TOKEN;
 
+  const partnerBaseUrl = (typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' || 
+    window.location.hostname === '127.0.0.1' || 
+    (typeof import.meta !== 'undefined' && import.meta.env?.DEV)
+  ))
+    ? '/api-mitra/mitra'
+    : 'https://api-mitra.starliteindonesia.com/mitra';
+
   try {
     // 1. Ambil Pelanggan Reguler Aktif (halaman 1 sampai 4 secara paralel)
     const pages = [1, 2, 3, 4];
@@ -125,7 +133,7 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 9000);
       try {
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${page}&page_size=10&sort_order=DESC`, {
+        const res = await fetch(`${partnerBaseUrl}/customer/active?page=${page}&page_size=10&sort_order=DESC`, {
           headers: {
             'Authorization': token,
             'Accept': 'application/json'
@@ -148,7 +156,7 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 9000);
       try {
-        const res = await fetch(`https://api-mitra.starliteindonesia.com/mitra/fasum/active?page=${page}&page_size=10&sort_order=DESC`, {
+        const res = await fetch(`${partnerBaseUrl}/fasum/active?page=${page}&page_size=10&sort_order=DESC`, {
           headers: {
             'Authorization': token,
             'Accept': 'application/json'

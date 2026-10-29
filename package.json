@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "sync-due-date": "node scripts/sync_due_date.js",
     "sync-active": "node scripts/sync_active.js",
-    "sync-partner": "node scripts/sync_partner.js"
+    "sync-partner": "node scripts/sync_partner.js",
+    "update-coverage": "node scripts/parse_kml.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -19,6 +20,8 @@
     "@supabase/supabase-js": "^2.106.2",
     "@tmcw/togeojson": "^7.1.2",
     "firebase": "^12.13.0",
+    "html-to-image": "^1.11.13",
+    "html2canvas": "^1.4.1",
     "leaflet": "^1.9.4",
     "lodash": "^4.18.1",
     "lucide-react": "^1.16.0",

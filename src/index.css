@@ -51,11 +51,6 @@ body {
   }
 }
 
-.sidebar-active {
-  background-color: #2563eb;
-  color: white;
-  border-left: 4px solid #22d3ee;
-}
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
@@ -76,20 +71,9 @@ body {
   background: #94a3b8;
 }
 
+/* Animasi transisi halaman dimatikan agar perpindahan antar tab instan tanpa lag */
 .page-enter {
-  animation: fadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  animation: none !important;
 }
 
 .animate-dropdown {
@@ -116,12 +100,10 @@ body {
 @keyframes fadeInOverlay {
   from {
     opacity: 0;
-    backdrop-filter: blur(0px);
   }
 
   to {
     opacity: 1;
-    backdrop-filter: blur(4px);
   }
 }
 
@@ -256,6 +238,7 @@ svg *,
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -269,6 +252,67 @@ svg *,
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* =========================================================================
+   SNAPSHOT MODE UNTUK TABEL MONITORING (SHARE KE WA)
+   Memastikan gambar snapshot tampil 100% full, bebas scrollbar, dan tajam
+   ========================================================================= */
+.is-capturing-snapshot {
+  zoom: 1 !important;
+  width: 1240px !important;
+  max-width: 1240px !important;
+  min-width: 1240px !important;
+  box-sizing: border-box !important;
+  background-color: #f8fafc !important;
+}
+
+/* Paksa layout 2 kolom tetap berdampingan dengan proporsional */
+.is-capturing-snapshot .snapshot-grid-container {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  align-items: start !important;
+}
+
+/* Hilangkan scrollbar browser/sistem sama sekali di dalam snapshot */
+.is-capturing-snapshot,
+.is-capturing-snapshot * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.is-capturing-snapshot *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Bebaskan overflow agar semua baris tabel tampil penuh dan tidak terpotong */
+.is-capturing-snapshot .overflow-x-auto,
+.is-capturing-snapshot .overflow-y-auto,
+.is-capturing-snapshot .overflow-hidden,
+.is-capturing-snapshot .overflow-auto {
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+.is-capturing-snapshot .snapshot-card {
+  overflow: hidden !important;
+  border-radius: 1rem !important;
+}
+
+/* thead tetap static agar tidak floating / terpotong di SVG */
+.is-capturing-snapshot thead {
+  position: static !important;
+}
+
+/* Tabel mengambil lebar penuh kolom secara fleksibel */
+.is-capturing-snapshot table {
+  width: 100% !important;
+  min-width: 100% !important;
+  table-layout: auto !important;
 }
 
 .animated-route-line {

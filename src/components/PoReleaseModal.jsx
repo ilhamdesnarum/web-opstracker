@@ -14,7 +14,7 @@ import {
   HelpCircle,
   ExternalLink
 } from 'lucide-react';
-import { toProperCase, isPercepatanCustomer } from '../utils';
+import { toProperCase, isPercepatanCustomer, isPoPercepatan, buildOdpLookupMap } from '../utils';
 import { CustomerStatusDrilldownModal } from './CustomerStatusDrilldownModal';
 import { ManagePoFormModal } from './ManagePoFormModal';
 
@@ -35,51 +35,71 @@ export const matchCustomerToPo = (po, cust, odpData = []) => {
     // Jika pelanggan PUNYA no_po_release, tapi tidak cocok dengan PO ini, berarti BUKAN milik PO ini!
     return false;
   }
-  
-  // 2. Ambil Tahap Pembangunan PELANGGAN (Prioritas: Dari tabel ODP)
+
+  // 2. Ambil Tahap Pembangunan PELANGGAN (Prioritas: Dari tabel ODP via O(1) Map)
   let cTahapRaw = cust.tahapPembangunan || cust.tahap_pembangunan || '';
-  if (cust.odp && odpData && odpData.length > 0) {
-    const custOdpClean = String(cust.odp).trim().toUpperCase();
-    const matchedOdp = odpData.find(o => String(o.nama_odp || o.namaOdp || '').trim().toUpperCase() === custOdpClean);
-    if (matchedOdp && (matchedOdp.tahap_pembangunan || matchedOdp.tahapPembangunan)) {
-      cTahapRaw = matchedOdp.tahap_pembangunan || matchedOdp.tahapPembangunan;
+  const rawOdpStr = String(cust.odp || cust.odpAktual || cust.kodeOdp || cust.label || '').trim();
+  if (rawOdpStr && odpData && (odpData.length > 0 || odpData.size > 0)) {
+    const cleanRawOdp = rawOdpStr.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (cleanRawOdp) {
+      const odpMap = odpData instanceof Map ? odpData : buildOdpLookupMap(odpData);
+      const matchedOdp = odpMap.get(cleanRawOdp);
+      if (matchedOdp && (matchedOdp.tahap_pembangunan || matchedOdp.tahapPembangunan)) {
+        cTahapRaw = matchedOdp.tahap_pembangunan || matchedOdp.tahapPembangunan;
+      }
     }
   }
-  
-  // 3. Pencocokan fuzzy legacy berdasarkan tahap_pembangunan (fallback)
-  const pTahap = cleanTahapStr(po.tahapPembangunan || po.hpByPo || po.segmen || '');
+
+  const pTahap = cleanTahapStr(po.tahapPembangunan || po.tahap_pembangunan || po.hpByPo || po.segmen || '');
   const cTahap = cleanTahapStr(cTahapRaw);
+
+  // Jika tahap ODP identik dengan tahap PO (misal: "kjn1552" === "kjn1552"), langsung cocok!
+  if (cTahap && pTahap && cTahap === pTahap) {
+    return true;
+  }
   
+  // 3. Pemisahan Segmen (Reguler vs Percepatan)
+  const poIsPerc = isPoPercepatan(po);
+  const custIsPerc = isPercepatanCustomer(cust, odpData);
+
+  // Jika PO adalah Percepatan, tapi pelanggan bukan Percepatan -> jangan dicocokkan!
+  if (poIsPerc && !custIsPerc) return false;
+  // Jika PO adalah Reguler, tapi pelanggan adalah Percepatan -> jangan dicocokkan!
+  if (!poIsPerc && custIsPerc) return false;
+  
+  // 4. Pencocokan fuzzy berdasarkan tahap_pembangunan
   if (cTahap && pTahap) {
-    if (cTahap === pTahap) return true;
-    
-    const pNum = pTahap.replace(/[^0-9]/g, '');
-    const cNum = cTahap.replace(/[^0-9]/g, '');
-    if (pNum && cNum && pNum === cNum) return true;
-    
     // Mapping Tahap reguler: 'tahap1' -> 'reguler512' (atau 512 tanpa sufiks a/b/c)
-    if (cTahap === 'tahap1' && (pTahap.includes('512') && !pTahap.includes('512a') && !pTahap.includes('512b') && !pTahap.includes('512c') || pTahap.includes('tahap1'))) return true;
-    if (cTahap === 'tahap2' && (pTahap.includes('512a') || pTahap.includes('tahap2'))) return true;
-    if (cTahap === 'tahap3' && (pTahap.includes('512b') || pTahap.includes('tahap3'))) return true;
-    if (cTahap === 'tahap4' && (pTahap.includes('512c') || pTahap.includes('tahap4'))) return true;
+    // HANYA jika PO adalah Reguler!
+    if (!poIsPerc) {
+      if (cTahap === 'tahap1' && (pTahap.includes('512') && !pTahap.includes('512a') && !pTahap.includes('512b') && !pTahap.includes('512c') || pTahap.includes('tahap1'))) return true;
+      if (cTahap === 'tahap2' && (pTahap.includes('512a') || pTahap.includes('tahap2'))) return true;
+      if (cTahap === 'tahap3' && (pTahap.includes('512b') || pTahap.includes('tahap3'))) return true;
+      if (cTahap === 'tahap4' && (pTahap.includes('512c') || pTahap.includes('tahap4'))) return true;
+    }
     
     // Penanganan khusus kata "handover" agar tidak menimpa PO yang berbeda
     const isCHandover = cTahap.includes('handover');
     const isPHandover = pTahap.includes('handover');
     
     if (isCHandover && isPHandover) {
-      if (cTahap === pTahap) return true;
+      const pNum = pTahap.replace(/[^0-9]/g, '');
+      const cNum = cTahap.replace(/[^0-9]/g, '');
       if (pNum && cNum && pNum === cNum) return true;
-      // Jika ODP hanya ditulis "handover" tanpa keterangan lain, ia HANYA cocok dengan PO yang tahapnya murni "handover"
       if (cTahap === 'handover' && pTahap !== 'handover') return false;
       if (pTahap === 'handover' && cTahap !== 'handover') return false;
-      // Jika keduanya punya ekstra string tapi tidak sama (contoh: handover1920 vs handover512), jangan di-match!
       return false;
     }
 
-    // Fallback string matching jika BUKAN handover
     if (!isCHandover && !isPHandover) {
-      if (pTahap.includes(cTahap) || cTahap.includes(pTahap)) return true;
+      // Pastikan nomor dan sufiks huruf (seperti 512 vs 512-a vs 512-b vs 512-c) cocok persis dan tidak saling menimpa
+      const pNum = pTahap.replace(/[^0-9]/g, '');
+      const cNum = cTahap.replace(/[^0-9]/g, '');
+      if (pNum && cNum && pNum === cNum) {
+        const pSuffix = pTahap.replace(/[^a-z]/g, '').replace('reguler', '').replace('percepatan', '').replace('direct', '');
+        const cSuffix = cTahap.replace(/[^a-z]/g, '').replace('reguler', '').replace('percepatan', '').replace('tahap', '').replace('hp', '');
+        return pSuffix === cSuffix;
+      }
     }
   }
   return false;
@@ -159,7 +179,7 @@ export const PoReleaseModal = ({
 
           const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
           const isSuspend = akt === 'SUSPEND';
-          const isReady = akt === 'READY TO DISMANTLE';
+          const isReady = akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY');
           const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
           const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
 
@@ -223,7 +243,7 @@ export const PoReleaseModal = ({
 
         const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
         const isSuspend = akt === 'SUSPEND';
-        const isReady = akt === 'READY TO DISMANTLE';
+        const isReady = akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY');
         const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
         const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
 
@@ -281,7 +301,7 @@ export const PoReleaseModal = ({
       const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
 
       if (drilldownStatus === 'ALL_AKTIVASI') {
-        return akt === 'AKTIF' || akt === 'SUDAH' || akt === 'SUSPEND' || akt === 'READY TO DISMANTLE' || akt === 'DISMANTLED' || ikr === 'SUDAH';
+        return akt === 'AKTIF' || akt === 'SUDAH' || akt === 'SUSPEND' || akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY') || akt === 'DISMANTLED' || akt === 'DISMANTLE' || ikr === 'SUDAH';
       }
       if (drilldownStatus === 'AKTIF') {
         return akt === 'AKTIF' || akt === 'SUDAH';
@@ -290,7 +310,7 @@ export const PoReleaseModal = ({
         return akt === 'SUSPEND';
       }
       if (drilldownStatus === 'READY TO DISMANTLE') {
-        return akt === 'READY TO DISMANTLE';
+        return akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY');
       }
       if (drilldownStatus === 'DISMANTLED') {
         return akt === 'DISMANTLED' || akt === 'DISMANTLE';
@@ -315,7 +335,7 @@ export const PoReleaseModal = ({
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-5">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm animate-fade" 
+        className="absolute inset-0 bg-slate-950/70 animate-fade" 
         onClick={onClose} 
       />
 
@@ -531,8 +551,14 @@ export const PoReleaseModal = ({
                               {jenis}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-center font-medium text-slate-600">
-                            {tahap}
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              isPoPercepatan(po)
+                                ? 'bg-purple-50 text-purple-700 border-purple-200/60'
+                                : 'bg-blue-50 text-blue-700 border-blue-200/60'
+                            }`}>
+                              {tahap}
+                            </span>
                           </td>
                           <td className="px-3 py-2.5 text-center font-bold text-slate-700 bg-slate-50/30">
                             {hpReg.toLocaleString('id-ID')}

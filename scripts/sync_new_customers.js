@@ -196,6 +196,77 @@ function extractSalesName(c) {
   return cleaned;
 }
 
+function extractIkrPartnerName(c) {
+  if (!c) return null;
+  let name = null;
+
+  // 1. Cek submit_request_ikr_id.ikr_id.name (WO instalasi)
+  if (c.submit_request_ikr_id && typeof c.submit_request_ikr_id === 'object') {
+    const ikrObj = c.submit_request_ikr_id.ikr_id;
+    if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+      name = ikrObj.name;
+    } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+      name = ikrObj;
+    }
+  }
+
+  // 2. Cek customer_id.submit_request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object') {
+    const sub = c.customer_id.submit_request_ikr_id;
+    if (sub && typeof sub === 'object') {
+      const ikrObj = sub.ikr_id;
+      if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+        name = ikrObj.name;
+      } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+        name = ikrObj;
+      }
+    }
+  }
+
+  // 3. Cek request_ikr_id.ikr_name
+  if (!name && c.request_ikr_id && typeof c.request_ikr_id === 'object') {
+    const raw = c.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 4. Cek customer_id.request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object' && c.customer_id.request_ikr_id) {
+    const raw = c.customer_id.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 5. Cek ikr_id langsung
+  if (!name && c.ikr_id) {
+    if (typeof c.ikr_id === 'object' && c.ikr_id.name) name = c.ikr_id.name;
+    else if (typeof c.ikr_id === 'string' && c.ikr_id.trim()) name = c.ikr_id;
+  }
+
+  if (!name) return null;
+  const clean = String(name).trim();
+  if (!clean || clean === '-' || clean.toLowerCase() === 'null') return null;
+  return clean;
+}
+
 async function checkExistingInSupabase(customerIds) {
   const map = new Map();
   if (!customerIds || customerIds.length === 0) return map;
@@ -218,7 +289,7 @@ async function checkExistingInSupabase(customerIds) {
     const chunk = allIdsToSearch.slice(i, i + 50);
     // Format PostgREST in: in.("ID1","ID2",...) dengan URL encode
     const formattedIn = chunk.map(id => `"${id.replace(/"/g, '')}"`).join(',');
-    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales,odp,port_odp`;
+    const url = `${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,status_ikr,status_aktivasi,issue_kendala,latitude,longitude,tanggal_registrasi,nama_sales,ikr_partner,odp,port_odp`;
 
     let retries = 2;
     while (retries >= 0) {
@@ -288,50 +359,6 @@ async function upsertToSupabase(rows, preferResolution = 'resolution=merge-dupli
   }
 }
 
-const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || 
-  "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
-
-async function writeNewCustomerToSheet(row) {
-  try {
-    const payload = {
-      stasiun: row.stasiun,
-      idPelanggan: row.id_pelanggan,
-      namaPelanggan: row.nama_pelanggan,
-      alamat: row.alamat,
-      nomorHp: row.nomor_hp,
-      odpAktual: row.odp,
-      portOdp: row.port_odp,
-      latitude: row.latitude || "",
-      longitude: row.longitude || "",
-      namaSales: row.nama_sales,
-      ikr: row.status_ikr || "Belum",
-      aktivasi: "Belum",
-      catatan: row.catatan || ""
-    };
-
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'insertPelangganBaru', payload: payload }),
-      signal: AbortSignal.timeout(30000)
-    });
-
-    const txt = await res.text();
-    let json = {};
-    try { json = JSON.parse(txt); } catch (_) {}
-
-    if (res.ok && !json.error) {
-      console.log(`   📄 [Dual-Write Sheet] Sukses tulis ${row.id_pelanggan} ke spreadsheet ${row.stasiun}`);
-      return true;
-    } else {
-      console.warn(`   ⚠️ [Dual-Write Sheet] Respon ${row.id_pelanggan}: ${json.error || txt || res.statusText}`);
-      return false;
-    }
-  } catch (err) {
-    console.warn(`   ⚠️ [Dual-Write Sheet] Gagal kirim ${row.id_pelanggan} ke Apps Script: ${err.message}`);
-    return false;
-  }
-}
 
 async function main() {
   const t0 = Date.now();
@@ -448,6 +475,7 @@ async function main() {
       const tglRegistrasi = extractRegDate(item);
       const { odp, portOdp } = extractOdpInfo(item);
       const namaSales = extractSalesName(item);
+      const ikrPartner = extractIkrPartnerName(item);
 
       const existingData = existingSupabaseMap.get(idPelanggan) ||
                            existingSupabaseMap.get(idPelanggan.toUpperCase()) ||
@@ -459,12 +487,13 @@ async function main() {
         // 2. JANGAN PERNAH sertakan latitude & longitude (koordinat presisi teknisi aman).
         // 3. JANGAN PERNAH sertakan odp & port_odp (mapping ODP teknisi aman).
         // 4. JANGAN PERNAH sertakan nomor_hp, alamat, catatan (data kontak lapangan aman).
-        // 5. UPDATE NAMA SALES: nama sales ditarik dari partner API baik pelanggan baru maupun lama!
+        // 5. UPDATE NAMA SALES & IKR PARTNER: ditarik dari partner API baik pelanggan baru maupun lama!
         // Catatan: Semua objek harus memiliki key yang identik agar tidak ditolak PostgREST (PGRST102)
         const payloadExisting = {
           id_pelanggan: idPelanggan,
           stasiun: stationName,
           nama_sales: (namaSales && namaSales !== "-" && namaSales !== "Daftar Mandiri") ? namaSales : (existingData.nama_sales || null),
+          ikr_partner: (ikrPartner && ikrPartner !== "-") ? ikrPartner : (existingData.ikr_partner || null),
           tanggal_registrasi: (!existingData.tanggal_registrasi && tglRegistrasi) ? tglRegistrasi : (existingData.tanggal_registrasi || null),
           updated_at: new Date().toISOString()
         };
@@ -482,6 +511,7 @@ async function main() {
           alamat: alamat,
           catatan: catatan,
           nama_sales: namaSales,
+          ikr_partner: ikrPartner || null,
           status_ikr: initialStatus,
           status_aktivasi: initialStatus,
           latitude: lat || "",
@@ -498,16 +528,11 @@ async function main() {
       }
     }
 
-    // Push ke Supabase & Dual-Write ke Google Spreadsheet per stasiun
+    // Push ke Supabase
     if (rowsNew.length > 0) {
       console.log(`   ✨ Menambahkan ${rowsNew.length} pelanggan baru ke Supabase (ignore duplicates agar status kendala aman)...`);
       await upsertToSupabase(rowsNew, 'resolution=ignore-duplicates');
       totalNewInserted += rowsNew.length;
-
-      console.log(`   📄 Melakukan dual-write ${rowsNew.length} pelanggan baru ke Google Spreadsheet...`);
-      for (const newCust of rowsNew) {
-        await writeNewCustomerToSheet(newCust);
-      }
     }
 
     if (rowsExistingNoStatus.length > 0) {

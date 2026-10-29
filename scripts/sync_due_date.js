@@ -98,7 +98,7 @@ async function main() {
   // 4. Suspend (Prioritas tertinggi: Pelanggan yang aktif suspend)
   const statusConfigs = [
     { key: "ready-to-dismantle", query: "dismantle_status=ready-to-dismantle", dbStatus: "Ready To Dismantle" },
-    { key: "dismantling", query: "status=dismantling", dbStatus: "Ready To Dismantle" },
+    { key: "dismantling", query: "status=dismantling", dbStatus: "Dismantling" },
     { key: "dismantled", query: "status=dismantled", dbStatus: "Dismantled" },
     { key: "suspend", query: "status=suspend", dbStatus: "Suspend" }
   ];
@@ -223,7 +223,21 @@ async function main() {
 
             let tglDismantle = null;
             let reasonDismantle = null;
-            if (cfg.key === "dismantled" || cfg.dbStatus === "Dismantled" || customer.status === "dismantled") {
+            if (cfg.key === "dismantling" || cfg.dbStatus === "Dismantling") {
+              if (customer.submit_request_ikr_id) {
+                const sub = customer.submit_request_ikr_id;
+                const rawDate = sub.created_at || sub.updated_at || sub.est_request_datetime;
+                if (rawDate) tglDismantle = formatKeWIB(rawDate);
+                const teknisiName = (sub.ikr_id && typeof sub.ikr_id === 'object' && sub.ikr_id.name) ? sub.ikr_id.name.trim() : (typeof sub.ikr_id === 'string' ? sub.ikr_id.trim() : "");
+                const ticketNo = sub.ticket_number || "";
+                const notes = sub.notes && sub.notes !== "." ? sub.notes.trim() : "";
+                const parts = ["[WO DISMANTLE]"];
+                if (teknisiName) parts.push(`Teknisi: ${teknisiName}`);
+                if (ticketNo) parts.push(`Tiket: ${ticketNo}`);
+                if (notes) parts.push(`Ket: ${notes}`);
+                reasonDismantle = parts.join(" | ");
+              }
+            } else if (cfg.key === "dismantled" || cfg.dbStatus === "Dismantled" || customer.status === "dismantled") {
               if (customer.submit_request_ikr_id) {
                 const sub = customer.submit_request_ikr_id;
                 const rawDate = sub.updated_at || sub.created_at || sub.est_request_datetime;

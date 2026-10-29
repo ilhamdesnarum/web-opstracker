@@ -24,7 +24,7 @@ const PortalLogin = ({ onLogin }) => {
       <div className="absolute top-[20%] right-[-10%] w-96 h-96 bg-cyan-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
       <div className="absolute bottom-[-20%] left-[20%] w-96 h-96 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
 
-      <div className="max-w-md w-full bg-slate-800/60 backdrop-blur-xl rounded-3xl p-8 border border-slate-700 shadow-2xl relative z-10 page-enter">
+      <div className="max-w-md w-full bg-slate-800 rounded-3xl p-8 border border-slate-700 shadow-2xl relative z-10 page-enter">
         
         <div className="text-center mb-8">
           <div className="bg-blue-500/10 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/20">

@@ -24,11 +24,23 @@ export default defineConfig({
     port: 5175,
     host: true,
     proxy: {
-      '/api/gas': {
-        target: 'https://script.google.com',
+      '/api-mitra': {
+        target: 'https://api-mitra.starliteindonesia.com',
         changeOrigin: true,
-        followRedirects: true,
-        rewrite: (path) => path.replace(/^\/api\/gas/, '')
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api-mitra/, '')
+      }
+    }
+  },
+  preview: {
+    port: 5175,
+    host: true,
+    proxy: {
+      '/api-mitra': {
+        target: 'https://api-mitra.starliteindonesia.com',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api-mitra/, '')
       }
     }
   }

@@ -1,17 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { toProperCase } from '../utils';
 
-// --- Komponen Icon Anti-Crash ---
-const Icon = ({ name, size = 20, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => { 
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current }); 
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 const CoverageMap = ({ data, targetCoords }) => {
   const mapRef = useRef(null); 

@@ -1,19 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { toProperCase, getGlobalStatusStr, extractKendalaData } from '../utils';
+import { toProperCase, getGlobalStatusStr, extractKendalaData, formatDateDisplay } from '../utils';
 import api from '../api';
 
-// --- Komponen Icon Anti-Crash ---
-const Icon = ({ name, size = 20, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => { 
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current }); 
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCoverage, petugasList }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -211,7 +201,7 @@ const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCove
                     <>
                       <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
                         <Icon name="calendar" size={10} className="text-rose-400" />
-                        <span className="truncate font-semibold">{item.tanggalDismantle ? `Dismantle: ${item.tanggalDismantle}` : 'Tgl Dismantle: -'}</span>
+                        <span className="truncate font-semibold">{item.tanggalDismantle ? `Dismantle: ${formatDateDisplay(item.tanggalDismantle)}` : 'Tgl Dismantle: -'}</span>
                       </div>
                       {item.reasonDismantle && (
                         <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
@@ -220,6 +210,30 @@ const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCove
                         </div>
                       )}
                     </>
+                  )}
+                  {(status === 'AKTIF' || status === 'DONE') && (
+                    <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
+                      <Icon name="calendar" size={10} className="text-emerald-500" />
+                      <span className="truncate font-semibold text-emerald-700">
+                        {(() => {
+                          const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+                          const tglAkt = formatDateDisplay(rawAkt);
+                          return tglAkt ? `Aktivasi: ${tglAkt}` : 'Tgl Aktivasi: -';
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                  {(status === 'WAITING' || status === 'KENDALA') && (
+                    <div className="flex items-center gap-1 sm:gap-1.5 col-span-2">
+                      <Icon name="calendar" size={10} className="text-amber-500" />
+                      <span className="truncate font-semibold text-amber-800">
+                        {(() => {
+                          const rawReg = item.tanggalRegistrasi || item.createdAt;
+                          const tglReg = formatDateDisplay(rawReg);
+                          return tglReg ? `Registrasi: ${tglReg}` : 'Tgl Registrasi: -';
+                        })()}
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -298,7 +312,7 @@ const DatabaseView = ({ pelangganData, odpData, visitData, onRefresh, onGoToCove
                        {(status === 'DISMANTLED' || status === 'READY TO DISMANTLE') && (
                          <div className="mt-2 text-left bg-slate-50 p-1.5 rounded-lg border border-slate-100 mx-auto w-32">
                            <div className="text-[9px] font-bold text-slate-600 flex items-center gap-1">
-                             <Icon name="calendar" size={10} /> {item.tanggalDismantle || '-'}
+                             <Icon name="calendar" size={10} /> {formatDateDisplay(item.tanggalDismantle) || '-'}
                            </div>
                            <div className="text-[9px] text-rose-500 font-semibold truncate mt-0.5" title={item.reasonDismantle}>
                              {item.reasonDismantle || '-'}
@@ -358,6 +372,7 @@ const StatusBadge = ({ status }) => {
   let styles = "bg-slate-100 text-slate-500 border-slate-200";
   if (status === "AKTIF") styles = "bg-emerald-50 text-emerald-600 border-emerald-200";
   if (status === "WAITING") styles = "bg-amber-50 text-amber-600 border-amber-200";
+  if (status === "PENDING") styles = "bg-yellow-50 text-yellow-800 border-yellow-300";
   if (status === "KENDALA") styles = "bg-rose-50 text-rose-600 border-rose-200";
   if (status === "SUSPEND") styles = "bg-orange-50 text-orange-600 border-orange-200";
   if (status === "READY TO DISMANTLE") styles = "bg-purple-50 text-purple-600 border-purple-200";
@@ -413,7 +428,7 @@ const ActionModal = ({ type, data, onClose, onGoToCoverage, onLocalPelangganUpda
 
   const modalContent = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={onClose}></div>
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl xl:max-w-[85vw] relative z-10 animate-modal flex flex-col max-h-[90vh] overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
           <h2 className="text-xl font-black text-slate-800 capitalize tracking-tight">{type} Pelanggan</h2>
@@ -484,7 +499,7 @@ const MassUpdateModal = ({ selectedData, onClose, onLocalPelangganUpdate }) => {
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={onClose}></div>
       <div className="bg-white rounded-3xl shadow-2xl p-8 relative z-10 w-full max-w-md animate-modal">
         <h2 className="text-xl font-black text-slate-800 mb-4">Update Massal ({selectedData.length} Item)</h2>
         <p className="text-sm text-slate-500 mb-6">Fitur ini akan memperbarui status aktivasi semua item terpilih sekaligus.</p>
@@ -510,7 +525,7 @@ const MassDeleteModal = ({ selectedItems, onClose, onLocalPelangganDelete }) => 
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={onClose}></div>
       <div className="bg-white rounded-3xl shadow-2xl p-8 relative z-10 w-full max-w-md animate-modal border border-rose-100">
         <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6"><Icon name="trash-2" size={32} /></div>
         <h2 className="text-xl font-black text-slate-800 text-center mb-2">Hapus Massal?</h2>

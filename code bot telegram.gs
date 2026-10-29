@@ -350,6 +350,7 @@ function getUserRole(username) {
  */
 function autoRecapUserInfo(chatId, username, firstName, lastName) {
   try {
+    if (!chatId || String(chatId).trim().startsWith("-")) return; // Dilarang merekap ID Grup (harus ID personal)
     const ss = SpreadsheetApp.openById(MASTER_FILE_ID);
     let sheet = ss.getSheetByName("List_Teknisi");
     if (!sheet) return;
@@ -508,8 +509,12 @@ function doPost(e) {
         cache.put(updateId.toString(), "1", 3600);
       }
 
-      // [+] EKSEKUSI AUTO REKAP SETIAP KALI USER CHAT KE BOT
-      autoRecapUserInfo(chatId, username, user.first_name, user.last_name);
+      // [+] EKSEKUSI AUTO REKAP HANYA JIKA BUKAN DARI GRUP (Chat Personal)
+      const isPrivate = data.message.chat && data.message.chat.type === "private";
+      const targetChatId = isPrivate ? chatId : (user && user.id ? user.id : null);
+      if (targetChatId && !String(targetChatId).startsWith("-")) {
+        autoRecapUserInfo(targetChatId, username, user.first_name, user.last_name);
+      }
 
       // Handle Perintah Bot
       if (text === "/start" || text === "/menu") {
@@ -2877,8 +2882,8 @@ function kirimNotifDMKeTeknisi(payload) {
       }
     }
 
-    // Jika Chat ID ketemu, tembak pesannya
-    if (chatId) {
+    // Jika Chat ID ketemu dan bukan ID grup, tembak pesannya
+    if (chatId && !String(chatId).startsWith("-")) {
       let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨
 
 `;

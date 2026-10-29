@@ -140,6 +140,10 @@ export const ManagePoFormModal = ({
       };
 
       if (isEdit) {
+        const oldTahap = (poToEdit.tahapPembangunan || poToEdit.tahap_pembangunan || '').trim();
+        const newTahap = (formData.tahapPembangunan || '').trim();
+        const targetStasiun = poToEdit.stasiun;
+
         // Update by no_po_release instead of id, since id might be missing if data comes from Google Sheets
         const { error } = await supabase
           .from('po_release')
@@ -148,6 +152,27 @@ export const ManagePoFormModal = ({
           .eq('stasiun', poToEdit.stasiun);
 
         if (error) throw error;
+
+        // Tutup modal segera dan panggil onSuccess agar UI responsif dan instan tanpa lag
+        onSuccess && onSuccess();
+        onClose();
+
+        // Jalankan cascade update ke tabel odp dan data_pelanggan di latar belakang (background non-blocking)
+        if (oldTahap && newTahap && oldTahap !== newTahap) {
+          Promise.all([
+            supabase.from('odp')
+              .update({ tahap_pembangunan: newTahap })
+              .eq('stasiun', targetStasiun)
+              .eq('tahap_pembangunan', oldTahap),
+            supabase.from('data_pelanggan')
+              .update({ tahap_pembangunan: newTahap })
+              .eq('stasiun', targetStasiun)
+              .eq('tahap_pembangunan', oldTahap)
+          ]).catch(cascadeErr => {
+            console.warn('Gagal background cascade update tahap ke ODP/pelanggan:', cascadeErr);
+          });
+        }
+        return;
       } else {
         // Insert
         const { error } = await supabase
@@ -198,7 +223,7 @@ export const ManagePoFormModal = ({
     <div className="fixed inset-0 z-[10001] flex items-center justify-center p-3 sm:p-6">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm animate-fade"
+        className="absolute inset-0 bg-slate-950/70 animate-fade"
         onClick={onClose}
       />
 

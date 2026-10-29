@@ -40,7 +40,7 @@ export const ActionModal = ({ type, data, onClose, onLocalPelangganUpdate, petug
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => onClose(false)}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => onClose(false)}></div>
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-2xl relative z-10 animate-modal overflow-hidden flex flex-col max-h-[90dvh]">
         {/* Modal Header */}
         <div className="p-4 sm:p-6 border-b flex justify-between items-center bg-slate-50">
@@ -96,7 +96,7 @@ export const ActionModal = ({ type, data, onClose, onLocalPelangganUpdate, petug
 export const MassUpdateModal = ({ selectedData, onClose, onLocalPelangganUpdate }) => {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => onClose(false)}></div>
+      <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => onClose(false)}></div>
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-lg relative z-10 p-4 sm:p-6">
         <h2 className="text-lg sm:text-xl font-black mb-2 sm:mb-4">Update Massal ({selectedData.length} Data)</h2>
         <p className="text-xs sm:text-sm text-slate-500 mb-4 sm:mb-6">Fitur ini memungkinkan Anda mengubah status banyak pelanggan sekaligus.</p>

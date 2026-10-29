@@ -2,17 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toProperCase, getGlobalStatusStr } from '../utils';
 import MasterKmlModal from './MasterKmlModal';
 
-// Komponen Icon Vektor Lucide
-const Icon = ({ name, size = 16, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => {
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current });
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 // --- ICON DARI SUPABASE STORAGE (PUBLIC BUCKET: kmz-viewer/icons/) ---
 const ICON_BASE_URL = 'https://jtmferyskpbnacluyafs.supabase.co/storage/v1/object/public/kmz-viewer/icons/';
@@ -385,9 +375,14 @@ export default function CustomerMapView({ data }) {
     });
   }, [data?.pelangganData, filterStation, filterStatus, filterSales, searchQuery]);
 
-  // Inisialisasi Peta Leaflet
+  // Inisialisasi Peta Leaflet (Bulletproof dengan ResizeObserver & InvalidateSize ganda)
   useEffect(() => {
-    if (window.L && mapRef.current && !mapInstance.current) {
+    let intervalId = null;
+    let resizeObserver = null;
+
+    const initMap = () => {
+      if (!window.L || !mapRef.current || mapInstance.current) return false;
+
       const initialMap = window.L.map(mapRef.current, {
         preferCanvas: true,
         zoomControl: true
@@ -420,12 +415,38 @@ export default function CustomerMapView({ data }) {
 
       mapInstance.current = initialMap;
 
+      // Invalidate size beberapa kali untuk memastikan peta me-render seluruh tiles
       setTimeout(() => {
         if (mapInstance.current) mapInstance.current.invalidateSize();
-      }, 250);
+      }, 100);
+      setTimeout(() => {
+        if (mapInstance.current) mapInstance.current.invalidateSize();
+      }, 350);
+
+      // Pantau perubahan ukuran kontainer agar Leaflet selalu adaptif
+      if (typeof ResizeObserver !== 'undefined' && mapRef.current) {
+        resizeObserver = new ResizeObserver(() => {
+          if (mapInstance.current) {
+            mapInstance.current.invalidateSize();
+          }
+        });
+        resizeObserver.observe(mapRef.current);
+      }
+
+      return true;
+    };
+
+    if (!initMap()) {
+      intervalId = setInterval(() => {
+        if (initMap()) {
+          clearInterval(intervalId);
+        }
+      }, 200);
     }
 
     return () => {
+      if (intervalId) clearInterval(intervalId);
+      if (resizeObserver) resizeObserver.disconnect();
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
@@ -1070,7 +1091,7 @@ export default function CustomerMapView({ data }) {
   }, [showOdpLayer, filterStation, filteredOdpList]);
 
   return (
-    <div className="h-full flex flex-col relative bg-slate-50 overflow-hidden">
+    <div className="w-full flex-1 flex flex-col h-full min-h-0 gap-2.5 relative">
       
       {/* STYLE CSS HOVER ICON AGAR SMOOTH DAN GPU-ACCELERATED */}
       <style>{`
@@ -1095,7 +1116,7 @@ export default function CustomerMapView({ data }) {
       `}</style>
 
       {/* PANEL KONTROL & FILTER ATAS */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 m-3 mb-2 shrink-0 z-20">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 shrink-0 z-20">
         
         {/* Baris 1: Header & KPI Mini saat Data Dimuat */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -1347,12 +1368,12 @@ export default function CustomerMapView({ data }) {
       </div>
 
       {/* AREA PETA LEAFLET */}
-      <div className="flex-1 relative mx-3 mb-3 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
-        <div ref={mapRef} className="w-full h-full" />
+      <div className="flex-1 w-full relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100 min-h-0">
+        <div ref={mapRef} className="absolute inset-0 w-full h-full" />
 
         {/* WIDGET FLOATING LAYER KML AKTIF */}
         {activeKmlInfo && (
-          <div className="absolute top-3 left-14 z-[450] bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl shadow-lg border border-blue-200 flex items-center gap-3 animate-fade max-w-[calc(100%-80px)]">
+          <div className="absolute top-3 left-14 z-[450] bg-white px-3.5 py-2 rounded-2xl shadow-xl border border-blue-200 flex items-center gap-3 animate-fade max-w-[calc(100%-80px)]">
             <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-blue-500/20">
               <Icon name="map" size={16} />
             </div>
@@ -1397,7 +1418,7 @@ export default function CustomerMapView({ data }) {
 
         {/* PANEL FOLDER KML (GOOGLE EARTH PLACES STYLE DRAWER) */}
         {activeKmlInfo && showKmlFolderPanel && (
-          <div className="absolute top-3 right-3 bottom-3 z-[600] w-84 sm:w-96 max-w-[calc(100%-24px)] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-blue-200 flex flex-col overflow-hidden animate-modal">
+          <div className="absolute top-3 right-3 bottom-3 z-[600] w-84 sm:w-96 max-w-[calc(100%-24px)] bg-white rounded-2xl shadow-2xl border border-blue-200 flex flex-col overflow-hidden animate-modal">
             {/* Header Panel */}
             <div className="p-3.5 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -1577,7 +1598,7 @@ export default function CustomerMapView({ data }) {
         {/* OVERLAY EMPTY STATE (KETIKA BELUM ADA DATA DITAMPILKAN & TIDAK ADA KML AKTIF) */}
         {!isLoaded && !activeKmlInfo && (
           <div className="absolute inset-0 z-[400] pointer-events-none flex items-center justify-center p-4">
-            <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-xl rounded-2xl p-6 max-w-md text-center pointer-events-auto animate-fade">
+            <div className="bg-white border border-slate-200 shadow-xl rounded-2xl p-6 max-w-md text-center pointer-events-auto animate-fade">
               <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-3">
                 <Icon name="map-pin" size={24} />
               </div>
@@ -1618,7 +1639,7 @@ export default function CustomerMapView({ data }) {
         {/* OVERLAY HASIL NOL (KETIKA FILTER TIDAK MENEMUKAN DATA) */}
         {isLoaded && renderedCount === 0 && (
           <div className="absolute inset-0 z-[400] pointer-events-none flex items-center justify-center p-4">
-            <div className="bg-white/95 backdrop-blur-md border border-slate-200 shadow-xl rounded-2xl p-6 max-w-sm text-center pointer-events-auto">
+            <div className="bg-white border border-slate-200 shadow-xl rounded-2xl p-6 max-w-sm text-center pointer-events-auto">
               <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 mx-auto flex items-center justify-center mb-3">
                 <Icon name="alert-triangle" size={24} />
               </div>

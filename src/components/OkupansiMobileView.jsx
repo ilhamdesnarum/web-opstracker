@@ -98,6 +98,26 @@ function OkupansiMobileView({ data, activeStation }) {
     return Array.from(st).sort();
   }, [data]);
 
+  const { customerCountByOdp, odpWithCustomersSet } = useMemo(() => {
+    const map = {};
+    const odpSet = new Set();
+    const cleanOdp = (str) => String(str || '').replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '').trim().toUpperCase().replace(/_\s*(\d{1,2})\s*(_L\d+|_P\d+|_|$)/gi, (_, num, suffix) => '_' + num.padStart(3, '0') + suffix);
+    const normalize = (str) => String(cleanOdp(str) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    (data?.pelangganData || []).forEach(p => {
+      const pOdp = normalize(p.odpAktual || p.odp || p.kodeOdp);
+      if (!pOdp) return;
+      odpSet.add(pOdp);
+
+      const akt = String(p.statusAktivasi || p.status_aktivasi || p.aktivasi || '').trim().toUpperCase();
+      if (akt === 'DISMANTLED' || akt === 'DISMANTLE') return;
+
+      map[pOdp] = (map[pOdp] || 0) + 1;
+    });
+
+    return { customerCountByOdp: map, odpWithCustomersSet: odpSet };
+  }, [data?.pelangganData]);
+
   const okupansiData = useMemo(() => {
     if (!data || !data.odpData) return { odcs: [], kpi: {} };
     
@@ -112,6 +132,9 @@ function OkupansiMobileView({ data, activeStation }) {
       });
     }
 
+    const cleanOdp = (str) => String(str || '').replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '').trim().toUpperCase().replace(/_\s*(\d{1,2})\s*(_L\d+|_P\d+|_|$)/gi, (_, num, suffix) => '_' + num.padStart(3, '0') + suffix);
+    const normalize = (str) => String(cleanOdp(str) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
     const odcMap = {};
     let totalOdcKapasitas = 0;
     let totalOdcTerpakai = 0;
@@ -120,7 +143,13 @@ function OkupansiMobileView({ data, activeStation }) {
       const odcCode = odp.kodeOdc || odp['Kode ODC'] || odp.KodeOdc || 'TANPA-ODC';
       const odpLabel = odp.kodeOdp || odp['Kode ODP'] || odp.label || odp.Label || 'ODP-UNKNOWN';
       const kapasitas = Number(odp.kapasitas || odp.Kapasitas) || 0;
-      const terpakai = Number(odp.portTerpakai || odp['Port Terpakai'] || odp.port_terpakai) || 0;
+      const odpNorm = normalize(odpLabel);
+      const countFromCust = odpWithCustomersSet.has(odpNorm)
+        ? (customerCountByOdp[odpNorm] || 0)
+        : undefined;
+      const terpakai = countFromCust !== undefined
+        ? countFromCust
+        : (Number(odp.portTerpakai || odp['Port Terpakai'] || odp.port_terpakai) || 0);
 
       if (!odcMap[odcCode]) {
         odcMap[odcCode] = {
@@ -259,7 +288,7 @@ function OkupansiMobileView({ data, activeStation }) {
       }`}>
         <div className="flex justify-between items-start mb-2">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-white/25 flex items-center justify-center text-white shrink-0">
               <Icon name="pie-chart" size={14} />
             </div>
             <div>
@@ -501,7 +530,7 @@ function OkupansiMobileView({ data, activeStation }) {
       {/* Modal Daftar Pelanggan ODP (Menggunakan Portal agar terlepas dari container ber-overflow) */}
       {odpModal.isOpen && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade" onClick={() => setOdpModal({ isOpen: false, odpLabel: '', customers: [] })}></div>
+          <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setOdpModal({ isOpen: false, odpLabel: '', customers: [] })}></div>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col relative z-10 animate-modal overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
@@ -527,49 +556,60 @@ function OkupansiMobileView({ data, activeStation }) {
                 </div>
               ) : (
                 <div className="space-y-2 p-2">
-                  <div className="flex items-center justify-between mb-1 px-1">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {odpModal.customers.length} Pelanggan
-                    </span>
-                  </div>
-                  {odpModal.customers.map((c, i) => {
+                  {(() => {
                     const getStatusInfo = (p) => {
-                      // Ambil langsung dari kolom status aktivasi sesuai permintaan
                       let statusStr = String(p.statusAktivasi || p.status_aktivasi || p.aktivasi || '').trim().toUpperCase();
-                      
-                      // Normalisasi teks
                       if (statusStr === 'SUD' || statusStr === 'SUDAH') statusStr = 'AKTIF';
                       if (!statusStr || statusStr === 'BELUM') statusStr = 'PROSES';
+                      if (statusStr === 'DISMANTLE' || statusStr === 'DISMANTLED') statusStr = 'DISMANTLED';
 
-                      if (statusStr === 'DISMANTLED') return { text: 'DISMANTLED', style: 'bg-slate-100 text-slate-600 border border-slate-200' };
+                      if (statusStr === 'DISMANTLED') return { text: 'DISMANTLED', style: 'bg-slate-100 text-slate-600 border border-slate-200', isDismantled: true };
                       if (statusStr === 'SUSPEND') return { text: 'SUSPEND', style: 'bg-rose-50 text-rose-600 border border-rose-200' };
                       if (statusStr === 'READY TO DISMANTLE') return { text: 'READY TO DISMANTLE', style: 'bg-purple-50 text-purple-600 border border-purple-200' };
                       if (statusStr === 'AKTIF') return { text: 'AKTIF', style: 'bg-emerald-50 text-emerald-600 border border-emerald-100' };
                       
-                      // Default untuk PROSES atau teks lainnya
                       return { text: statusStr, style: 'bg-amber-50 text-amber-600 border border-amber-100' };
                     };
-                    
-                    const statusInfo = getStatusInfo(c);
+
+                    const activeCount = odpModal.customers.filter(c => getStatusInfo(c).text !== 'DISMANTLED').length;
+                    const dismantledCount = odpModal.customers.filter(c => getStatusInfo(c).text === 'DISMANTLED').length;
 
                     return (
-                      <div key={i} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-1.5">
-                        <div className="flex items-start justify-between">
-                          <div className="min-w-0 pr-2">
-                            <h4 className="font-black text-[12px] text-slate-800 leading-tight truncate">{c.namaPelanggan || c.idPelanggan}</h4>
-                            <p className="text-[9px] text-slate-500 font-bold mt-0.5">{c.idPelanggan}</p>
-                          </div>
-                          <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusInfo.style}`}>
-                            {statusInfo.text}
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-1 mb-1 px-1">
+                          <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                            {activeCount} Pelanggan Aktif
                           </span>
+                          {dismantledCount > 0 && (
+                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                              {dismantledCount} Dismantled (Port Idle)
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-start gap-1.5 mt-1 pt-2 border-t border-slate-50">
-                          <Icon name="map-pin" size={10} className="text-slate-400 shrink-0 mt-0.5" />
-                          <p className="text-[10px] text-slate-500 leading-snug line-clamp-2">{c.alamat || '-'}</p>
-                        </div>
-                      </div>
+                        {odpModal.customers.map((c, i) => {
+                          const statusInfo = getStatusInfo(c);
+
+                          return (
+                            <div key={i} className={`bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-1.5 ${statusInfo.isDismantled ? 'opacity-70 bg-slate-50/60' : ''}`}>
+                              <div className="flex items-start justify-between">
+                                <div className="min-w-0 pr-2">
+                                  <h4 className="font-black text-[12px] text-slate-800 leading-tight truncate">{c.namaPelanggan || c.idPelanggan}</h4>
+                                  <p className="text-[9px] text-slate-500 font-bold mt-0.5">{c.idPelanggan}</p>
+                                </div>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusInfo.style}`}>
+                                  {statusInfo.text}
+                                </span>
+                              </div>
+                              <div className="flex items-start gap-1.5 mt-1 pt-2 border-t border-slate-50">
+                                <Icon name="map-pin" size={10} className="text-slate-400 shrink-0 mt-0.5" />
+                                <p className="text-[10px] text-slate-500 leading-snug line-clamp-2">{c.alamat || '-'}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
                     );
-                  })}
+                  })()}
                 </div>
               )}
             </div>

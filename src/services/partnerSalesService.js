@@ -66,6 +66,80 @@ export function extractSalesName(c) {
 }
 
 /**
+ * Ekstrak nama teknisi IKR Partner dari data API Partner secara komprehensif
+ */
+export function extractIkrPartnerName(c) {
+  if (!c) return null;
+  let name = null;
+
+  // 1. Cek submit_request_ikr_id.ikr_id.name (WO instalasi)
+  if (c.submit_request_ikr_id && typeof c.submit_request_ikr_id === 'object') {
+    const ikrObj = c.submit_request_ikr_id.ikr_id;
+    if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+      name = ikrObj.name;
+    } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+      name = ikrObj;
+    }
+  }
+
+  // 2. Cek customer_id.submit_request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object') {
+    const sub = c.customer_id.submit_request_ikr_id;
+    if (sub && typeof sub === 'object') {
+      const ikrObj = sub.ikr_id;
+      if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+        name = ikrObj.name;
+      } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+        name = ikrObj;
+      }
+    }
+  }
+
+  // 3. Cek request_ikr_id.ikr_name
+  if (!name && c.request_ikr_id && typeof c.request_ikr_id === 'object') {
+    const raw = c.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 4. Cek customer_id.request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object' && c.customer_id.request_ikr_id) {
+    const raw = c.customer_id.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 5. Cek ikr_id langsung
+  if (!name && c.ikr_id) {
+    if (typeof c.ikr_id === 'object' && c.ikr_id.name) name = c.ikr_id.name;
+    else if (typeof c.ikr_id === 'string' && c.ikr_id.trim()) name = c.ikr_id;
+  }
+
+  if (!name) return null;
+  const clean = String(name).trim();
+  if (!clean || clean === '-' || clean.toLowerCase() === 'null') return null;
+  return clean;
+}
+
+/**
  * Ekstrak ID Pelanggan
  */
 export function extractCustomerId(c) {
@@ -102,6 +176,7 @@ export async function syncSalesFromPartnerApi({
   };
 
   const partnerSalesMap = new Map(); // idUpper -> salesName
+  const partnerIkrMap = new Map();   // idUpper -> ikrPartnerName
 
   try {
     if (onProgress) onProgress('Menghubungkan ke API Partner Starlite...');
@@ -129,21 +204,29 @@ export async function syncSalesFromPartnerApi({
       return [];
     };
 
+    const partnerBaseUrl = (typeof window !== 'undefined' && (
+      window.location.hostname === 'localhost' || 
+      window.location.hostname === '127.0.0.1' || 
+      (typeof import.meta !== 'undefined' && import.meta.env?.DEV)
+    ))
+      ? '/api-mitra/mitra'
+      : 'https://api-mitra.starliteindonesia.com/mitra';
+
     // 1. Tarik Pelanggan Aktif Terbaru (Paralel beberapa halaman)
     const activePages = Array.from({ length: maxPages }, (_, i) => i + 1);
     const activePromises = activePages.map((p) => {
-      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${p}&page_size=20&sort_order=DESC`);
+      return fetchWithRetry(`${partnerBaseUrl}/customer/active?page=${p}&page_size=20&sort_order=DESC`);
     });
 
     // 2. Tarik Pelanggan Baru untuk 11 Stasiun (Paralel)
     // Gunakan page_size=50 agar registrasi baru hari ini tercover menyeluruh
     const newPromises = Object.entries(PARTNER_STATION_IDS).map(([_, partnerId]) => {
-      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`);
+      return fetchWithRetry(`${partnerBaseUrl}/customer/new?page=1&page_size=50&sort_order=DESC&sales_partner_id=${partnerId}`);
     });
 
     // 3. Tarik Fasum Aktif Terbaru
     const fasumPromises = [1, 2].map(p => {
-      return fetchWithRetry(`https://api-mitra.starliteindonesia.com/mitra/fasum/active?page=${p}&page_size=20&sort_order=DESC`);
+      return fetchWithRetry(`${partnerBaseUrl}/fasum/active?page=${p}&page_size=20&sort_order=DESC`);
     });
 
     const [activeBatches, newBatches, fasumBatches] = await Promise.all([
@@ -158,22 +241,28 @@ export async function syncSalesFromPartnerApi({
     for (const item of allFetched) {
       const cid = extractCustomerId(item);
       if (!cid) continue;
+      const cidUpper = cid.toUpperCase();
       const sales = extractSalesName(item);
       if (sales) {
-        partnerSalesMap.set(cid.toUpperCase(), sales);
+        partnerSalesMap.set(cidUpper, sales);
+      }
+      const ikr = extractIkrPartnerName(item);
+      if (ikr) {
+        partnerIkrMap.set(cidUpper, ikr);
       }
     }
 
-    if (partnerSalesMap.size === 0) {
+    if (partnerSalesMap.size === 0 && partnerIkrMap.size === 0) {
       return {
         success: true,
         updatedCount: 0,
         salesMap: {},
-        message: 'Tidak ada data nama sales baru dari API Partner.'
+        ikrMap: {},
+        message: 'Tidak ada data nama sales atau IKR partner baru dari API Partner.'
       };
     }
 
-    if (onProgress) onProgress(`Memeriksa ${partnerSalesMap.size} sales dari API Partner...`);
+    if (onProgress) onProgress(`Memeriksa ${partnerSalesMap.size} sales & ${partnerIkrMap.size} IKR Partner dari API Partner...`);
 
     // 3. Cocokkan dengan data pelanggan lokal
     const existingMap = new Map();
@@ -182,9 +271,10 @@ export async function syncSalesFromPartnerApi({
       if (id) existingMap.set(id, p);
     });
 
-    // Cek ID yang ada di partnerSalesMap tapi tidak ada di existingMap (misal data state lokal belum sync pelanggan baru)
+    // Cek ID yang ada di partnerSalesMap / partnerIkrMap tapi tidak ada di existingMap (misal data state lokal belum sync pelanggan baru)
+    const allPartnerIds = new Set([...partnerSalesMap.keys(), ...partnerIkrMap.keys()]);
     const missingIds = [];
-    partnerSalesMap.forEach((_, idUpper) => {
+    allPartnerIds.forEach((idUpper) => {
       if (!existingMap.has(idUpper)) {
         missingIds.push(idUpper);
       }
@@ -196,12 +286,21 @@ export async function syncSalesFromPartnerApi({
         for (let i = 0; i < missingIds.length; i += 50) {
           const chunk = missingIds.slice(i, i + 50);
           const formattedIn = chunk.map(id => `"${id}"`).join(',');
-          const sRes = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,nama_sales`, {
+          let sRes = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,nama_sales,ikr_partner`, {
             headers: {
               'apikey': SUPABASE_KEY,
               'Authorization': `Bearer ${SUPABASE_KEY}`
             }
           });
+          if (!sRes.ok) {
+            // Fallback jika kolom ikr_partner belum ada di Supabase
+            sRes = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan?id_pelanggan=in.(${encodeURIComponent(formattedIn)})&select=id_pelanggan,nama_sales`, {
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`
+              }
+            });
+          }
           if (sRes.ok) {
             const foundRows = await sRes.json();
             (foundRows || []).forEach(row => {
@@ -209,45 +308,63 @@ export async function syncSalesFromPartnerApi({
                 const rId = String(row.id_pelanggan).trim().toUpperCase();
                 existingMap.set(rId, {
                   idPelanggan: row.id_pelanggan,
-                  namaSales: row.nama_sales
+                  namaSales: row.nama_sales,
+                  ikrPartner: row.ikr_partner
                 });
               }
             });
           }
         }
       } catch (err) {
-        console.warn('[SALES SYNC] Fallback cek Supabase error:', err);
+        console.warn('[SALES/IKR SYNC] Fallback cek Supabase error:', err);
       }
     }
 
     const updates = [];
-    partnerSalesMap.forEach((salesName, idUpper) => {
+    allPartnerIds.forEach((idUpper) => {
       const existing = existingMap.get(idUpper);
       if (existing) {
         const curSales = String(existing.namaSales || existing.nama_sales || '').trim();
-        // Update hanya jika ada perbedaan nama sales (ini juga akan mengupdate data yang dulunya 'Daftar Mandiri' menjadi '-')
-        if (curSales !== salesName) {
-          updates.push({
-            id_pelanggan: existing.idPelanggan || existing.id_pelanggan || idUpper,
-            nama_sales: salesName
-          });
+        const curIkr = String(existing.ikrPartner || existing.ikr_partner || '').trim();
+        const targetSales = partnerSalesMap.get(idUpper);
+        const targetIkr = partnerIkrMap.get(idUpper);
+
+        const updateObj = {
+          id_pelanggan: existing.idPelanggan || existing.id_pelanggan || idUpper
+        };
+        let shouldUpdate = false;
+
+        if (targetSales && curSales !== targetSales) {
+          updateObj.nama_sales = targetSales;
+          shouldUpdate = true;
+        }
+
+        if (targetIkr && curIkr !== targetIkr) {
+          updateObj.ikr_partner = targetIkr;
+          shouldUpdate = true;
+        }
+
+        if (shouldUpdate) {
+          updates.push(updateObj);
         }
       }
     });
 
     const salesMapObj = Object.fromEntries(partnerSalesMap);
+    const ikrMapObj = Object.fromEntries(partnerIkrMap);
 
     if (updates.length === 0) {
       return {
         success: true,
         updatedCount: 0,
-        totalChecked: partnerSalesMap.size,
+        totalChecked: allPartnerIds.size,
         salesMap: salesMapObj,
-        message: 'Semua nama sales sudah sesuai dan sinkron.'
+        ikrMap: ikrMapObj,
+        message: 'Semua nama sales & IKR partner sudah sesuai dan sinkron.'
       };
     }
 
-    if (onProgress) onProgress(`Memperbarui ${updates.length} nama sales ke database...`);
+    if (onProgress) onProgress(`Memperbarui ${updates.length} sales & IKR partner ke database...`);
 
     // 4. Batch Upsert ke Supabase menggunakan resolution=merge-duplicates (Sangat cepat & aman)
     const CHUNK_SIZE = 50;
@@ -255,7 +372,7 @@ export async function syncSalesFromPartnerApi({
 
     for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
       const chunk = updates.slice(i, i + CHUNK_SIZE);
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan`, {
+      let res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -270,17 +387,40 @@ export async function syncSalesFromPartnerApi({
         successCount += chunk.length;
       } else {
         const errText = await res.text();
-        console.warn('[SALES SYNC] Gagal update batch Supabase:', errText);
+        console.warn('[SALES/IKR SYNC] Gagal update batch Supabase:', errText);
+        // Fallback jika kolom ikr_partner belum ditambahkan di database
+        if (errText.includes('ikr_partner') || errText.includes('PGRST204')) {
+          const fallbackChunk = chunk.map(item => {
+            const copy = { ...item };
+            delete copy.ikr_partner;
+            return copy;
+          }).filter(item => Object.keys(item).length > 1);
+
+          if (fallbackChunk.length > 0) {
+            const fallbackRes = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan`, {
+              method: 'POST',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'resolution=merge-duplicates'
+              },
+              body: JSON.stringify(fallbackChunk)
+            });
+            if (fallbackRes.ok) successCount += fallbackChunk.length;
+          }
+        }
       }
     }
 
     return {
       success: true,
       updatedCount: successCount,
-      totalChecked: partnerSalesMap.size,
+      totalChecked: allPartnerIds.size,
       updatedList: updates,
       salesMap: salesMapObj,
-      message: `${successCount} nama sales berhasil disinkronkan dari Web Partner.`
+      ikrMap: ikrMapObj,
+      message: `${successCount} data sales & IKR partner berhasil disinkronkan dari Web Partner.`
     };
   } catch (err) {
     console.error('[SALES SYNC ERROR]:', err);
@@ -293,3 +433,44 @@ export async function syncSalesFromPartnerApi({
     };
   }
 }
+
+/**
+ * Panggil Supabase Edge Function 'sync-partner' untuk menarik data pelanggan baru
+ * dan mengupdate status suspend/dismantle dari Web Partner ke database Supabase
+ * Endpoint: https://jtmferyskpbnacluyafs.supabase.co/functions/v1/sync-partner
+ */
+export async function syncPartnerEdgeFunction(options = {}) {
+  const station = options.station || 'ALL';
+  const url = `${SUPABASE_URL}/functions/v1/sync-partner`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_KEY}`
+      },
+      body: JSON.stringify({
+        station: station
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { success: false, error: `HTTP ${res.status}: ${errText}`, totalBaru: 0, totalUpdate: 0 };
+    }
+
+    const data = await res.json();
+    return {
+      success: data.status === 'success',
+      totalBaru: data.data?.total_baru || 0,
+      totalUpdate: data.data?.total_update || 0,
+      summary: data.data?.summary || [],
+      message: data.message || 'Sinkronisasi Edge Partner selesai.'
+    };
+  } catch (err) {
+    console.error('[EDGE SYNC ERROR]:', err);
+    return { success: false, error: err.message, totalBaru: 0, totalUpdate: 0 };
+  }
+}
+

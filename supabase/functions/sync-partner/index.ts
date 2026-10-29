@@ -1,12 +1,23 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
+// @ts-nocheck
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// 1. DAFTAR ID STASIUN PARTNER
+declare const Deno: any;
+
+// =========================================================================
+// 1. KREDENSIAL API MITRA STARLITE
+// =========================================================================
+const DEFAULT_PARTNER_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
+const DEFAULT_PARTNER_COOKIE = "_ga=GA1.1.1000327763.1779010726; _gcl_au=1.1.1451051866.1779010727; _fbp=fb.1.1779010726946.118555004272738158; _tt_enable_cookie=1; _ttp=01KRTMTV531SKYMHFWWT9XR4DH_.tt.1; _ga_DFWC1L1VBM=GS2.1.s1782135322$o6$g0$t1782135322$j60$l0$h0; ttcsid=1782135322245::M649s3W_u5vulwz81TSP.5.1782135323124.0::1.-2031.0::0.0.0.0::0.0.0; ttcsid_D6N6GJRC77U5VG9U4DSG=1782135322245::WsZdqWnprfIDO3deWfQF.5.1782135323125.0; _ga_1ST28GMNXL=GS2.1.s1782207506$o7$g0$t1782207506$j60$l0$h0; token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
+
+// =========================================================================
+// 2. MAPPING ID STASIUN PARTNER STARLITE (API MITRA)
+// =========================================================================
 const PARTNER_STATION_IDS: Record<string, string> = {
   "Wadu": "22e3ea03b120584cc7f5f1fc72571f12",
   "Randublatung": "a3371976f338ec30d563cf5ff1bb5ad0",
@@ -21,435 +32,585 @@ const PARTNER_STATION_IDS: Record<string, string> = {
   "Krengseng": "6e574c1aea5332ef76ef425d07739588"
 };
 
-const BATCH_STATIONS: Record<number, string[]> = {
-  1: ["Wadu", "Randublatung", "Sulur", "Kradenan"],
-  2: ["Brumbung", "Alastua", "Tawang", "Kaliwungu"],
-  3: ["Kalibodri", "Weleri", "Krengseng"]
-};
-
-// 2. KREDENSIAL API PARTNER & SUPABASE
-const PARTNER_TOKEN = Deno.env.get("STARLITE_PARTNER_TOKEN") || "";
-const PARTNER_COOKIE = Deno.env.get("STARLITE_PARTNER_COOKIE") || "";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
-const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
-
-function formatKeWIB(isoString?: string | null): string {
+// =========================================================================
+// 3. HELPER EKSTRAKSI DATA DARI API MITRA
+// =========================================================================
+function formatKeWIB(isoString: string): string {
   if (!isoString) return "";
-  return isoString.substring(0, 19).replace("T", " ");
+  try {
+    const str = String(isoString).trim();
+    if (str.endsWith("Z") || str.includes("+") || (str.includes("T") && !str.includes(" "))) {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const wibTime = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+        const y = wibTime.getUTCFullYear();
+        const m = String(wibTime.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(wibTime.getUTCDate()).padStart(2, "0");
+        const h = String(wibTime.getUTCHours()).padStart(2, "0");
+        const min = String(wibTime.getUTCMinutes()).padStart(2, "0");
+        const s = String(wibTime.getUTCSeconds()).padStart(2, "0");
+        return `${y}-${m}-${day} ${h}:${min}:${s}`;
+      }
+    }
+    return str.substring(0, 19).replace("T", " ");
+  } catch (_) {
+    return String(isoString).substring(0, 19).replace("T", " ");
+  }
+}
+
+function extractCoordinates(c: any): { lat: string; lng: string } {
+  let lat = "";
+  let lng = "";
+
+  if (c.customer_id && typeof c.customer_id === 'object') {
+    if (c.customer_id.latitude != null && c.customer_id.latitude !== "") {
+      lat = String(c.customer_id.latitude).trim().replace(",", ".");
+    }
+    if (c.customer_id.longitude != null && c.customer_id.longitude !== "") {
+      lng = String(c.customer_id.longitude).trim().replace(",", ".");
+    }
+    if (!lat && c.customer_id.lat) lat = String(c.customer_id.lat).trim().replace(",", ".");
+    if (!lng && (c.customer_id.lng || c.customer_id.long)) lng = String(c.customer_id.lng || c.customer_id.long).trim().replace(",", ".");
+  }
+
+  if (!lat && c.latitude != null && c.latitude !== "") lat = String(c.latitude).trim().replace(",", ".");
+  if (!lng && c.longitude != null && c.longitude !== "") lng = String(c.longitude).trim().replace(",", ".");
+  if (!lat && c.lat != null && c.lat !== "") lat = String(c.lat).trim().replace(",", ".");
+  if (!lng && (c.lng != null || c.long != null)) lng = String(c.lng || c.long).trim().replace(",", ".");
+
+  if ((!lat || !lng) && c.sales_visit_id && typeof c.sales_visit_id === 'object') {
+    if (!lat && (c.sales_visit_id.latitude || c.sales_visit_id.lat)) {
+      lat = String(c.sales_visit_id.latitude || c.sales_visit_id.lat).trim().replace(",", ".");
+    }
+    if (!lng && (c.sales_visit_id.longitude || c.sales_visit_id.lng || c.sales_visit_id.long)) {
+      lng = String(c.sales_visit_id.longitude || c.sales_visit_id.lng || c.sales_visit_id.long).trim().replace(",", ".");
+    }
+  }
+
+  return { lat, lng };
+}
+
+function extractRegDate(c: any): string {
+  if (c.registration_date) return formatKeWIB(c.registration_date);
+  if (c.request_ikr_id && c.request_ikr_id.registration_date) return formatKeWIB(c.request_ikr_id.registration_date);
+  if (c.visit_date) return formatKeWIB(c.visit_date);
+  if (c.sales_visit_id && c.sales_visit_id.visit_date) return formatKeWIB(c.sales_visit_id.visit_date);
+  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.registration_date) return formatKeWIB(c.customer_id.registration_date);
+  if (c.created_at) return formatKeWIB(c.created_at);
+  if (c.created_ats) return formatKeWIB(c.created_ats);
+  return "";
+}
+
+function extractOdpInfo(c: any): { odp: string; portOdp: string } {
+  let odp = "";
+  let portOdp = "";
+
+  if (c.installation_info_id) {
+    const instList = Array.isArray(c.installation_info_id) ? c.installation_info_id : [c.installation_info_id];
+    if (instList.length > 0 && instList[0]) {
+      const inst = instList[0];
+      portOdp = (inst.port_number != null) ? String(inst.port_number) : (inst.port ? String(inst.port) : "");
+      if (inst.device_id) {
+        odp = inst.device_id.code || inst.device_id.name || "";
+      }
+    }
+  }
+
+  if (!odp) {
+    odp = c.odp || c.odp_name || c.odp_code || c.fat || c.fat_code || c.fat_name ||
+      (c.customer_id && typeof c.customer_id === 'object' ? (c.customer_id.odp || c.customer_id.fat_code || c.customer_id.fat_name) : "") || "";
+  }
+  if (!portOdp) {
+    portOdp = c.port_odp || c.port || c.fat_port || c.odp_port ||
+      (c.customer_id && typeof c.customer_id === 'object' ? (c.customer_id.port_odp || c.customer_id.port) : "") || "";
+  }
+
+  return { odp, portOdp };
+}
+
+function extractSnOnt(c: any): string {
+  if (c.ont_id) {
+    const list = Array.isArray(c.ont_id) ? c.ont_id : [c.ont_id];
+    if (list.length > 0 && list[0] && list[0].serial_number) {
+      return String(list[0].serial_number).trim();
+    }
+  }
+  if (c.sn_ont || c.sn || c.serial_number) {
+    return String(c.sn_ont || c.sn || c.serial_number).trim();
+  }
+  return "";
+}
+
+function extractPreconLength(c: any): string {
+  if (c.installation_info_id) {
+    const list = Array.isArray(c.installation_info_id) ? c.installation_info_id : [c.installation_info_id];
+    if (list.length > 0 && list[0] && list[0].precon_cable_length != null) {
+      return String(list[0].precon_cable_length).trim();
+    }
+  }
+  return "";
 }
 
 function extractSalesName(c: any): string {
+  if (!c) return "-";
+  let s = null;
+
   if (c.sales_id && typeof c.sales_id === 'object' && c.sales_id.name) {
-    return String(c.sales_id.name).trim();
+    s = c.sales_id.name;
+  } else if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
+    s = c.sales_id;
   }
-  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.sales_id) {
-    const s = c.customer_id.sales_id;
-    if (typeof s === 'object' && s.name) return String(s.name).trim();
-    if (typeof s === 'string' && s.trim()) return s.trim();
+
+  if (!s && c.customer_id && typeof c.customer_id === 'object') {
+    if (c.customer_id.sales_id && typeof c.customer_id.sales_id === 'object' && c.customer_id.sales_id.name) {
+      s = c.customer_id.sales_id.name;
+    } else if (typeof c.customer_id.sales_id === 'string' && c.customer_id.sales_id.trim()) {
+      s = c.customer_id.sales_id;
+    } else if (c.customer_id.sales_visit_id && typeof c.customer_id.sales_visit_id === 'object') {
+      const cvs = c.customer_id.sales_visit_id.sales_id;
+      s = typeof cvs === 'object' ? cvs?.name : cvs;
+    }
   }
-  if (typeof c.sales_id === 'string' && c.sales_id.trim()) {
-    return c.sales_id.trim();
+
+  if (!s && c.sales_visit_id && typeof c.sales_visit_id === 'object') {
+    const vs = c.sales_visit_id.sales_id;
+    s = typeof vs === 'object' ? vs?.name : vs;
   }
-  return "Daftar Mandiri";
+
+  if (!s) return "-";
+  const cleaned = String(s).trim();
+  if (!cleaned || cleaned === '-' || cleaned.toLowerCase() === 'daftar mandiri') {
+    return "-";
+  }
+  return cleaned;
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+function extractIkrPartnerName(c: any): string | null {
+  if (!c) return null;
+  let name = null;
+
+  // 1. Cek submit_request_ikr_id.ikr_id.name (WO instalasi)
+  if (c.submit_request_ikr_id && typeof c.submit_request_ikr_id === 'object') {
+    const ikrObj = c.submit_request_ikr_id.ikr_id;
+    if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+      name = ikrObj.name;
+    } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+      name = ikrObj;
+    }
   }
 
-  const startTime = Date.now();
+  // 2. Cek customer_id.submit_request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object') {
+    const sub = c.customer_id.submit_request_ikr_id;
+    if (sub && typeof sub === 'object') {
+      const ikrObj = sub.ikr_id;
+      if (ikrObj && typeof ikrObj === 'object' && ikrObj.name) {
+        name = ikrObj.name;
+      } else if (typeof ikrObj === 'string' && ikrObj.trim()) {
+        name = ikrObj;
+      }
+    }
+  }
+
+  // 3. Cek request_ikr_id.ikr_name
+  if (!name && c.request_ikr_id && typeof c.request_ikr_id === 'object') {
+    const raw = c.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 4. Cek customer_id.request_ikr_id
+  if (!name && c.customer_id && typeof c.customer_id === 'object' && c.customer_id.request_ikr_id) {
+    const raw = c.customer_id.request_ikr_id.ikr_name;
+    if (Array.isArray(raw) && raw.length > 0) {
+      name = raw[0];
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) name = parsed[0];
+        else name = raw;
+      } catch (_e) {
+        name = raw;
+      }
+    }
+  }
+
+  // 5. Cek ikr_id langsung
+  if (!name && c.ikr_id) {
+    if (typeof c.ikr_id === 'object' && c.ikr_id.name) name = c.ikr_id.name;
+    else if (typeof c.ikr_id === 'string' && c.ikr_id.trim()) name = c.ikr_id;
+  }
+
+  if (!name) return null;
+  const clean = String(name).trim();
+  if (!clean || clean === '-' || clean.toLowerCase() === 'null') return null;
+  return clean;
+}
+
+function resolveStationName(input: string): string {
+  if (!input) return "";
+  const clean = input.trim();
+  for (const st of Object.keys(PARTNER_STATION_IDS)) {
+    if (clean.toLowerCase().includes(st.toLowerCase()) || st.toLowerCase().includes(clean.toLowerCase())) {
+      return st;
+    }
+  }
+  return clean;
+}
+
+// =========================================================================
+// 4. LOGIKA UTAMA SINKRONISASI STASIUN (100% PURE SUPABASE)
+// =========================================================================
+async function syncStationCustomers(
+  supabase: any,
+  stationName: string,
+  partnerToken: string,
+  partnerCookie: string,
+  maxPages: number = 3,
+  searchQuery?: string | null
+) {
+  const partnerId = PARTNER_STATION_IDS[stationName];
+  if (!partnerId) {
+    throw new Error(`ID Stasiun Partner untuk '${stationName}' tidak terdaftar!`);
+  }
+
+  const dbStationName = stationName === "Tawang" ? "Semarang Tawang" : stationName;
+  const rawCustomers: any[] = [];
+  const seenCustIds = new Set<string>();
+  const pageSize = 10;
+  let apiMitraError: string | null = null;
+
+  // Helper untuk menambahkan item pelanggan ke antrean
+  const addCustomerItem = (item: any, source: string) => {
+    const rawId = (item.customer_id && typeof item.customer_id === 'string')
+      ? item.customer_id
+      : (item.customer_id?.customer_id || item.id_pelanggan || "");
+    const idPelanggan = String(rawId || "").trim();
+    if (!idPelanggan) return;
+
+    const idUpper = idPelanggan.toUpperCase();
+    if (seenCustIds.has(idUpper)) return;
+    seenCustIds.add(idUpper);
+
+    rawCustomers.push({ item, idPelanggan, source });
+  };
+
+  // Helper fetch API Mitra
+  const fetchEndpoint = async (ep: string, page: number, queryParam?: string) => {
+    let url = `https://api-mitra.starliteindonesia.com/mitra/customer/${ep}?sales_partner_id=${partnerId}`;
+    if (queryParam) {
+      // PENTING: Jangan kirim page/page_size saat search agar server Starlite tidak overload (turun dari 70 detik jadi ~7 detik)
+      url += `&search=${encodeURIComponent(queryParam)}`;
+    } else {
+      url += `&page=${page}&page_size=${pageSize}&sort_order=DESC`;
+    }
+
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': partnerToken,
+        'Cookie': partnerCookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      },
+      signal: AbortSignal.timeout(20000)
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} (${res.statusText || 'Error Gateway/Server'})`);
+    }
+
+    const text = await res.text();
+    const json = JSON.parse(text);
+    return json?.data || [];
+  };
+
+  // 1. JIKA ADA ID PENCARIAN SPESIFIK (Misal input Web App "TO669")
+  // Prioritaskan pencarian langsung agar respon sangat cepat dan terhindar dari overload 502 API Mitra
+  if (searchQuery && typeof searchQuery === 'string' && searchQuery.trim() !== '') {
+    const qClean = searchQuery.trim().toUpperCase();
+    // Cek 'new' terlebih dahulu (~2 detik), jika tidak ada baru cek 'active' (~7 detik)
+    for (const ep of ['new', 'active']) {
+      try {
+        const searchItems = await fetchEndpoint(ep, 1, qClean);
+        if (searchItems && searchItems.length > 0) {
+          for (const item of searchItems) {
+            addCustomerItem(item, ep);
+          }
+        }
+        if (seenCustIds.has(qClean)) break; // Jika sudah ditemukan, langsung selesai
+      } catch (sErr: any) {
+        apiMitraError = sErr.name === 'TimeoutError' ? "Koneksi ke API Mitra timeout (20 detik)" : sErr.message;
+        console.warn(`[${stationName}][${ep}] Search '${qClean}' warning:`, apiMitraError);
+      }
+    }
+  } else {
+    // 2. PENARIKAN MASSAL (Tanpa ID pencarian spesifik / cron ALL)
+    // A. Endpoint /new (Pendaftar Baru)
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= maxPages) {
+      try {
+        const items = await fetchEndpoint('new', page);
+        if (!items || items.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        for (const item of items) {
+          addCustomerItem(item, 'new');
+        }
+
+        if (items.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } catch (err: any) {
+        apiMitraError = err.name === 'TimeoutError' ? "Koneksi ke API Mitra timeout (15 detik)" : err.message;
+        console.warn(`[${stationName}][new] Warning fetch page ${page}:`, apiMitraError);
+        hasMore = false;
+        break;
+      }
+    }
+
+    // B. Endpoint /active (Hanya ambil halaman 1 non-blocking untuk mengurangi beban query server Mitra)
+    try {
+      const activeItems = await fetchEndpoint('active', 1);
+      if (activeItems && activeItems.length > 0) {
+        for (const item of activeItems) {
+          addCustomerItem(item, 'active');
+        }
+      }
+    } catch (actErr: any) {
+      console.warn(`[${stationName}][active] Warning fetch page 1 (non-blocking):`, actErr.message);
+      if (rawCustomers.length === 0) {
+        apiMitraError = actErr.name === 'TimeoutError' ? "Koneksi ke API Mitra timeout (15 detik)" : actErr.message;
+      }
+    }
+  }
+
+  if (rawCustomers.length === 0) {
+    if (apiMitraError) {
+      return {
+        station: stationName,
+        baru: 0,
+        update: 0,
+        status: "error",
+        message: `API Mitra Starlite sedang gangguan: ${apiMitraError}. Silakan coba beberapa saat lagi.`
+      };
+    }
+    const notFoundMsg = searchQuery
+      ? `Pelanggan '${searchQuery}' tidak ditemukan di API Mitra (${stationName}).`
+      : "Tidak ada pelanggan baru / aktif di API Mitra.";
+    return { station: stationName, baru: 0, update: 0, message: notFoundMsg };
+  }
+
+  // 3. Cek keberadaan pelanggan di Supabase (PROTEKSI MUTLAK agar status IKR/aktivasi aman)
+  const customerIds = rawCustomers.map(r => r.idPelanggan);
+  const existingMap = new Map<string, any>();
+
+  for (let i = 0; i < customerIds.length; i += 50) {
+    const chunk = customerIds.slice(i, i + 50);
+    const { data: found, error } = await supabase
+      .from('data_pelanggan')
+      .select('id_pelanggan, status_ikr, status_aktivasi, nama_sales, ikr_partner, tanggal_registrasi, odp, port_odp, sn_ont, kabel_precon, latitude, longitude')
+      .in('id_pelanggan', chunk);
+
+    if (error) throw error;
+    if (found) {
+      found.forEach((f: any) => {
+        if (f.id_pelanggan) {
+          const trimmed = String(f.id_pelanggan).trim().toUpperCase();
+          existingMap.set(trimmed, f);
+        }
+      });
+    }
+  }
+
+  const rowsNew: any[] = [];
+  const rowsExisting: any[] = [];
+  const nowIso = new Date().toISOString();
+
+  for (const { item, idPelanggan } of rawCustomers) {
+    const idUpper = idPelanggan.toUpperCase();
+    const nama = item.name || (item.customer_id ? item.customer_id.name : "") || "";
+    const telepon = item.phone_number || (item.customer_id ? item.customer_id.phone_number : "") || "";
+    const alamat = item.address || (item.customer_id ? item.customer_id.address : "") || "";
+    const catatan = item.notes || "";
+    const { lat, lng } = extractCoordinates(item);
+    const tglRegistrasi = extractRegDate(item);
+    const { odp, portOdp } = extractOdpInfo(item);
+    const namaSales = extractSalesName(item);
+    const ikrPartner = extractIkrPartnerName(item);
+    const snOnt = extractSnOnt(item);
+    const precon = extractPreconLength(item);
+
+    const existingData = existingMap.get(idUpper);
+
+    if (existingData) {
+      // PELANGGAN LAMA: Hanya lengkapi data teknis, sales & IKR jika di Supabase masih kosong / strip
+      rowsExisting.push({
+        id_pelanggan: idPelanggan,
+        stasiun: dbStationName,
+        nama_sales: (namaSales && namaSales !== "-") ? namaSales : (existingData.nama_sales || "-"),
+        ikr_partner: (ikrPartner && ikrPartner !== "-") ? ikrPartner : (existingData.ikr_partner || null),
+        tanggal_registrasi: (!existingData.tanggal_registrasi && tglRegistrasi) ? tglRegistrasi : (existingData.tanggal_registrasi || null),
+        odp: (!existingData.odp || existingData.odp === "-") && odp ? odp : (existingData.odp || null),
+        port_odp: (!existingData.port_odp || existingData.port_odp === "-") && portOdp ? portOdp : (existingData.port_odp || null),
+        sn_ont: (!existingData.sn_ont || existingData.sn_ont === "-") && snOnt ? snOnt : (existingData.sn_ont || null),
+        kabel_precon: (!existingData.kabel_precon || existingData.kabel_precon === "-") && precon ? precon : (existingData.kabel_precon || null),
+        latitude: (!existingData.latitude && lat) ? lat : (existingData.latitude || null),
+        longitude: (!existingData.longitude && lng) ? lng : (existingData.longitude || null),
+        updated_at: nowIso
+      });
+    } else {
+      // PELANGGAN BARU (baik dari /new maupun /active yang belum dilaporkan):
+      // Status awal tetap 'Belum' agar teknisi dapat mengirimkan laporan IKR/Aktivasi
+      rowsNew.push({
+        id_pelanggan: idPelanggan,
+        nama_pelanggan: nama,
+        nomor_hp: telepon,
+        alamat: alamat,
+        catatan: catatan,
+        nama_sales: namaSales,
+        ikr_partner: ikrPartner || null,
+        status_ikr: "Belum",
+        status_aktivasi: "Belum",
+        latitude: lat || "",
+        longitude: lng || "",
+        stasiun: dbStationName,
+        odp: odp,
+        port_odp: portOdp,
+        sn_ont: snOnt,
+        kabel_precon: precon,
+        tanggal_registrasi: tglRegistrasi,
+        created_at: nowIso,
+        updated_at: nowIso
+      });
+    }
+  }
+
+  // 4. Simpan Langsung ke Supabase (100% Direct Upsert)
+  if (rowsNew.length > 0) {
+    const { error: insErr } = await supabase
+      .from('data_pelanggan')
+      .upsert(rowsNew, { onConflict: 'id_pelanggan', ignoreDuplicates: true });
+    if (insErr) throw new Error(`Supabase Insert Pelanggan Baru gagal: ${insErr.message}`);
+  }
+
+  if (rowsExisting.length > 0) {
+    const { error: updErr } = await supabase
+      .from('data_pelanggan')
+      .upsert(rowsExisting, { onConflict: 'id_pelanggan' });
+    if (updErr) throw new Error(`Supabase Update Pelanggan Existing gagal: ${updErr.message}`);
+  }
+
+  return {
+    station: stationName,
+    baru: rowsNew.length,
+    update: rowsExisting.length,
+    message: `Sukses: ${rowsNew.length} pelanggan baru/aktif ditambahkan & ${rowsExisting.length} info sales/teknis diperbarui.`
+  };
+}
+
+// =========================================================================
+// 5. HTTP SERVER (SUPABASE EDGE FUNCTION: sync-partner)
+// =========================================================================
+serve(async (req: any) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    let statusesToFetch = ["suspend", "dismantle", "ready-to-dismantle"];
-    let targetStations: string[] = Object.keys(PARTNER_STATION_IDS);
-
-    if (req.method === "POST") {
+    let body: any = {};
+    if (req.method === 'POST') {
       try {
-        const rawText = await req.text();
-        if (rawText && rawText.trim()) {
-          const body = JSON.parse(rawText);
-          if (body.statuses && Array.isArray(body.statuses)) statusesToFetch = body.statuses;
-          if (body.stations && Array.isArray(body.stations)) targetStations = body.stations;
-          if (body.batch && BATCH_STATIONS[Number(body.batch)]) targetStations = BATCH_STATIONS[Number(body.batch)];
-        }
-      } catch (_e) {
-        // Fallback default
+        body = await req.json();
+      } catch (_) {
+        body = {};
       }
     } else {
       const url = new URL(req.url);
-      const statusParam = url.searchParams.get("status");
-      const stationParam = url.searchParams.get("station");
-      const batchParam = url.searchParams.get("batch");
-      if (statusParam) statusesToFetch = statusParam.split(",");
-      if (stationParam) targetStations = stationParam.split(",");
-      if (batchParam && BATCH_STATIONS[Number(batchParam)]) targetStations = BATCH_STATIONS[Number(batchParam)];
+      body.station = url.searchParams.get("station");
+      body.search = url.searchParams.get("search");
     }
 
-    console.log(`🚀 [Edge Function] Mulai Sync Partner: Status=[${statusesToFetch.join(",")}], Stasiun=[${targetStations.join(",")}]`);
+    const stationParam = body.station;
+    const searchParam = body.search ? String(body.search).trim() : null;
 
-    let totalFetched = 0;
-    let totalUpserted = 0;
-    const summaryPerStation: Record<string, number> = {};
-
-    const headers = {
-      "Authorization": PARTNER_TOKEN,
-      "Cookie": PARTNER_COOKIE,
-      "Accept": "application/json",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    };
-
-    for (const stationName of targetStations) {
-      const partnerId = PARTNER_STATION_IDS[stationName];
-      if (!partnerId) continue;
-
-      let stationCount = 0;
-      const allStationRowsWithStatus: any[] = [];
-      const allStationRowsExistingNoStatus: any[] = [];
-      const existingSupabaseSet = new Set<string>();
-
-      for (const currentStatus of statusesToFetch) {
-        let page = 1;
-        const pageSize = 10;
-        const maxPages = 100;
-        let hasMore = true;
-
-        while (hasMore && page <= maxPages) {
-          let urlList = "";
-          if (currentStatus === "new") {
-            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
-          } else if (currentStatus.startsWith("new-")) {
-            const ikrStatus = currentStatus.replace("new-", "");
-            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/new?page=${page}&page_size=${pageSize}&sort_order=DESC&ikr_status=${ikrStatus}&sales_partner_id=${partnerId}`;
-          } else if (currentStatus === "active") {
-            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/active?page=${page}&page_size=${pageSize}&sort_order=DESC&sales_partner_id=${partnerId}`;
-          } else {
-            const apiPath = (currentStatus === "dismantle" || currentStatus === "dismantled" || currentStatus === "ready-to-dismantle") ? "suspend" : currentStatus;
-            const apiStatusParam = (currentStatus === "dismantle") ? "dismantled" : currentStatus;
-            urlList = `https://api-mitra.starliteindonesia.com/mitra/customer/${apiPath}?page=${page}&page_size=${pageSize}&sort_order=DESC&status=${apiStatusParam}&sales_partner_id=${partnerId}`;
-          }
-
-          let response: Response | null = null;
-          let retryCount = 0;
-
-          while (retryCount <= 2) {
-            try {
-              response = await fetch(urlList, { headers });
-              if (response && response.ok) break;
-              retryCount++;
-              if (retryCount <= 2) await new Promise((r) => setTimeout(r, 400));
-            } catch (_err) {
-              retryCount++;
-              if (retryCount <= 2) await new Promise((r) => setTimeout(r, 400));
-            }
-          }
-
-          if (!response || !response.ok) {
-            console.warn(`⚠️ [${stationName}][${currentStatus}] Gagal HTTP ${response ? response.status : 'Error'} Hal ${page}`);
-            break;
-          }
-
-          try {
-            const json = await response.json();
-            const customers = json?.data || [];
-            if (!customers || customers.length === 0) {
-              hasMore = false;
-              break;
-            }
-
-            const isTarikPelangganBaru = currentStatus.startsWith("new") || currentStatus === "new";
-
-            // Cek existing customer di Supabase untuk daftar pelanggan di halaman ini
-            if (isTarikPelangganBaru) {
-              const pageIds: string[] = [];
-              for (const c of customers) {
-                const rawCId = c.customer_id && typeof c.customer_id === "string" ? c.customer_id : (c.customer_id ? c.customer_id.customer_id : "");
-                const pId = String(rawCId || "").trim();
-                if (pId && !existingSupabaseSet.has(pId) && !existingSupabaseSet.has(pId.toUpperCase())) {
-                  pageIds.push(pId);
-                }
-              }
-
-              if (pageIds.length > 0) {
-                try {
-                  const { data: existingRows } = await supabase
-                    .from("data_pelanggan")
-                    .select("id_pelanggan, status_ikr, status_aktivasi, issue_kendala")
-                    .in("id_pelanggan", pageIds);
-
-                  if (existingRows) {
-                    for (const row of existingRows) {
-                      if (row.id_pelanggan) {
-                        const trimmed = String(row.id_pelanggan).trim();
-                        existingSupabaseSet.add(trimmed);
-                        existingSupabaseSet.add(trimmed.toUpperCase());
-                      }
-                    }
-                  }
-                } catch (chkErr) {
-                  console.warn("Peringatan cek existing Supabase:", chkErr);
-                }
-              }
-            }
-
-            for (const customer of customers) {
-              if (!customer) continue;
-
-              const rawCustId = customer.customer_id && typeof customer.customer_id === "string" ? customer.customer_id : (customer.customer_id ? customer.customer_id.customer_id : "");
-              const idPelanggan = String(rawCustId || "").trim();
-              if (!idPelanggan) continue;
-              const idPelangganUpper = idPelanggan.toUpperCase();
-
-              const nama = customer.name || (customer.customer_id ? customer.customer_id.name : "");
-              const telepon = customer.phone_number || (customer.customer_id ? customer.customer_id.phone_number : "");
-              const alamat = customer.address || (customer.customer_id ? customer.customer_id.address : "");
-              const patokan = customer.notes || "";
-              let lat = "";
-              let lng = "";
-
-              // 1. Cek di customer_id jika berupa object (prioritas utama endpoint /new)
-              if (customer.customer_id && typeof customer.customer_id === "object") {
-                if (customer.customer_id.latitude !== undefined && customer.customer_id.latitude !== null && customer.customer_id.latitude !== "") {
-                  lat = String(customer.customer_id.latitude).trim().replace(",", ".");
-                }
-                if (customer.customer_id.longitude !== undefined && customer.customer_id.longitude !== null && customer.customer_id.longitude !== "") {
-                  lng = String(customer.customer_id.longitude).trim().replace(",", ".");
-                }
-                if (!lat && customer.customer_id.lat) lat = String(customer.customer_id.lat).trim().replace(",", ".");
-                if (!lng && (customer.customer_id.lng || customer.customer_id.long)) lng = String(customer.customer_id.lng || customer.customer_id.long).trim().replace(",", ".");
-              }
-
-              // 2. Cek di root object
-              if (!lat && customer.latitude !== undefined && customer.latitude !== null && customer.latitude !== "") {
-                lat = String(customer.latitude).trim().replace(",", ".");
-              }
-              if (!lng && customer.longitude !== undefined && customer.longitude !== null && customer.longitude !== "") {
-                lng = String(customer.longitude).trim().replace(",", ".");
-              }
-              if (!lat && customer.lat) lat = String(customer.lat).trim().replace(",", ".");
-              if (!lng && (customer.lng || customer.long)) lng = String(customer.lng || customer.long).trim().replace(",", ".");
-
-              // 3. Cek di sales_visit_id
-              if ((!lat || !lng) && customer.sales_visit_id && typeof customer.sales_visit_id === "object") {
-                if (!lat && (customer.sales_visit_id.latitude || customer.sales_visit_id.lat)) lat = String(customer.sales_visit_id.latitude || customer.sales_visit_id.lat).trim().replace(",", ".");
-                if (!lng && (customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long)) lng = String(customer.sales_visit_id.longitude || customer.sales_visit_id.lng || customer.sales_visit_id.long).trim().replace(",", ".");
-              }
-
-              // 4. Cek di installation_info_id
-              if ((!lat || !lng) && customer.installation_info_id) {
-                const instArr = Array.isArray(customer.installation_info_id) ? customer.installation_info_id : [customer.installation_info_id];
-                for (const inst of instArr) {
-                  if (!inst) continue;
-                  if (!lat && (inst.latitude || inst.lat)) lat = String(inst.latitude || inst.lat).trim().replace(",", ".");
-                  if (!lng && (inst.longitude || inst.lng || inst.long)) lng = String(inst.longitude || inst.lng || inst.long).trim().replace(",", ".");
-                  if (lat && lng) break;
-                }
-              }
-
-              // Ekstrak ODP & Port ODP
-              let odp = "";
-              let portOdp = "";
-              if (customer.installation_info_id) {
-                const instArr = Array.isArray(customer.installation_info_id) ? customer.installation_info_id : [customer.installation_info_id];
-                if (instArr.length > 0 && instArr[0]) {
-                  const inst = instArr[0];
-                  portOdp = (inst.port_number !== undefined && inst.port_number !== null) ? String(inst.port_number) : (inst.port ? String(inst.port) : "");
-                  if (inst.device_id) {
-                    odp = inst.device_id.code || inst.device_id.name || "";
-                  }
-                }
-              }
-              if (!odp) odp = customer.odp || customer.odp_name || customer.odp_code || customer.fat || customer.fat_code || customer.fat_name || (customer.customer_id && typeof customer.customer_id === "object" ? (customer.customer_id.odp || customer.customer_id.fat_code || customer.customer_id.fat_name) : "") || "";
-              if (!portOdp) portOdp = customer.port_odp || customer.port || customer.fat_port || customer.odp_port || (customer.customer_id && typeof customer.customer_id === "object" ? (customer.customer_id.port_odp || customer.customer_id.port) : "") || "";
-
-              let tglRegistrasi = "";
-              if (customer.registration_date) tglRegistrasi = formatKeWIB(customer.registration_date);
-              else if (customer.visit_date) tglRegistrasi = formatKeWIB(customer.visit_date);
-              else if (customer.sales_visit_id && customer.sales_visit_id.visit_date) tglRegistrasi = formatKeWIB(customer.sales_visit_id.visit_date);
-              else if (customer.customer_id && typeof customer.customer_id === "object" && customer.customer_id.registration_date) tglRegistrasi = formatKeWIB(customer.customer_id.registration_date);
-              else if (customer.created_at) tglRegistrasi = formatKeWIB(customer.created_at);
-
-              // Ekstrak Tanggal Berakhir & Telat Bayar
-              let tanggalBerakhir = "";
-              const telatBayarHari = (customer.count_late_payment_days !== undefined && customer.count_late_payment_days !== null && customer.count_late_payment_days !== "") ? Number(customer.count_late_payment_days) : null;
-
-              if (customer.user_ppoe_id && customer.user_ppoe_id.yinet_info) {
-                try {
-                  const yinet = typeof customer.user_ppoe_id.yinet_info === "string" ? JSON.parse(customer.user_ppoe_id.yinet_info) : customer.user_ppoe_id.yinet_info;
-                  if (yinet && yinet.expired_date) tanggalBerakhir = formatKeWIB(yinet.expired_date);
-                } catch (_e) {}
-              }
-              if (!tanggalBerakhir && customer.ont_id && customer.ont_id.length > 0 && customer.ont_id[0].payload) {
-                try {
-                  const payloadOnt = typeof customer.ont_id[0].payload === "string" ? JSON.parse(customer.ont_id[0].payload) : customer.ont_id[0].payload;
-                  if (payloadOnt && payloadOnt.expired_date) tanggalBerakhir = formatKeWIB(payloadOnt.expired_date);
-                } catch (_e) {}
-              }
-
-              const namaSales = extractSalesName(customer);
-
-              let tStatus = "Sudah";
-              let tIkr = "Sudah";
-              if (currentStatus === "suspend") tStatus = "Suspend";
-              else if (currentStatus === "dismantle") tStatus = "Dismantled";
-              else if (currentStatus === "ready-to-dismantle") tStatus = "Ready To Dismantle";
-              else if (currentStatus.startsWith("new")) {
-                tStatus = "Belum";
-                tIkr = "Belum";
-              }
-
-              const existsInSupabase = existingSupabaseSet.has(idPelanggan) || existingSupabaseSet.has(idPelangganUpper);
-
-              if (isTarikPelangganBaru && existsInSupabase) {
-                // [!] JANGAN PERNAH update status_ikr, status_aktivasi, koordinat, odp, dan nama_sales untuk pelanggan lama
-                const existingRowPayload: Record<string, any> = {
-                  id_pelanggan: idPelanggan,
-                  nama_pelanggan: nama,
-                  nomor_hp: telepon,
-                  alamat: alamat,
-                  catatan: patokan,
-                  tanggal_registrasi: tglRegistrasi,
-                  tanggal_berakhir: tanggalBerakhir || null,
-                  telat_bayar_hari: telatBayarHari,
-                  stasiun: stationName,
-                  updated_at: new Date().toISOString()
-                };
-                allStationRowsExistingNoStatus.push(existingRowPayload);
-              } else {
-                const rowPayload: Record<string, any> = {
-                  id_pelanggan: idPelanggan,
-                  nama_pelanggan: nama,
-                  nomor_hp: telepon,
-                  alamat: alamat,
-                  catatan: patokan,
-                  status_aktivasi: tStatus,
-                  tanggal_registrasi: tglRegistrasi,
-                  tanggal_berakhir: tanggalBerakhir || null,
-                  telat_bayar_hari: telatBayarHari,
-                  stasiun: stationName,
-                  // Hanya sertakan status_ikr, ODP, nama_sales, dan koordinat untuk pelanggan BARU murni
-                  ...(isTarikPelangganBaru ? {
-                    status_ikr: tIkr,
-                    odp: odp,
-                    port_odp: portOdp,
-                    nama_sales: namaSales,
-                    ...(lat ? { latitude: lat } : {}),
-                    ...(lng ? { longitude: lng } : {})
-                  } : {}),
-                  updated_at: new Date().toISOString()
-                };
-                allStationRowsWithStatus.push(rowPayload);
-                existingSupabaseSet.add(idPelanggan);
-              }
-
-              stationCount++;
-              totalFetched++;
-            }
-
-            if (customers.length < pageSize) {
-              hasMore = false;
-            } else {
-              page++;
-              await new Promise((r) => setTimeout(r, 30));
-            }
-          } catch (jsonErr: any) {
-            console.error(`JSON parse error ${stationName} ${currentStatus}:`, jsonErr?.message || jsonErr);
-            hasMore = false;
-          }
-        }
-      }
-
-      // UPSERT BATCH KE SUPABASE PER STASIUN (Chunk 300 rows)
-      // 1. Data dengan status
-      if (allStationRowsWithStatus.length > 0) {
-        const uniqueMap = new Map();
-        for (const row of allStationRowsWithStatus) {
-          uniqueMap.set(row.id_pelanggan, row);
-        }
-        const dedupedRows = Array.from(uniqueMap.values());
-
-        const CHUNK_SIZE = 300;
-        for (let i = 0; i < dedupedRows.length; i += CHUNK_SIZE) {
-          const chunk = dedupedRows.slice(i, i + CHUNK_SIZE);
-          try {
-            const upsertRes = await supabase
-              .from("data_pelanggan")
-              .upsert(chunk, { onConflict: "id_pelanggan" });
-
-            if (upsertRes && upsertRes.error) {
-              console.error(`❌ Gagal upsert chunk di ${stationName}:`, upsertRes.error.message);
-            } else {
-              totalUpserted += chunk.length;
-            }
-          } catch (upsertErr: any) {
-            console.error(`❌ Error upsert di ${stationName}:`, upsertErr?.message || upsertErr);
-          }
-        }
-      }
-
-      // 2. Data existing saat tarik baru (TANPA status_ikr & status_aktivasi)
-      if (allStationRowsExistingNoStatus.length > 0) {
-        const uniqueMapNoStatus = new Map();
-        for (const row of allStationRowsExistingNoStatus) {
-          uniqueMapNoStatus.set(row.id_pelanggan, row);
-        }
-        const dedupedNoStatusRows = Array.from(uniqueMapNoStatus.values());
-
-        const CHUNK_SIZE = 300;
-        for (let i = 0; i < dedupedNoStatusRows.length; i += CHUNK_SIZE) {
-          const chunk = dedupedNoStatusRows.slice(i, i + CHUNK_SIZE);
-          try {
-            const upsertRes = await supabase
-              .from("data_pelanggan")
-              .upsert(chunk, { onConflict: "id_pelanggan" });
-
-            if (upsertRes && upsertRes.error) {
-              console.error(`❌ Gagal upsert chunk no-status di ${stationName}:`, upsertRes.error.message);
-            } else {
-              totalUpserted += chunk.length;
-            }
-          } catch (upsertErr: any) {
-            console.error(`❌ Error upsert no-status di ${stationName}:`, upsertErr?.message || upsertErr);
-          }
-        }
-      }
-
-      summaryPerStation[stationName] = stationCount;
-      console.log(`✅ [${stationName}] Berhasil sync ${stationCount} data.`);
+    if (!stationParam) {
+      throw new Error("Parameter 'station' wajib diisi (misal: 'Kaliwungu' atau 'ALL')!");
     }
 
-    const durationSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`🎉 Sync selesai dalam ${durationSeconds} detik. Total Diperbarui: ${totalUpserted}`);
+    // Ambil Token dari Environment Secrets (atau fallback ke token default di atas)
+    const partnerToken = Deno.env.get('STARLITE_PARTNER_TOKEN') || DEFAULT_PARTNER_TOKEN;
+    const partnerCookie = Deno.env.get('STARLITE_PARTNER_COOKIE') || DEFAULT_PARTNER_COOKIE;
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: "Sinkronisasi Partner berhasil diselesaikan.",
-        total_fetched: totalFetched,
-        total_upserted: totalUpserted,
-        duration_seconds: parseFloat(durationSeconds),
-        summary_per_station: summaryPerStation
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || "https://jtmferyskpbnacluyafs.supabase.co";
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!; // Bypass RLS jika service role aktif
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // KASUS 1: Auto-Running Cron untuk SEMUA Stasiun (station = "ALL")
+    if (stationParam.toUpperCase() === "ALL") {
+      const allStations = Object.keys(PARTNER_STATION_IDS);
+      const summary: any[] = [];
+      let grandTotalBaru = 0;
+      let grandTotalUpdate = 0;
+
+      for (const st of allStations) {
+        try {
+          const res = await syncStationCustomers(supabase, st, partnerToken, partnerCookie, 3, searchParam);
+          summary.push(res);
+          grandTotalBaru += res.baru || 0;
+          grandTotalUpdate += res.update || 0;
+        } catch (e: any) {
+          summary.push({ station: st, status: "error", error: e.message });
+        }
       }
-    );
+
+      return new Response(JSON.stringify({
+        status: "success",
+        message: `Sinkronisasi Web Partner (ALL) selesai: ${grandTotalBaru} baru & ${grandTotalUpdate} diperbarui.`,
+        data: {
+          total_baru: grandTotalBaru,
+          total_update: grandTotalUpdate,
+          summary
+        }
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
+    }
+
+    // KASUS 2: Dipanggil dari Tombol Web App untuk Stasiun Tertentu (misal: "Kaliwungu")
+    const resolvedStation = resolveStationName(stationParam);
+    const result = await syncStationCustomers(supabase, resolvedStation, partnerToken, partnerCookie, 3, searchParam);
+
+    return new Response(JSON.stringify({
+      status: result.status === "error" ? "error" : "success",
+      message: result.message,
+      data: result
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200
+    });
 
   } catch (error: any) {
-    const errorMsg = error?.message || String(error) || "Internal Server Error";
-    console.error("❌ Fatal Error in Edge Function:", errorMsg);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: errorMsg
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
-    );
+    return new Response(JSON.stringify({
+      status: "error",
+      message: error.message
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400
+    });
   }
 });

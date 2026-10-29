@@ -1,17 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { toProperCase, getGlobalStatusStr, extractKendalaData, getCustomerDismantleDate } from '../utils';
 
-// --- Komponen Icon Anti-Crash ---
-const Icon = ({ name, size = 20, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => { 
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current }); 
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 const DashboardView = ({ data, isSyncing }) => {
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -127,7 +117,7 @@ const DashboardView = ({ data, isSyncing }) => {
           <p className="text-blue-100 text-xs sm:text-sm font-medium">Pantau Operasional Desnarum hari ini.</p>
         </div>
         <div className="relative z-10 flex items-center justify-between sm:justify-end gap-2">
-          <div className="bg-white/15 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-white/20 flex items-center gap-2 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
+          <div className="bg-white/20 px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-white/20 flex items-center gap-2 shadow-sm text-white w-full sm:w-auto justify-between sm:justify-start">
             <div className="flex items-center gap-1.5">
               <Icon name="calendar" size={14} className="text-blue-200" />
               <span className="text-[10px] font-bold text-blue-200 sm:hidden">Tanggal:</span>

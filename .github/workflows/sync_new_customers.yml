@@ -50,5 +50,4 @@ jobs:
           STARLITE_PARTNER_TOKEN: ${{ secrets.STARLITE_PARTNER_TOKEN }}
           STARLITE_PARTNER_COOKIE: ${{ secrets.STARLITE_PARTNER_COOKIE }}
           SYNC_STATIONS: ${{ inputs.stations || 'ALL' }}
-          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
         run: node scripts/sync_new_customers.js

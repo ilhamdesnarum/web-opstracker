@@ -18,10 +18,12 @@ import {
   Clock,
   XCircle
 } from 'lucide-react';
-import { toProperCase } from '../utils';
+import { toProperCase, buildOdpLookupMap, isPoPercepatan } from '../utils';
 import { matchCustomerToPo } from './PoReleaseModal';
 import { CustomerStatusDrilldownModal } from './CustomerStatusDrilldownModal';
 import { ManagePoFormModal } from './ManagePoFormModal';
+import { HomepassDetailModal } from './HomepassDetailModal';
+import { TakeUpRateDetailModal } from './TakeUpRateDetailModal';
 
 export const ExecutiveRolloutTracker = ({
   dynamicStationData = [],
@@ -47,6 +49,12 @@ export const ExecutiveRolloutTracker = ({
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [manageStation, setManageStation] = useState('');
   const [poToEdit, setPoToEdit] = useState(null);
+
+  // Homepass & RFS Detail Modal State
+  const [isHomepassModalOpen, setIsHomepassModalOpen] = useState(false);
+
+  // Take-Up Rate & Potensi HC Detail Modal State
+  const [isTakeUpModalOpen, setIsTakeUpModalOpen] = useState(false);
 
   // Toggle Accordion
   const toggleStation = (stName) => {
@@ -102,31 +110,128 @@ export const ExecutiveRolloutTracker = ({
     return { aktif, suspend, ready, dismantled };
   }, [pelangganData, detailPoData]);
 
-  // --- PRE-COMPUTE STATION DATA (Mencegah Lagging saat Render) ---
+  // --- PRE-INDEX ODP DATA (O(1) Lookup) ---
+  const odpLookupMap = useMemo(() => buildOdpLookupMap(odpData), [odpData]);
+
+  // --- PRE-COMPUTE STATION DATA (Single-pass grouping O(N)) ---
   const stationDataMaps = useMemo(() => {
     const poMap = {};
     const custMap = {};
 
-    (dynamicStationData || []).forEach(row => {
+    const stationList = (dynamicStationData || []).map(row => {
       const stName = row.stasiun;
       let targetSt = String(stName).toLowerCase().trim();
       if (targetSt === 'tawang') targetSt = 'semarang tawang';
+      poMap[stName] = [];
+      custMap[stName] = [];
+      return { stName, targetSt };
+    });
 
-      poMap[stName] = (detailPoData || []).filter(po => {
-        let poSt = String(po.stasiun || '').toLowerCase().trim();
-        if (poSt === 'tawang') poSt = 'semarang tawang';
-        return poSt === targetSt || poSt.includes(targetSt) || targetSt.includes(poSt);
-      });
+    const findStationEntry = (rawName) => {
+      if (!rawName) return null;
+      let s = String(rawName).toLowerCase().trim();
+      if (s === 'tawang') s = 'semarang tawang';
+      let match = stationList.find(item => item.targetSt === s);
+      if (match) return match;
+      return stationList.find(item => item.targetSt.includes(s) || s.includes(item.targetSt)) || null;
+    };
 
-      custMap[stName] = (pelangganData || []).filter(c => {
-        let cSt = String(c.stasiun || '').toLowerCase().trim();
-        if (cSt === 'tawang') cSt = 'semarang tawang';
-        return cSt === targetSt || cSt.includes(targetSt) || targetSt.includes(cSt);
-      });
+    (detailPoData || []).forEach(po => {
+      const match = findStationEntry(po.stasiun);
+      if (match) {
+        poMap[match.stName].push(po);
+      }
+    });
+
+    (pelangganData || []).forEach(c => {
+      const match = findStationEntry(c.stasiun);
+      if (match) {
+        custMap[match.stName].push(c);
+      }
     });
 
     return { poMap, custMap };
   }, [dynamicStationData, detailPoData, pelangganData]);
+
+  // --- PRE-COMPUTE PO CUSTOMER STATS & MATCHES (Memoized to prevent render lag) ---
+  const poCustomerStatsMap = useMemo(() => {
+    const statsMap = new Map();
+
+    Object.keys(stationDataMaps.poMap).forEach(stName => {
+      const pos = stationDataMaps.poMap[stName] || [];
+      const custs = stationDataMaps.custMap[stName] || [];
+
+      pos.forEach(po => {
+        const poKey = po.id || po.noPoRelease || `${stName}_${po.tahapPembangunan || ''}_${po.noPoRelease || ''}`;
+        const matchedCusts = custs.filter(c => matchCustomerToPo(po, c, odpLookupMap));
+
+        let poAkt = 0;
+        let poAktif = 0;
+        let poSuspend = 0;
+        let poReady = 0;
+        let poDismantled = 0;
+
+        const aktifCusts = [];
+        const suspendCusts = [];
+        const readyCusts = [];
+        const dismantledCusts = [];
+
+        if (matchedCusts.length > 0) {
+          matchedCusts.forEach(c => {
+            const akt = String(c.status_aktivasi || c.aktivasi || c.statusAktivasi || '').trim().toUpperCase();
+            const ikr = String(c.status_ikr || c.ikr || c.statusIkr || '').trim().toUpperCase();
+
+            const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
+            const isSuspend = akt === 'SUSPEND';
+            const isReady = akt === 'READY TO DISMANTLE' || akt.includes('READY') || akt === 'DISMANTLING';
+            const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
+            const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
+
+            if (isSuspend) {
+              poSuspend++;
+              suspendCusts.push(c);
+            }
+            if (isReady) {
+              poReady++;
+              readyCusts.push(c);
+            }
+            if (isDis) {
+              poDismantled++;
+              dismantledCusts.push(c);
+            }
+            if (isAktivasi) {
+              poAkt++;
+              if (isAktif) {
+                poAktif++;
+                aktifCusts.push(c);
+              }
+            }
+          });
+        } else {
+          poAkt = Number(po.totalAktivasiHc || 0);
+          poAktif = Number(po.hcAktif || 0);
+          poSuspend = Number(po.suspend || 0);
+          poReady = Number(po.readyToDismantle || po.readyDismantle || 0);
+          poDismantled = Number(po.dismantled || 0);
+        }
+
+        statsMap.set(poKey, {
+          matchedCusts,
+          poAkt,
+          poAktif,
+          poSuspend,
+          poReady,
+          poDismantled,
+          aktifCusts,
+          suspendCusts,
+          readyCusts,
+          dismantledCusts
+        });
+      });
+    });
+
+    return statsMap;
+  }, [stationDataMaps, odpLookupMap]);
 
   // Kalkulasi Total HP RFS global
   const totalRfs = useMemo(() => {
@@ -166,7 +271,11 @@ export const ExecutiveRolloutTracker = ({
         ? Number(row.totalAktivasiHc)
         : (aktReg + aktPerc);
 
-      const takeUp = totalHp > 0 ? (totAkt / totalHp) * 100 : 0;
+      const stPos = stationDataMaps.poMap[row.stasiun] || [];
+      const stRfs = stPos.reduce((acc, p) => acc + Number(p.hp_rfs || p.hpRfs || 0), 0);
+      const baseHp = stRfs > 0 ? stRfs : totalHp;
+
+      const takeUp = baseHp > 0 ? (totAkt / baseHp) * 100 : 0;
 
       let matchHealth = true;
       if (healthFilter === 'HIGH') matchHealth = takeUp >= 35;
@@ -184,15 +293,20 @@ export const ExecutiveRolloutTracker = ({
       {/* ========================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
 
-        {/* Card 1: Total Homepass */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200/70 shadow-sm hover:shadow transition-all relative overflow-hidden group">
+        {/* Card 1: Total Homepass (Clickable Drilldown) */}
+        <div 
+          onClick={() => setIsHomepassModalOpen(true)}
+          className="bg-white rounded-xl p-4 border border-slate-200/70 shadow-sm hover:shadow-md hover:border-blue-300 transition-all relative overflow-hidden group cursor-pointer"
+          title="Klik untuk melihat rincian sumber Total HP dan Total RFS"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 group-hover:text-blue-700 transition-colors">
               <Layers size={14} className="text-blue-600" />
               Total Homepass
             </span>
-            <span className="text-[9px] font-extrabold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100/60">
-              Kapasitas Jaringan
+            <span className="text-[9px] font-extrabold px-2 py-0.5 bg-blue-50 text-blue-700 group-hover:bg-blue-100 rounded-full border border-blue-100/60 flex items-center gap-1 transition-colors">
+              <span>Kapasitas Jaringan</span>
+              <ChevronRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
             </span>
           </div>
 
@@ -222,7 +336,7 @@ export const ExecutiveRolloutTracker = ({
                   title={`Reguler: ${(totals.hpReguler || 0).toLocaleString('id-ID')} HP`}
                 ></div>
                 <div
-                  className="h-full bg-amber-500"
+                  className="h-full bg-purple-600"
                   style={{ width: `${(totals.hpPercepatan / totals.hpTerbangun) * 100}%` }}
                   title={`Percepatan: ${(totals.hpPercepatan || 0).toLocaleString('id-ID')} HP`}
                 ></div>
@@ -236,27 +350,32 @@ export const ExecutiveRolloutTracker = ({
               Reg: <strong>{(totals.hpReguler || 0).toLocaleString('id-ID')}</strong>
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
               Perc: <strong>{(totals.hpPercepatan || 0).toLocaleString('id-ID')}</strong>
             </span>
           </div>
         </div>
 
         {/* Card 2: Take-Up Rate */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200/70 shadow-sm hover:shadow transition-all relative overflow-hidden group">
+        <div
+          onClick={() => setIsTakeUpModalOpen(true)}
+          className="bg-white rounded-xl p-4 border border-slate-200/70 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all relative overflow-hidden group cursor-pointer"
+          title="Klik untuk melihat rincian Take-Up Rate & Akumulasi Potensi HC per Stasiun"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 group-hover:text-emerald-700 transition-colors">
               <TrendingUp size={14} className="text-emerald-600" />
               Take-Up Rate
             </span>
-            <span className="text-[9px] font-extrabold px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100/60 flex items-center gap-0.5">
-              <ArrowUpRight size={10} /> Tingkat Penggunaan
+            <span className="text-[9px] font-extrabold px-2 py-0.5 bg-emerald-50 text-emerald-700 group-hover:bg-emerald-100 rounded-full border border-emerald-100/60 flex items-center gap-1 transition-colors">
+              <span>Tingkat Penggunaan</span>
+              <ChevronRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
             </span>
           </div>
 
           <div className="flex items-baseline gap-1.5 mb-2">
             <span className="text-2xl font-black text-slate-800 tracking-tight">
-              {Number(totals.performaHc || 0).toFixed(2)}%
+              {totalRfs > 0 ? ((Number(totals.totalAktivasiHc || 0) / totalRfs) * 100).toFixed(2) : Number(totals.performaHc || 0).toFixed(2)}%
             </span>
             <span className="text-[10px] font-bold text-slate-400">dari target 40%</span>
           </div>
@@ -265,7 +384,7 @@ export const ExecutiveRolloutTracker = ({
           <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-2">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(Number(totals.performaHc || 0), 100)}%` }}
+              style={{ width: `${Math.min(totalRfs > 0 ? (Number(totals.totalAktivasiHc || 0) / totalRfs) * 100 : Number(totals.performaHc || 0), 100)}%` }}
             ></div>
           </div>
 
@@ -473,17 +592,49 @@ export const ExecutiveRolloutTracker = ({
               const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
               const totHcAktif = hcAktReg + hcAktPerc;
 
-              // Other Statuses
+              // Other Statuses (with segment separation)
               const stSuspend = Number(row.suspend || 0);
               const stReady = Number(row.readyToDismantle || row.readyDismantle || 0);
               const stDismantled = Number(row.dismantled || 0);
-              const stLainnya = Math.max(0, totAkt - (totHcAktif + stSuspend + stReady + stDismantled));
+
+              const stSuspendReg = row.suspendReguler !== undefined ? Number(row.suspendReguler) : (totalHp > 0 && hpPerc === 0 ? stSuspend : Math.round(stSuspend * (hpReg / (totalHp || 1))));
+              const stSuspendPerc = row.suspendPercepatan !== undefined ? Number(row.suspendPercepatan) : Math.max(0, stSuspend - stSuspendReg);
+
+              const stReadyReg = row.readyReguler !== undefined ? Number(row.readyReguler) : (totalHp > 0 && hpPerc === 0 ? stReady : Math.round(stReady * (hpReg / (totalHp || 1))));
+              const stReadyPerc = row.readyPercepatan !== undefined ? Number(row.readyPercepatan) : Math.max(0, stReady - stReadyReg);
+
+              const stDismantledReg = row.dismantledReguler !== undefined ? Number(row.dismantledReguler) : (totalHp > 0 && hpPerc === 0 ? stDismantled : Math.round(stDismantled * (hpReg / (totalHp || 1))));
+              const stDismantledPerc = row.dismantledPercepatan !== undefined ? Number(row.dismantledPercepatan) : Math.max(0, stDismantled - stDismantledReg);
+
+              const stLainnyaReg = Math.max(0, aktReg - (hcAktReg + stSuspendReg + stReadyReg + stDismantledReg));
+              const stLainnyaPerc = Math.max(0, aktPerc - (hcAktPerc + stSuspendPerc + stReadyPerc + stDismantledPerc));
 
               // Aktivasi Hari Ini
               const aktToday = Number(row.aktifHariIniVal || 0);
 
-              // Take-Up Rate
-              const takeUpRate = totalHp > 0 ? ((totAkt / totalHp) * 100).toFixed(2) : "0.00";
+              // PO List untuk stasiun ini (sudah di-cache)
+              const stationPoList = stationDataMaps.poMap[stName] || [];
+              const stationRfs = stationPoList.reduce((acc, po) => acc + Number(po.hp_rfs || po.hpRfs || 0), 0);
+
+              // Pelanggan stasiun ini (sudah di-cache)
+              const stationCustomers = stationDataMaps.custMap[stName] || [];
+
+              // Kapasitas Dasar Acuan: Gunakan HP RFS (Siap Jual), fallback ke Total HP jika RFS belum ada
+              const baseStationHp = stationRfs > 0 ? stationRfs : totalHp;
+
+              // Potensi HC Siap Jual (Kapasitas Homepass RFS belum teraktivasi)
+              const sisaHp = Math.max(0, baseStationHp - totAkt);
+              const sisaHpPct = baseStationHp > 0 ? ((sisaHp / baseStationHp) * 100).toFixed(2) : "0.00";
+
+              // Take-Up Rate Stasiun (Dihitung terhadap HP RFS)
+              const takeUpRate = baseStationHp > 0 ? ((totAkt / baseStationHp) * 100).toFixed(2) : "0.00";
+              const takeUpRateReg = hpReg > 0 ? ((aktReg / hpReg) * 100).toFixed(2) : "0.00";
+              const takeUpRatePerc = hpPerc > 0 ? ((aktPerc / hpPerc) * 100).toFixed(2) : "0.00";
+
+              const activeRateReg = hpReg > 0 ? ((hcAktReg / hpReg) * 100).toFixed(2) : "0.00";
+              const activeRatePerc = hpPerc > 0 ? ((hcAktPerc / hpPerc) * 100).toFixed(2) : "0.00";
+              const activeRateTotal = baseStationHp > 0 ? ((totHcAktif / baseStationHp) * 100).toFixed(2) : "0.00";
+
               const numTakeUp = Number(takeUpRate);
 
               // Health Status
@@ -506,12 +657,6 @@ export const ExecutiveRolloutTracker = ({
                 };
               }
 
-              // PO List untuk stasiun ini (sudah di-cache)
-              const stationPoList = stationDataMaps.poMap[stName] || [];
-
-              // Pelanggan stasiun ini (sudah di-cache)
-              const stationCustomers = stationDataMaps.custMap[stName] || [];
-
               return (
                 <div
                   key={idx}
@@ -521,104 +666,217 @@ export const ExecutiveRolloutTracker = ({
                   {/* --- ROW HEADER (UNIFIED ACCORDION ROW) --- */}
                   <div
                     onClick={() => toggleStation(stName)}
-                    className="px-5 py-3.5 flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 cursor-pointer select-none"
+                    className="px-5 py-3 flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 cursor-pointer select-none"
                   >
                     {/* Left: Chevron + Station Identity */}
-                    <div className="flex items-center gap-3 w-full lg:col-span-4">
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${isExpanded ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                    <div className="flex items-center gap-3 w-full lg:col-span-3 xl:col-span-3">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${isExpanded ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
                         }`}>
                         <ChevronRight
                           size={15}
                           className={`transition-transform duration-200 ${isExpanded ? 'rotate-90 text-white' : 'text-slate-500'}`}
                         />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-slate-800 text-sm">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-slate-800 text-sm truncate">
                             {toProperCase(stName)}
                           </h3>
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded shrink-0">
                             {stationPoList.length} PO
                           </span>
                           {aktToday > 0 && (
-                            <span className="text-[10px] font-extrabold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200/60">
+                            <span className="text-[10px] font-extrabold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200/60 shrink-0">
                               +{aktToday}
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-400 font-medium">
-                          Kapasitas: <strong className="text-slate-600">{totalHp.toLocaleString('id-ID')} HP</strong> (Reg: {hpReg.toLocaleString('id-ID')} • Perc: {hpPerc.toLocaleString('id-ID')})
+                        <p className="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
+                          Homepass: <strong className="text-slate-700">{totalHp.toLocaleString('id-ID')} HP</strong>
+                          <span className="text-slate-300 mx-1">/</span>
+                          <strong className={`${stationRfs > 0 ? 'text-emerald-700' : 'text-slate-400'} font-bold`}>
+                            {stationRfs.toLocaleString('id-ID')} RFS
+                          </strong>
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                          Homeconnect: <strong className="text-slate-700">{totAkt.toLocaleString('id-ID')} HC</strong> ({totHcAktif.toLocaleString('id-ID')} Aktif • <span className="text-emerald-700 font-bold" title="Rasio HC Aktif terhadap Total HP RFS">{activeRateTotal}%</span>)
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                          Potensi HC: <strong className="text-slate-700">{sisaHp.toLocaleString('id-ID')} HP</strong>
+                          <span className="text-slate-400 text-[9px] ml-1">({sisaHpPct}%)</span>
                         </p>
                       </div>
                     </div>
 
-                    {/* Center: Take-Up Progress Bar & Metric Numbers */}
-                    <div className="w-full lg:col-span-4 xl:col-span-5">
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-bold text-slate-700 text-[11px]">
-                          {totAkt.toLocaleString('id-ID')} <span className="font-medium text-slate-400">/ {totalHp.toLocaleString('id-ID')} HC</span>
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-black text-emerald-600 text-xs" title="Persentase HC Aktif">
-                            {totalHp > 0 ? ((totHcAktif / totalHp) * 100).toFixed(2) : "0.00"}%
-                          </span>
-                          <span className="text-slate-300 text-[10px]">|</span>
-                          <span className="font-black text-blue-700 text-xs" title="Persentase Total Aktivasi">
-                            {takeUpRate}%
-                          </span>
+                    {/* Center: Separated Reguler & Percepatan Progress Bars & Detail Numbers */}
+                    <div className="w-full lg:col-span-6 xl:col-span-6 flex flex-col gap-1.5 justify-center">
+                      {/* Track 1: HC Reguler (hanya ditampilkan jika ada kapasitas Reguler) */}
+                      {hpReg > 0 && (
+                        <div className="px-2.5 py-1.5 rounded-lg border bg-white/90 border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase shrink-0 bg-blue-50 text-blue-700 border border-blue-200/60">
+                                Reguler
+                              </span>
+                              <span className="font-bold text-slate-700 text-[11px] truncate">
+                                {aktReg.toLocaleString('id-ID')} HC <span className="font-normal text-slate-400">/</span> {hpReg.toLocaleString('id-ID')} HP
+                                <span className="text-slate-300 mx-1.5">•</span>
+                                <span className="text-[10px] font-semibold text-emerald-700">
+                                  Aktif: <strong className="font-bold">{hcAktReg.toLocaleString('id-ID')} HC </strong>
+                                </span>
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                              <span
+                                className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1"
+                                title="Rasio pelanggan HC Aktif terhadap Kapasitas HP Reguler"
+                              >
+                                <span className="text-[9px] font-medium text-emerald-600/80 uppercase">Aktif:</span> {activeRateReg}%
+                              </span>
+                              <span
+                                className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60 flex items-center gap-1"
+                                title="Take-Up Rate: Total realisasi aktivasi HC terhadap Kapasitas HP Reguler"
+                              >
+                                <span className="text-[9px] font-medium text-blue-600/80 uppercase">Take-Up:</span> {takeUpRateReg}%
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar Reguler */}
+                          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
+                            {hcAktReg > 0 && (
+                              <div
+                                className="h-full bg-emerald-500 transition-all duration-500"
+                                style={{ width: `${Math.min((hcAktReg / hpReg) * 100, 100)}%` }}
+                                title={`Reguler Aktif: ${hcAktReg.toLocaleString('id-ID')} HC (${activeRateReg}%)`}
+                              ></div>
+                            )}
+                            {stSuspendReg > 0 && (
+                              <div
+                                className="h-full bg-amber-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stSuspendReg / hpReg) * 100, 100)}%` }}
+                                title={`Reguler Suspend: ${stSuspendReg.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stReadyReg > 0 && (
+                              <div
+                                className="h-full bg-orange-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stReadyReg / hpReg) * 100, 100)}%` }}
+                                title={`Reguler Ready Dismantle: ${stReadyReg.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stDismantledReg > 0 && (
+                              <div
+                                className="h-full bg-rose-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stDismantledReg / hpReg) * 100, 100)}%` }}
+                                title={`Reguler Dismantled: ${stDismantledReg.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stLainnyaReg > 0 && (
+                              <div
+                                className="h-full bg-blue-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stLainnyaReg / hpReg) * 100, 100)}%` }}
+                                title={`Reguler Lainnya: ${stLainnyaReg.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
-                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
-                        {totHcAktif > 0 && (
-                          <div
-                            className="h-full bg-emerald-500 transition-all duration-500"
-                            style={{ width: `${Math.min((totHcAktif / totalHp) * 100, 100)}%` }}
-                            title={`Aktif: ${totHcAktif.toLocaleString('id-ID')} HC`}
-                          ></div>
-                        )}
-                        {stSuspend > 0 && (
-                          <div
-                            className="h-full bg-amber-500 transition-all duration-500"
-                            style={{ width: `${Math.min((stSuspend / totalHp) * 100, 100)}%` }}
-                            title={`Suspend: ${stSuspend.toLocaleString('id-ID')} HC`}
-                          ></div>
-                        )}
-                        {stReady > 0 && (
-                          <div
-                            className="h-full bg-orange-500 transition-all duration-500"
-                            style={{ width: `${Math.min((stReady / totalHp) * 100, 100)}%` }}
-                            title={`Dismantle: ${stReady.toLocaleString('id-ID')} HC`}
-                          ></div>
-                        )}
-                        {stDismantled > 0 && (
-                          <div
-                            className="h-full bg-rose-500 transition-all duration-500"
-                            style={{ width: `${Math.min((stDismantled / totalHp) * 100, 100)}%` }}
-                            title={`Dismantled: ${stDismantled.toLocaleString('id-ID')} HC`}
-                          ></div>
-                        )}
-                        {stLainnya > 0 && (
-                          <div
-                            className="h-full bg-blue-500 transition-all duration-500"
-                            style={{ width: `${Math.min((stLainnya / totalHp) * 100, 100)}%` }}
-                            title={`Lainnya: ${stLainnya.toLocaleString('id-ID')} HC`}
-                          ></div>
-                        )}
-                      </div>
+                      {/* Track 2: HC Percepatan (hanya ditampilkan jika ada kapasitas Percepatan) */}
+                      {hpPerc > 0 && (
+                        <div className="px-2.5 py-1.5 rounded-lg border bg-white/90 border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase shrink-0 bg-purple-50 text-purple-700 border border-purple-200/60">
+                                Percepatan
+                              </span>
+                              <span className="font-bold text-slate-700 text-[11px] truncate">
+                                {aktPerc.toLocaleString('id-ID')} HC <span className="font-normal text-slate-400">/</span> {hpPerc.toLocaleString('id-ID')} HP
+                                <span className="text-slate-300 mx-1.5">•</span>
+                                <span className="text-[10px] font-semibold text-emerald-700">
+                                  Aktif: <strong className="font-bold">{hcAktPerc.toLocaleString('id-ID')} HC </strong>
+                                </span>
+                              </span>
+                            </div>
 
-                      <div className="flex items-center justify-between text-[9px] font-semibold text-slate-400 mt-0.5">
-                        <span>HC Aktif: <strong className="text-emerald-700 font-bold">{totHcAktif.toLocaleString('id-ID')}</strong></span>
-                        <span>Reg: {row.hpReguler > 0 ? ((aktReg / row.hpReguler) * 100).toFixed(1) + '%' : '-'} | Perc: {row.hpPercepatan > 0 ? ((aktPerc / row.hpPercepatan) * 100).toFixed(1) + '%' : '-'}</span>
-                      </div>
+                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                              <span
+                                className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1"
+                                title="Rasio pelanggan HC Aktif terhadap Kapasitas HP Percepatan"
+                              >
+                                <span className="text-[9px] font-medium text-emerald-600/80 uppercase">Aktif:</span> {activeRatePerc}%
+                              </span>
+                              <span
+                                className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200/60 flex items-center gap-1"
+                                title="Take-Up Rate: Total realisasi aktivasi HC terhadap Kapasitas HP Percepatan"
+                              >
+                                <span className="text-[9px] font-medium text-purple-600/80 uppercase">Take-Up:</span> {takeUpRatePerc}%
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar Percepatan */}
+                          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
+                            {hcAktPerc > 0 && (
+                              <div
+                                className="h-full bg-emerald-500 transition-all duration-500"
+                                style={{ width: `${Math.min((hcAktPerc / hpPerc) * 100, 100)}%` }}
+                                title={`Percepatan Aktif: ${hcAktPerc.toLocaleString('id-ID')} HC (${activeRatePerc}%)`}
+                              ></div>
+                            )}
+                            {stSuspendPerc > 0 && (
+                              <div
+                                className="h-full bg-amber-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stSuspendPerc / hpPerc) * 100, 100)}%` }}
+                                title={`Percepatan Suspend: ${stSuspendPerc.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stReadyPerc > 0 && (
+                              <div
+                                className="h-full bg-orange-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stReadyPerc / hpPerc) * 100, 100)}%` }}
+                                title={`Percepatan Ready Dismantle: ${stReadyPerc.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stDismantledPerc > 0 && (
+                              <div
+                                className="h-full bg-rose-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stDismantledPerc / hpPerc) * 100, 100)}%` }}
+                                title={`Percepatan Dismantled: ${stDismantledPerc.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stLainnyaPerc > 0 && (
+                              <div
+                                className="h-full bg-purple-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stLainnyaPerc / hpPerc) * 100, 100)}%` }}
+                                title={`Percepatan Lainnya: ${stLainnyaPerc.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fallback jika stasiun belum ada alokasi HP sama sekali */}
+                      {hpReg === 0 && hpPerc === 0 && (
+                        <div className="px-3 py-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-center">
+                          <span className="text-[11px] text-slate-400 font-medium italic">Belum ada alokasi kapasitas Homepass</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Right: Health Badge & Action Buttons */}
-                    <div className="flex items-center gap-2 w-full justify-end lg:col-span-4 xl:col-span-3 mt-2 lg:mt-0">
-                      <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${healthBadge.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${healthBadge.dot}`}></span>
-                        {healthBadge.text}
-                      </span>
+                    <div className="flex items-center gap-2 w-full justify-end lg:col-span-3 xl:col-span-3 mt-2 lg:mt-0">
+                      <div className="flex flex-col items-end">
+                        <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${healthBadge.color}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${healthBadge.dot}`}></span>
+                          {healthBadge.text}
+                        </span>
+                        <span className="text-[9px] font-bold text-slate-400 mt-0.5 mr-0.5" title="Take-Up Keseluruhan Stasiun">
+                          Total Take-Up: <strong className="text-slate-700">{takeUpRate}%</strong>
+                        </span>
+                      </div>
 
                       {/* Quick Button Tambah PO */}
                       <button
@@ -628,7 +886,7 @@ export const ExecutiveRolloutTracker = ({
                           setPoToEdit(null);
                           setIsManageModalOpen(true);
                         }}
-                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
+                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-all cursor-pointer shrink-0"
                         title={`Tambah PO baru untuk stasiun ${toProperCase(stName)}`}
                       >
                         <Plus size={14} />
@@ -640,7 +898,7 @@ export const ExecutiveRolloutTracker = ({
                           e.stopPropagation();
                           if (onOpenStationModal) onOpenStationModal(stName);
                         }}
-                        className="text-[11px] font-bold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                        className="text-[11px] font-bold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap shrink-0"
                         title="Buka Modal Tabel Detail PO"
                       >
                         <span>Detail PO</span>
@@ -684,59 +942,47 @@ export const ExecutiveRolloutTracker = ({
                             const poHpReg = Number(po.hpReguler || 0);
                             const poHpPerc = Number(po.hpPercepatan || 0);
                             const poTotalHp = poHpReg + poHpPerc;
+                            const poRfs = Number(po.hp_rfs || po.hpRfs || 0);
+                            const basePoHp = poRfs > 0 ? poRfs : poTotalHp;
+                            const isPoPerc = isPoPercepatan(po);
 
-                            // Ambil pelanggan yang cocok dengan PO ini
-                            const matchedCusts = stationCustomers.filter(c => matchCustomerToPo(po, c, odpData));
+                            const poKey = po.id || po.noPoRelease || `${stName}_${po.tahapPembangunan || ''}_${po.noPoRelease || ''}`;
+                            const poStats = poCustomerStatsMap.get(poKey) || {
+                              matchedCusts: [],
+                              poAkt: Number(po.totalAktivasiHc || 0),
+                              poAktif: Number(po.hcAktif || 0),
+                              poSuspend: Number(po.suspend || 0),
+                              poReady: Number(po.readyToDismantle || po.readyDismantle || 0),
+                              poDismantled: Number(po.dismantled || 0),
+                              aktifCusts: [],
+                              suspendCusts: [],
+                              readyCusts: [],
+                              dismantledCusts: []
+                            };
 
-                            let poAkt = 0;
-                            let poAktif = 0;
-                            let poSuspend = 0;
-                            let poReady = 0;
-                            let poDismantled = 0;
+                            const { poAkt, poAktif, poSuspend, poReady, poDismantled, aktifCusts, suspendCusts, readyCusts, dismantledCusts } = poStats;
 
-                            if (matchedCusts.length > 0) {
-                              matchedCusts.forEach(c => {
-                                const akt = String(c.status_aktivasi || c.aktivasi || c.statusAktivasi || '').trim().toUpperCase();
-                                const ikr = String(c.status_ikr || c.ikr || c.statusIkr || '').trim().toUpperCase();
-
-                                const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
-                                const isSuspend = akt === 'SUSPEND';
-                                const isReady = akt === 'READY TO DISMANTLE' || akt.includes('READY');
-                                const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
-                                const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
-
-                                if (isSuspend) poSuspend++;
-                                if (isReady) poReady++;
-                                if (isDis) poDismantled++;
-                                if (isAktivasi) {
-                                  poAkt++;
-                                  if (isAktif) poAktif++;
-                                }
-                              });
-                            } else {
-                              // Fallback jika belum selesai sinkronisasi
-                              poAkt = Number(po.totalAktivasiHc || 0);
-                              poAktif = Number(po.hcAktif || 0);
-                              poSuspend = Number(po.suspend || 0);
-                              poReady = Number(po.readyToDismantle || po.readyDismantle || 0);
-                              poDismantled = Number(po.dismantled || 0);
-                            }
-
-                            const poTakeUp = poTotalHp > 0 ? ((poAkt / poTotalHp) * 100).toFixed(2) : "0.00";
+                            const poTakeUp = basePoHp > 0 ? ((poAkt / basePoHp) * 100).toFixed(2) : "0.00";
                             const numPoTakeUp = Number(poTakeUp);
 
                             return (
                               <div
                                 key={pIdx}
-                                className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm hover:border-blue-300 hover:shadow transition-all flex flex-col justify-between"
+                                className={`bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm ${
+                                  isPoPerc ? 'hover:border-purple-300' : 'hover:border-blue-300'
+                                } hover:shadow transition-all flex flex-col justify-between`}
                               >
                                 <div>
                                   {/* Header: PO Number & Stage */}
                                   <div className="flex items-start justify-between gap-1.5 mb-2">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1 flex-wrap mb-0.5">
-                                        <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-blue-50 text-blue-700 rounded border border-blue-100">
-                                          {po.tahapPembangunan || 'Reguler'}
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
+                                          isPoPerc 
+                                            ? 'bg-purple-50 text-purple-700 border-purple-200/60' 
+                                            : 'bg-blue-50 text-blue-700 border-blue-200/60'
+                                        }`}>
+                                          {po.tahapPembangunan || (isPoPerc ? 'Percepatan' : 'Reguler')}
                                         </span>
                                         <span className="text-[9px] font-bold px-1 py-0.2 bg-slate-100 text-slate-600 rounded">
                                           {po.jenisPo || 'Direct'}
@@ -753,7 +999,9 @@ export const ExecutiveRolloutTracker = ({
                                         setPoToEdit(po);
                                         setIsManageModalOpen(true);
                                       }}
-                                      className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                      className={`p-1 rounded text-slate-400 ${
+                                        isPoPerc ? 'hover:text-purple-600 hover:bg-purple-50' : 'hover:text-blue-600 hover:bg-blue-50'
+                                      } transition-colors cursor-pointer`}
                                       title="Edit data PO ini"
                                     >
                                       <Edit3 size={12} />
@@ -765,7 +1013,7 @@ export const ExecutiveRolloutTracker = ({
                                     <div className="flex items-center justify-between text-[10px] mb-1">
                                       <div className="flex items-center gap-2">
                                         <span className="text-slate-500 font-medium">
-                                          Aktivasi: <strong className="text-slate-700">{poAkt} / {poTotalHp} HP</strong>
+                                          Aktivasi: <strong className="text-slate-700">{poAkt} HC / {poTotalHp} HP</strong>
                                         </span>
                                         {Number(po.hp_rfs || po.hpRfs || 0) > 0 && (
                                           <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
@@ -775,10 +1023,10 @@ export const ExecutiveRolloutTracker = ({
                                       </div>
                                       <div className="flex items-center gap-1.5">
                                         <span className="font-black text-emerald-600 text-[11px]" title="Persentase HC Aktif">
-                                          {poTotalHp > 0 ? ((poAktif / poTotalHp) * 100).toFixed(2) : "0.00"}%
+                                          {basePoHp > 0 ? ((poAktif / basePoHp) * 100).toFixed(2) : "0.00"}%
                                         </span>
                                         <span className="text-slate-300 text-[10px]">|</span>
-                                        <span className="font-black text-blue-700 text-[11px]" title="Persentase Total Aktivasi">
+                                        <span className={`font-black text-[11px] ${isPoPerc ? 'text-purple-700' : 'text-blue-700'}`} title="Persentase Total Aktivasi">
                                           {poTakeUp}%
                                         </span>
                                       </div>
@@ -787,35 +1035,35 @@ export const ExecutiveRolloutTracker = ({
                                       {poAktif > 0 && (
                                         <div
                                           className="h-full bg-emerald-500 transition-all duration-500"
-                                          style={{ width: `${Math.min((poAktif / poTotalHp) * 100, 100)}%` }}
+                                          style={{ width: `${Math.min((poAktif / basePoHp) * 100, 100)}%` }}
                                           title={`Aktif: ${poAktif}`}
                                         ></div>
                                       )}
                                       {poSuspend > 0 && (
                                         <div
                                           className="h-full bg-amber-500 transition-all duration-500"
-                                          style={{ width: `${Math.min((poSuspend / poTotalHp) * 100, 100)}%` }}
+                                          style={{ width: `${Math.min((poSuspend / basePoHp) * 100, 100)}%` }}
                                           title={`Suspend: ${poSuspend}`}
                                         ></div>
                                       )}
                                       {poReady > 0 && (
                                         <div
                                           className="h-full bg-orange-500 transition-all duration-500"
-                                          style={{ width: `${Math.min((poReady / poTotalHp) * 100, 100)}%` }}
+                                          style={{ width: `${Math.min((poReady / basePoHp) * 100, 100)}%` }}
                                           title={`Dismantle: ${poReady}`}
                                         ></div>
                                       )}
                                       {poDismantled > 0 && (
                                         <div
                                           className="h-full bg-rose-500 transition-all duration-500"
-                                          style={{ width: `${Math.min((poDismantled / poTotalHp) * 100, 100)}%` }}
+                                          style={{ width: `${Math.min((poDismantled / basePoHp) * 100, 100)}%` }}
                                           title={`Dismantled: ${poDismantled}`}
                                         ></div>
                                       )}
                                       {Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) > 0 && (
                                         <div
-                                          className="h-full bg-blue-500 transition-all duration-500"
-                                          style={{ width: `${Math.min((Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) / poTotalHp) * 100, 100)}%` }}
+                                          className={`h-full ${isPoPerc ? 'bg-purple-500' : 'bg-blue-500'} transition-all duration-500`}
+                                          style={{ width: `${Math.min((Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) / basePoHp) * 100, 100)}%` }}
                                           title={`Lainnya: ${Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled))}`}
                                         ></div>
                                       )}
@@ -827,11 +1075,7 @@ export const ExecutiveRolloutTracker = ({
                                 <div className="pt-2 border-t border-slate-100">
                                   <div className="grid grid-cols-2 gap-1.5">
                                     <button
-                                      onClick={() => handleOpenDrilldown('AKTIF', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, matchedCusts.filter(c => {
-                                        const akt = String(c.status_aktivasi || c.aktivasi || '').trim().toUpperCase();
-                                        const ikr = String(c.status_ikr || c.ikr || '').trim().toUpperCase();
-                                        return akt === 'AKTIF' || akt === 'SUDAH' || ikr === 'SUDAH';
-                                      }))}
+                                      onClick={() => handleOpenDrilldown('AKTIF', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, aktifCusts)}
                                       className="text-[10px] font-bold px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded border border-emerald-200/60 transition-all flex items-center justify-between cursor-pointer active:scale-95"
                                       title="Lihat pelanggan Aktif"
                                     >
@@ -840,7 +1084,7 @@ export const ExecutiveRolloutTracker = ({
                                     </button>
 
                                     <button
-                                      onClick={() => handleOpenDrilldown('SUSPEND', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, matchedCusts.filter(c => String(c.status_aktivasi || c.aktivasi || '').trim().toUpperCase() === 'SUSPEND'))}
+                                      onClick={() => handleOpenDrilldown('SUSPEND', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, suspendCusts)}
                                       className="text-[10px] font-bold px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded border border-amber-200/60 transition-all flex items-center justify-between cursor-pointer active:scale-95"
                                       title="Lihat pelanggan Suspend"
                                     >
@@ -849,7 +1093,7 @@ export const ExecutiveRolloutTracker = ({
                                     </button>
 
                                     <button
-                                      onClick={() => handleOpenDrilldown('READY TO DISMANTLE', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, matchedCusts.filter(c => String(c.status_aktivasi || c.aktivasi || '').trim().toUpperCase().includes('READY')))}
+                                      onClick={() => handleOpenDrilldown('READY TO DISMANTLE', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, readyCusts)}
                                       className="text-[10px] font-bold px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 rounded border border-orange-200/60 transition-all flex items-center justify-between cursor-pointer active:scale-95"
                                       title="Lihat pelanggan Ready to Dismantle"
                                     >
@@ -858,7 +1102,7 @@ export const ExecutiveRolloutTracker = ({
                                     </button>
 
                                     <button
-                                      onClick={() => handleOpenDrilldown('DISMANTLED', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, matchedCusts.filter(c => String(c.status_aktivasi || c.aktivasi || '').trim().toUpperCase().includes('DISMANTLE')))}
+                                      onClick={() => handleOpenDrilldown('DISMANTLED', `${toProperCase(stName)} • ${po.tahapPembangunan || po.noPoRelease}`, dismantledCusts)}
                                       className="text-[10px] font-bold px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 rounded border border-rose-200/60 transition-all flex items-center justify-between cursor-pointer active:scale-95"
                                       title="Lihat pelanggan Dismantled"
                                     >
@@ -889,10 +1133,19 @@ export const ExecutiveRolloutTracker = ({
             <span className="text-slate-300">•</span>
             <span>Total Aktivasi: <strong className="text-blue-700 font-extrabold">{(totals.totalAktivasiHc || 0).toLocaleString('id-ID')} HC</strong></span>
             <span className="text-slate-300">•</span>
-            <span>Total HC Aktif: <strong className="text-emerald-700 font-extrabold">{(totals.hcAktif || 0).toLocaleString('id-ID')} HC</strong></span>
+            <span>Total HC Aktif: <strong className="text-emerald-700 font-extrabold">{(totals.hcAktif || 0).toLocaleString('id-ID')} HC</strong> <span className="text-emerald-600 font-bold">({totalRfs > 0 ? ((Number(totals.hcAktif || 0) / totalRfs) * 100).toFixed(2) : "0.00"}%)</span></span>
+            <span className="text-slate-300">•</span>
+            {(() => {
+              const baseCapacity = totalRfs > 0 ? totalRfs : (totals.hpTerbangun || 0);
+              const potVal = Math.max(0, baseCapacity - (totals.totalAktivasiHc || 0));
+              const potPct = baseCapacity > 0 ? ((potVal / baseCapacity) * 100).toFixed(2) : "0.00";
+              return (
+                <span>Potensi HC: <strong className="text-slate-800 font-extrabold">{potVal.toLocaleString('id-ID')} HP</strong> <span className="text-slate-500 font-normal">({potPct}%)</span></span>
+              );
+            })()}
           </div>
           <div>
-            <span>Rata-rata Take-Up Rate: <strong className="text-blue-700 font-extrabold">{Number(totals.performaHc || 0).toFixed(2)}%</strong></span>
+            <span>Rata-rata Take-Up Rate: <strong className="text-blue-700 font-extrabold">{totalRfs > 0 ? ((Number(totals.totalAktivasiHc || 0) / totalRfs) * 100).toFixed(2) : Number(totals.performaHc || 0).toFixed(2)}%</strong></span>
           </div>
         </div>
       </div>
@@ -922,6 +1175,26 @@ export const ExecutiveRolloutTracker = ({
         initialStation={manageStation}
         poToEdit={poToEdit}
         onSuccess={onRefresh}
+      />
+
+      {/* Homepass & RFS Detail Modal */}
+      <HomepassDetailModal
+        isOpen={isHomepassModalOpen}
+        onClose={() => setIsHomepassModalOpen(false)}
+        dynamicStationData={dynamicStationData}
+        detailPoData={detailPoData}
+        totals={totals}
+        totalRfs={totalRfs}
+      />
+
+      {/* Take-Up Rate & Akumulasi Potensi HC Detail Modal */}
+      <TakeUpRateDetailModal
+        isOpen={isTakeUpModalOpen}
+        onClose={() => setIsTakeUpModalOpen(false)}
+        dynamicStationData={dynamicStationData}
+        stationDataMaps={stationDataMaps}
+        totals={totals}
+        totalRfs={totalRfs}
       />
 
     </div>

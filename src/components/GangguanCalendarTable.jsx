@@ -3,17 +3,7 @@ import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
 import { toProperCase, calculateTTR } from '../utils';
 
-// Icon Helper
-const Icon = ({ name, size = 18, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => {
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current });
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 // Urutan stasiun spesifik jalur operasional dari Wadu ke Krengseng
 const STATIONS_ORDER = [
@@ -154,10 +144,14 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
     return new Date(currentYear, currentMonth + 1, 0).getDate();
   }, [currentYear, currentMonth]);
 
+  // String tanggal hari ini (YYYY-MM-DD)
+  const todayStr = useMemo(() => {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }, [now]);
+
   // Daftar hari dalam bulan terpilih
   const daysList = useMemo(() => {
     const days = [];
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = new Date(currentYear, currentMonth, d);
@@ -174,7 +168,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       });
     }
     return days;
-  }, [currentYear, currentMonth, daysInMonth, now]);
+  }, [currentYear, currentMonth, daysInMonth, todayStr]);
 
   // Kalkulasi matriks tiket gangguan per stasiun per tanggal
   const { matrixData, stationTotals, dailyTotals, grandTotal } = useMemo(() => {
@@ -217,6 +211,58 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
       grandTotal: totalAll
     };
   }, [visitData, daysList]);
+
+  // Kalkulasi data visualisasi grafik batang samar pada background tabel
+  const bgChartData = useMemo(() => {
+    const STATION_COL_W = 170;
+    const DAY_COL_W = 42;
+    const TOTAL_COL_W = 70;
+    const totalTableWidth = STATION_COL_W + (daysList.length * DAY_COL_W) + TOTAL_COL_W;
+
+    const HEADER_H = 44;
+    const BODY_ROW_H = 36;
+    const BODY_TOTAL_H = STATIONS_ORDER.length * BODY_ROW_H; // 11 * 36 = 396px
+    const yBaseline = HEADER_H + BODY_TOTAL_H; // 440px
+    const maxBarHeight = 330; // menyisakan ruang ~66px di atas
+
+    const values = Object.values(dailyTotals);
+    const maxDaily = Math.max(...values, 1);
+
+    const bars = [];
+
+    daysList.forEach((d, idx) => {
+      const count = dailyTotals[d.dateStr] || 0;
+      const xLeft = STATION_COL_W + (idx * DAY_COL_W);
+      const xCenter = xLeft + (DAY_COL_W / 2);
+      const barWidth = 28;
+      const barX = xCenter - (barWidth / 2);
+
+      const ratio = count / maxDaily;
+      const barHeight = Math.round(ratio * maxBarHeight);
+      const barY = yBaseline - barHeight;
+
+      bars.push({
+        day: d.day,
+        dateStr: d.dateStr,
+        count,
+        ratio,
+        barX,
+        barY,
+        barWidth,
+        barHeight,
+        xCenter,
+        isToday: d.isToday,
+        isWeekend: d.isWeekend
+      });
+    });
+
+    return {
+      totalTableWidth,
+      yBaseline,
+      bars,
+      maxDaily
+    };
+  }, [daysList, dailyTotals]);
 
   // Ekspor Matriks ke Excel
   const handleExportExcel = () => {
@@ -544,12 +590,66 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
       {/* WADAH TABEL (SCROLLABLE & STICKY COLUMN) */}
       <div className="overflow-x-auto max-h-[560px] overflow-y-auto relative">
-        <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+        {/* VISUALISASI GRAFIK BATANG SAMAR DI BACKGROUND TABEL */}
+        <svg
+          className="absolute top-0 left-0 pointer-events-none select-none z-0"
+          style={{
+            width: `${bgChartData.totalTableWidth}px`,
+            height: `${bgChartData.yBaseline + 42}px`
+          }}
+          aria-hidden="true"
+        >
+          <defs>
+            {/* Gradient untuk Bar Harian Standar */}
+            <linearGradient id="bgBarGradGangguan" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.16" />
+              <stop offset="70%" stopColor="#60a5fa" stopOpacity="0.08" />
+              <stop offset="100%" stopColor="#93c5fd" stopOpacity="0.02" />
+            </linearGradient>
+
+            {/* Gradient untuk Bar Hari Ini */}
+            <linearGradient id="bgBarTodayGradGangguan" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2563eb" stopOpacity="0.25" />
+              <stop offset="70%" stopColor="#3b82f6" stopOpacity="0.14" />
+              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.04" />
+            </linearGradient>
+          </defs>
+
+          {/* Batang Kolom Samar Tiap Hari */}
+          {bgChartData.bars.map((bar) => {
+            if (bar.barHeight <= 0) return null;
+            return (
+              <rect
+                key={bar.day}
+                x={bar.barX}
+                y={bar.barY}
+                width={bar.barWidth}
+                height={bar.barHeight}
+                rx={4}
+                fill={bar.isToday ? 'url(#bgBarTodayGradGangguan)' : 'url(#bgBarGradGangguan)'}
+              />
+            );
+          })}
+        </svg>
+
+        <table
+          className="w-full text-left border-collapse text-xs whitespace-nowrap relative z-10"
+          style={{ width: `${bgChartData.totalTableWidth}px`, minWidth: `${bgChartData.totalTableWidth}px` }}
+        >
+          {/* KOLOM LEBAR PASTI */}
+          <colgroup>
+            <col style={{ width: '170px', minWidth: '170px' }} />
+            {daysList.map(d => (
+              <col key={d.day} style={{ width: '42px', minWidth: '42px' }} />
+            ))}
+            <col style={{ width: '70px', minWidth: '70px' }} />
+          </colgroup>
+
           {/* HEADER ROW */}
           <thead>
-            <tr>
+            <tr className="h-[44px]">
               {/* Kolom Stasiun (FROZEN / STICKY LEFT) */}
-              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-slate-700 font-bold px-4 py-3 min-w-[160px] max-w-[180px] border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
+              <th className="sticky left-0 top-0 z-30 bg-slate-100 text-slate-700 font-bold px-4 py-3 min-w-[170px] max-w-[170px] border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
                 <div className="flex items-center justify-between">
                   <span>STASIUN</span>
                   <span className="text-[9px] font-normal text-slate-400 uppercase tracking-widest">(11 ST)</span>
@@ -563,7 +663,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                 return (
                   <th
                     key={d.day}
-                    className={`sticky top-0 z-20 px-1 py-2 min-w-[40px] max-w-[44px] text-center border-b border-r border-slate-200 transition-colors select-none ${
+                    className={`sticky top-0 z-20 px-0.5 py-2 w-[42px] min-w-[42px] max-w-[42px] text-center border-b border-r border-slate-200 transition-colors select-none ${
                       d.isToday
                         ? 'bg-blue-600 text-white font-black'
                         : isSun
@@ -584,7 +684,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
               {/* Kolom Total Stasiun (STICKY RIGHT - SOLID OPAQUE) */}
               <th
-                className="sticky right-0 top-0 z-30 bg-[#eff6ff] text-blue-900 font-extrabold px-3 py-3 min-w-[70px] text-center border-l-2 border-blue-200"
+                className="sticky right-0 top-0 z-30 bg-[#eff6ff] text-blue-900 font-extrabold px-3 py-3 min-w-[70px] max-w-[70px] text-center border-l-2 border-blue-200"
                 style={{
                   boxShadow: 'inset 0 -1px 0 #cbd5e1, -4px 0 6px -2px rgba(0,0,0,0.1)'
                 }}
@@ -599,9 +699,9 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
             {STATIONS_ORDER.map((st, sIdx) => {
               const rowTotal = stationTotals[st] || 0;
               return (
-                <tr key={st} className="group hover:bg-slate-50/80 transition-colors">
+                <tr key={st} className="group hover:bg-slate-50/80 transition-colors h-[36px]">
                   {/* KOLOM STASIUN (FROZEN / STICKY LEFT) */}
-                  <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 text-slate-800 font-semibold px-4 py-2.5 border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                  <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 text-slate-800 font-semibold px-4 py-2 min-w-[170px] max-w-[170px] border-b border-r border-slate-200 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 truncate">
                         <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 font-bold text-[10px] flex items-center justify-center shrink-0">
@@ -621,7 +721,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                     return (
                       <td
                         key={d.day}
-                        className={`text-center p-0.5 border-b border-r border-slate-100/90 transition-colors ${
+                        className={`text-center p-0.5 w-[42px] min-w-[42px] max-w-[42px] border-b border-r border-slate-100/90 transition-colors ${
                           d.isToday ? 'bg-blue-50/20' : d.isWeekend ? 'bg-slate-50/40' : ''
                         }`}
                       >
@@ -649,7 +749,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
                   {/* TOTAL BARIS STASIUN (STICKY RIGHT) */}
                   <td
-                    className="sticky right-0 z-20 bg-[#eff6ff] group-hover:bg-[#dbeafe] font-bold text-blue-800 text-center px-3 py-2 border-l-2 border-blue-200 transition-colors"
+                    className="sticky right-0 z-20 bg-[#eff6ff] group-hover:bg-[#dbeafe] font-bold text-blue-800 text-center px-3 py-2 min-w-[70px] max-w-[70px] border-l-2 border-blue-200 transition-colors"
                     style={{
                       boxShadow: 'inset 0 -1px 0 #cbd5e1, -4px 0 6px -2px rgba(0,0,0,0.08)'
                     }}
@@ -665,9 +765,9 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
 
           {/* FOOTER ROW: TOTAL HARIAN (STICKY BOTTOM) */}
           <tfoot>
-            <tr className="sticky bottom-0 z-20 bg-slate-100 border-t-2 border-slate-300 font-bold">
+            <tr className="sticky bottom-0 z-20 bg-slate-100 border-t-2 border-slate-300 font-bold h-[42px]">
               {/* CELL TOTAL HARIAN (STICKY LEFT & BOTTOM) */}
-              <td className="sticky left-0 bottom-0 z-40 bg-slate-200 text-slate-800 px-4 py-2.5 border-r border-slate-300 font-black text-xs shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]">
+              <td className="sticky left-0 bottom-0 z-40 bg-slate-200 text-slate-800 px-4 py-2 min-w-[170px] max-w-[170px] border-r border-slate-300 font-black text-xs shadow-[3px_0_6px_-2px_rgba(0,0,0,0.12)]">
                 TOTAL HARIAN
               </td>
 
@@ -677,22 +777,22 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
                 return (
                   <td
                     key={d.day}
-                    className={`text-center py-2 px-0.5 border-r border-slate-200 text-[11px] font-black ${
+                    className={`text-center py-2 px-0.5 w-[42px] min-w-[42px] max-w-[42px] border-r border-slate-200 text-[11px] font-black ${
                       d.isToday ? 'bg-blue-100/90 text-blue-900' : 'bg-slate-100 text-slate-700'
                     }`}
                     title={`Total Seluruh Stasiun (${d.day} ${MONTH_NAMES[currentMonth]}): ${dayCount}`}
                   >
                     {dayCount > 0 ? (
-                      <span className="text-slate-900 font-bold">{dayCount}</span>
+                      <span className="text-slate-900 font-bold leading-tight">{dayCount}</span>
                     ) : (
-                      <span className="text-slate-400 font-normal">-</span>
+                      <span className="text-slate-400 font-normal leading-tight">-</span>
                     )}
                   </td>
                 );
               })}
 
               {/* GRAND TOTAL CELL (STICKY RIGHT & BOTTOM) */}
-              <td className="sticky right-0 bottom-0 z-40 bg-blue-600 text-white text-center py-2.5 px-3 font-black text-xs sm:text-sm border-l border-blue-700 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.18)]">
+              <td className="sticky right-0 bottom-0 z-40 bg-blue-600 text-white text-center py-2.5 px-3 min-w-[70px] max-w-[70px] font-black text-xs sm:text-sm border-l border-blue-700 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.18)]">
                 {grandTotal}
               </td>
             </tr>
@@ -721,7 +821,7 @@ export default function GangguanCalendarTable({ visitData = [], onFilterTicketLi
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-6">
           {/* Backdrop Blur Menyeluruh ke Seluruh Halaman (Sidebar, Header & Konten) */}
           <div
-            className="fixed inset-0 bg-slate-950/60 backdrop-blur-md animate-fade"
+            className="fixed inset-0 bg-slate-950/75 animate-fade"
             onClick={() => {
               setSelectedCell(null);
               setSearchQuery('');

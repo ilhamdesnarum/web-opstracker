@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import XLSX from 'xlsx-js-style';
 import * as fflate from 'fflate';
@@ -13,7 +13,7 @@ import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
-import { isPercepatanCustomer, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps } from './utils';
+import { isPercepatanCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import { fetchLiveCoverageBoundaries } from './services/coverageService.js';
 import CustomerMapView from './components/CustomerMapView';
@@ -51,7 +51,8 @@ const parseSupabaseDocument = (fields) => {
     aktivasi: fields.status_aktivasi || fields.aktivasi || "Belum",
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
-    issueKendala: fields.issue_kendala || "",
+    catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
+    issueKendala: ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? "" : (fields.issue_kendala || "")),
     tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
     tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
     timestampAktivasi: fields.timestamp_aktivasi || fields.tgl_aktivasi || fields.tanggal_aktivasi || "",
@@ -66,10 +67,12 @@ const parseSupabaseDocument = (fields) => {
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null ? Number(fields.telat_bayar_hari) : null,
     namaSales: (fields.nama_sales && fields.nama_sales.trim()) ? fields.nama_sales.trim() : (fields.sales && fields.sales.trim() ? fields.sales.trim() : ""),
+    ikrPartner: (fields.ikr_partner && String(fields.ikr_partner).trim()) ? String(fields.ikr_partner).trim() : (fields.nama_ikr_partner && String(fields.nama_ikr_partner).trim() ? String(fields.nama_ikr_partner).trim() : (fields.ikrPartner || "")),
     updatedAt: fields.updated_at || fields.updatedAt || "",
     createdAt: fields.created_at || fields.createdAt || "",
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
-    reasonDismantle: fields.reason_dismantle || "",
+    woDismantle: fields.wo_dismantle || fields.woDismantle || (String(fields.reason_dismantle || '').includes('[WO DISMANTLE]') ? fields.reason_dismantle : ""),
+    reasonDismantle: (fields.reason_dismantle || "").replace(/\[WO DISMANTLE\][^\n]*/g, "").trim(),
     fotoDismantle: fields.foto_dismantle || ""
   };
 };
@@ -385,6 +388,15 @@ const setCachedData = (key, data) => {
 
 const TELEGRAM_BOT_TOKEN = "8789065775:AAEsOr7g1myDHyHPPuhuujNR07euM3tNmEs";
 
+// Helper sanitasi teks untuk Telegram Bot API (HTML parse_mode)
+const escapeTelegramHtml = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+};
+
 const sendTelegramVisitDM = async (payload, petugasList = []) => {
   try {
     if (!payload || !payload.petugas) return;
@@ -427,33 +439,36 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
       }
     }
 
-    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
-      console.warn("Tidak dapat mengirim DM Telegram: chatId tidak ditemukan untuk", rawPetugas);
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    if (!chatId || String(chatId).trim().startsWith('-')) {
+      console.warn("Batal kirim DM Telegram: chatId terdeteksi sebagai Group ID (" + chatId + ") atau tidak valid untuk", rawPetugas);
       return;
     }
+    const rawNama = targetTeknisi.nama || rawPetugas;
+    const namaAsli = escapeTelegramHtml(rawNama);
+    const rawUsername = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const usernameDisplay = escapeTelegramHtml(rawUsername);
 
-    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
-    const namaAsli = targetTeknisi.nama || rawPetugas;
-    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
-
-    let msg = `ðŸš¨ <b>TIKET BARU (ASSIGNED)</b> ðŸš¨\n\n`;
+    let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨\n\n`;
     msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk mengecek kendala/visit berikut:\n\n`;
-    msg += `ðŸ†” <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
-    msg += `ðŸ‘¤ <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
-    msg += `ðŸ“ <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${escapeTelegramHtml(payload.idPelanggan || '-')}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${escapeTelegramHtml(payload.namaPelanggan || '-')}\n`;
+    msg += `📍 <b>Stasiun:</b> ${escapeTelegramHtml(payload.stasiun || '-')}\n`;
     if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
-      msg += `ðŸ—ºï¸ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+      const lat = encodeURIComponent(String(payload.latitude).trim());
+      const lng = encodeURIComponent(String(payload.longitude).trim());
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}">${escapeTelegramHtml(payload.latitude)}, ${escapeTelegramHtml(payload.longitude)}</a>\n`;
     } else {
-      msg += `ðŸ—ºï¸ <b>Tikor:</b> -\n`;
+      msg += `🗺️ <b>Tikor:</b> -\n`;
     }
-    msg += `ðŸ“ž <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
-    msg += `âš ï¸ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
+    msg += `📞 <b>Kontak:</b> ${escapeTelegramHtml(payload.nomorHp || '-')}\n`;
+    msg += `⚠️ <b>Keluhan:</b> ${escapeTelegramHtml(payload.keluhan || '-')}\n`;
     if (payload.catatan) {
-      msg += `ðŸ“ <b>Catatan:</b> ${payload.catatan}\n`;
+      msg += `📝 <b>Catatan:</b> ${escapeTelegramHtml(payload.catatan)}\n`;
     }
-    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! ðŸ› ï¸</i>`;
+    msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! 🛠️</i>`;
 
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -463,7 +478,12 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
         disable_web_page_preview: false
       })
     });
-    console.log("Berhasil kirim DM Assign Tiket ke", namaAsli, chatId);
+    const resJson = await res.json().catch(() => null);
+    if (resJson && !resJson.ok) {
+      console.warn("Gagal kirim DM Telegram ke", rawNama, chatId, resJson.description);
+    } else {
+      console.log("Berhasil kirim DM Assign Tiket ke", rawNama, chatId);
+    }
   } catch (err) {
     console.warn("Gagal kirim DM Telegram:", err);
   }
@@ -510,37 +530,40 @@ const sendTelegramAktivasiDM = async (payload, petugasList = []) => {
       }
     }
 
-    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
-      console.warn("Tidak dapat mengirim DM Telegram Aktivasi: chatId tidak ditemukan untuk", rawPetugas);
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    if (!chatId || String(chatId).trim().startsWith('-')) {
+      console.warn("Batal kirim DM Telegram Aktivasi: chatId terdeteksi sebagai Group ID (" + chatId + ") atau tidak valid untuk", rawPetugas);
       return;
     }
-
-    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
-    const namaAsli = targetTeknisi.nama || rawPetugas;
-    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const rawNama = targetTeknisi.nama || rawPetugas;
+    const namaAsli = escapeTelegramHtml(rawNama);
+    const rawUsername = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const usernameDisplay = escapeTelegramHtml(rawUsername);
 
     let msg = `⚡ <b>PENUGASAN AKTIVASI / IKR BARU</b> ⚡\n\n`;
     msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk melakukan instalasi / aktivasi pelanggan baru:\n\n`;
-    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
-    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
-    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
-    msg += `🏠 <b>Alamat:</b> ${payload.alamat || '-'}\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${escapeTelegramHtml(payload.idPelanggan || '-')}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${escapeTelegramHtml(payload.namaPelanggan || '-')}\n`;
+    msg += `📍 <b>Stasiun:</b> ${escapeTelegramHtml(payload.stasiun || '-')}\n`;
+    msg += `🏠 <b>Alamat:</b> ${escapeTelegramHtml(payload.alamat || '-')}\n`;
     if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
-      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+      const lat = encodeURIComponent(String(payload.latitude).trim());
+      const lng = encodeURIComponent(String(payload.longitude).trim());
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}">${escapeTelegramHtml(payload.latitude)}, ${escapeTelegramHtml(payload.longitude)}</a>\n`;
     }
-    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
+    msg += `📞 <b>Kontak:</b> ${escapeTelegramHtml(payload.nomorHp || '-')}\n`;
     if (payload.odpAktual) {
-      msg += `🌐 <b>ODP / Port:</b> ${payload.odpAktual} ${payload.portOdp ? `(Port ${payload.portOdp})` : ''}\n`;
+      msg += `🌐 <b>ODP / Port:</b> ${escapeTelegramHtml(payload.odpAktual)} ${payload.portOdp ? `(Port ${escapeTelegramHtml(payload.portOdp)})` : ''}\n`;
     }
     if (payload.tglIkr) {
-      msg += `📅 <b>Jadwal IKR:</b> ${payload.tglIkr}\n`;
+      msg += `📅 <b>Jadwal IKR:</b> ${escapeTelegramHtml(payload.tglIkr)}\n`;
     }
     if (payload.catatan) {
-      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+      msg += `📝 <b>Catatan:</b> ${escapeTelegramHtml(payload.catatan)}\n`;
     }
     msg += `\n<i>Mohon segera berkoordinasi dengan pelanggan untuk jadwal instalasi. Semangat bertugas! 🛠️</i>`;
 
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -550,7 +573,12 @@ const sendTelegramAktivasiDM = async (payload, petugasList = []) => {
         disable_web_page_preview: false
       })
     });
-    console.log("Berhasil kirim DM Assign Aktivasi ke", namaAsli, chatId);
+    const resJson = await res.json().catch(() => null);
+    if (resJson && !resJson.ok) {
+      console.warn("Gagal kirim DM Telegram Aktivasi ke", rawNama, chatId, resJson.description);
+    } else {
+      console.log("Berhasil kirim DM Assign Aktivasi ke", rawNama, chatId);
+    }
   } catch (err) {
     console.warn("Gagal kirim DM Telegram Aktivasi:", err);
   }
@@ -597,38 +625,41 @@ const sendTelegramDismantleDM = async (payload, petugasList = []) => {
       }
     }
 
-    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
-      console.warn("Tidak dapat mengirim DM Telegram Dismantle: chatId tidak ditemukan untuk", rawPetugas);
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    if (!chatId || String(chatId).trim().startsWith('-')) {
+      console.warn("Batal kirim DM Telegram Dismantle: chatId terdeteksi sebagai Group ID (" + chatId + ") atau tidak valid untuk", rawPetugas);
       return;
     }
-
-    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
-    const namaAsli = targetTeknisi.nama || rawPetugas;
-    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const rawNama = targetTeknisi.nama || rawPetugas;
+    const namaAsli = escapeTelegramHtml(rawNama);
+    const rawUsername = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const usernameDisplay = escapeTelegramHtml(rawUsername);
 
     let msg = `📦 <b>PENUGASAN DISMANTLE / TARIK PERANGKAT</b> 📦\n\n`;
     msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu ditugaskan untuk melakukan penarikan perangkat (dismantle) berikut:\n\n`;
-    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
-    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
-    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
-    msg += `🏠 <b>Alamat:</b> ${payload.alamat || '-'}\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${escapeTelegramHtml(payload.idPelanggan || '-')}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${escapeTelegramHtml(payload.namaPelanggan || '-')}\n`;
+    msg += `📍 <b>Stasiun:</b> ${escapeTelegramHtml(payload.stasiun || '-')}\n`;
+    msg += `🏠 <b>Alamat:</b> ${escapeTelegramHtml(payload.alamat || '-')}\n`;
     if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
-      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+      const lat = encodeURIComponent(String(payload.latitude).trim());
+      const lng = encodeURIComponent(String(payload.longitude).trim());
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}">${escapeTelegramHtml(payload.latitude)}, ${escapeTelegramHtml(payload.longitude)}</a>\n`;
     }
-    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
-    msg += `📟 <b>SN ONT Target:</b> ${payload.snOnt || 'Cek perangkat di lokasi'}\n`;
+    msg += `📞 <b>Kontak:</b> ${escapeTelegramHtml(payload.nomorHp || '-')}\n`;
+    msg += `📟 <b>SN ONT Target:</b> ${escapeTelegramHtml(payload.snOnt || 'Cek perangkat di lokasi')}\n`;
     if (payload.tanggalDismantle) {
-      msg += `📅 <b>Target Tarik:</b> ${payload.tanggalDismantle}\n`;
+      msg += `📅 <b>Target Tarik:</b> ${escapeTelegramHtml(payload.tanggalDismantle)}\n`;
     }
     if (payload.reasonDismantle) {
-      msg += `⚠️ <b>Alasan:</b> ${payload.reasonDismantle}\n`;
+      msg += `⚠️ <b>Alasan:</b> ${escapeTelegramHtml(payload.reasonDismantle)}\n`;
     }
     if (payload.catatan) {
-      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+      msg += `📝 <b>Catatan:</b> ${escapeTelegramHtml(payload.catatan)}\n`;
     }
     msg += `\n<i>Mohon amankan perangkat ONT + Adaptor dan jangan lupa foto dokumentasi saat penarikan. Terima kasih! 📦</i>`;
 
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -638,7 +669,12 @@ const sendTelegramDismantleDM = async (payload, petugasList = []) => {
         disable_web_page_preview: false
       })
     });
-    console.log("Berhasil kirim DM Assign Dismantle ke", namaAsli, chatId);
+    const resJson = await res.json().catch(() => null);
+    if (resJson && !resJson.ok) {
+      console.warn("Gagal kirim DM Telegram Dismantle ke", rawNama, chatId, resJson.description);
+    } else {
+      console.log("Berhasil kirim DM Assign Dismantle ke", rawNama, chatId);
+    }
   } catch (err) {
     console.warn("Gagal kirim DM Telegram Dismantle:", err);
   }
@@ -755,6 +791,9 @@ const getGlobalStatusStr = (item) => {
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
   if (valAktivasi === 'READY TO DISMANTLE' || valAktivasi === 'DISMANTLING') return "READY TO DISMANTLE";
   if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') return "DISMANTLED";
+
+  // Status PENDING jika aktivasi/ikr diset PENDING (Reschedule / Janji Pasang)
+  if (valAktivasi === 'PENDING' || valIkr === 'PENDING') return "PENDING";
 
   // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
   if (valAktivasi === 'KENDALA' || valIkr === 'KENDALA' || valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) {
@@ -1502,6 +1541,8 @@ function App({ onLogout }) {
 
   // Hitung jumlah tiket gamas aktif (bukan Selesai / Batal) untuk live badge di menu Monitoring Gamas sidebar
   const [activeGamasCount, setActiveGamasCount] = useState(0);
+  // Status apakah masih ada tiket gamas yang butuh penanganan di lapangan (merah), atau semuanya sudah Selesai WO / Menunggu Validasi (hijau)
+  const [hasUrgentGamas, setHasUrgentGamas] = useState(false);
 
   const refreshOpenPartnerVisits = () => {
     fetchOpenPartnerVisits().then(res => {
@@ -1516,9 +1557,38 @@ function App({ onLogout }) {
       if (res && res.success && Array.isArray(res.data)) {
         const active = res.data.filter(t => {
           const st = String(t.status || '').toLowerCase();
-          return st !== 'selesai' && st !== 'batal';
+          const rawSt = String(t.rawStatus || t.raw?.status || '').toLowerCase();
+          return st !== 'selesai' && st !== 'batal' && rawSt !== 'validated' && rawSt !== 'canceled';
         });
+
+        // Cek apakah ada tiket aktif yang perbaikannya masih berlangsung di lapangan (urgent)
+        // Jika statusnya 'Menunggu Validasi' atau penugasannya 'Selesai WO' (atau rawStatus done/waiting_validation), perbaikan lapangan sudah selesai
+        const isDoneOrWaitingValidation = (t) => {
+          const st = String(t.status || '').toLowerCase();
+          const rawSt = String(t.rawStatus || t.raw?.status || '').toLowerCase();
+          const lastSt = String(t.lastStatus || '').toLowerCase();
+          const penugasan = String(t.penugasanBadge || '').toLowerCase();
+          const vSt = String(t.visit?.status || '').toLowerCase();
+          const vLast = String(t.visit?.last_status || '').toLowerCase();
+
+          return (
+            st === 'menunggu validasi' ||
+            st === 'done' ||
+            rawSt === 'done' ||
+            rawSt === 'waiting_validation' ||
+            lastSt === 'finish' ||
+            lastSt === 'waiting_validation' ||
+            penugasan === 'selesai wo' ||
+            vSt === 'finish' ||
+            vSt === 'waiting_validation' ||
+            vLast === 'finish'
+          );
+        };
+
+        const urgent = active.filter(t => !isDoneOrWaitingValidation(t));
+
         setActiveGamasCount(active.length);
+        setHasUrgentGamas(urgent.length > 0);
       }
     }).catch(() => { });
   };
@@ -1587,7 +1657,8 @@ function App({ onLogout }) {
   const [data, setData] = useState({
     dailyProgress: [], petugasData: [], odpData: [],
     recentHistory: [], stationData: [], pelangganData: [], visitData: [],
-    teknisiData: getCachedData('otas_teknisi_cache') || []
+    teknisiData: getCachedData('otas_teknisi_cache') || [],
+    woDispatchData: getCachedData('otas_wo_dispatch_cache') || []
   });
 
   const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
@@ -1612,7 +1683,8 @@ function App({ onLogout }) {
     setData(prevData => {
       const newPelangganData = [...prevData.pelangganData];
       updatedItemsArray.forEach(updatedItem => {
-        const idx = newPelangganData.findIndex(p => String(p.idPelanggan) === String(updatedItem.idPelanggan));
+        const targetId = String(updatedItem.idPelanggan || '').trim().toUpperCase();
+        const idx = newPelangganData.findIndex(p => String(p.idPelanggan || '').trim().toUpperCase() === targetId);
         if (idx !== -1) {
           // Jika ID ditemukan (Mode Edit/Update Massal), timpa data lamanya
           newPelangganData[idx] = { ...newPelangganData[idx], ...updatedItem };
@@ -1621,6 +1693,7 @@ function App({ onLogout }) {
           newPelangganData.unshift(updatedItem);
         }
       });
+      setCachedData('otas_pelanggan_cache_v7', newPelangganData);
       return { ...prevData, pelangganData: newPelangganData };
     });
   };
@@ -1640,6 +1713,67 @@ function App({ onLogout }) {
       });
 
       return { ...prevData, pelangganData: newPelangganData };
+    });
+  };
+
+  // ========================================================
+  // FUNGSI BARU: UPDATE PENUGASAN HARIAN WO DISPATCH LOKAL
+  // ========================================================
+  const handleLocalWoDispatchAdd = (woItem) => {
+    if (!woItem) return;
+    setData(prevData => {
+      const prevWo = prevData.woDispatchData || [];
+      const targetId = String(woItem.id_pelanggan || woItem.idPelanggan || '').trim().toUpperCase();
+      const targetType = String(woItem.tipe_wo || woItem.tipeWo || '').toUpperCase();
+      const filtered = prevWo.filter(w => !(
+        String(w.id_pelanggan || w.idPelanggan || '').trim().toUpperCase() === targetId &&
+        String(w.tipe_wo || w.tipeWo || '').toUpperCase() === targetType
+      ));
+      const newWoList = [woItem, ...filtered];
+      setCachedData('otas_wo_dispatch_cache', newWoList);
+      return {
+        ...prevData,
+        woDispatchData: newWoList
+      };
+    });
+  };
+
+  const handleLocalWoDispatchDelete = (idOrCustomerId) => {
+    if (!idOrCustomerId) return;
+    setData(prevData => {
+      const prevWo = prevData.woDispatchData || [];
+      const newWoList = prevWo.filter(w => {
+        if (typeof idOrCustomerId === 'number') {
+          return w.id !== idOrCustomerId;
+        }
+        const wCustId = String(w.id_pelanggan || w.idPelanggan || '').trim().toUpperCase();
+        return String(w.id) !== String(idOrCustomerId) && wCustId !== String(idOrCustomerId).trim().toUpperCase();
+      });
+      setCachedData('otas_wo_dispatch_cache', newWoList);
+      return {
+        ...prevData,
+        woDispatchData: newWoList
+      };
+    });
+  };
+
+  const handleLocalWoDispatchUpdate = (targetIdOrCustId, updateFields) => {
+    if (!targetIdOrCustId) return;
+    setData(prevData => {
+      const prevWo = prevData.woDispatchData || [];
+      const newWoList = prevWo.map(w => {
+        const matchesId = typeof targetIdOrCustId === 'number' && w.id === targetIdOrCustId;
+        const matchesCust = String(w.id_pelanggan || w.idPelanggan || '').trim().toUpperCase() === String(targetIdOrCustId).trim().toUpperCase();
+        if (matchesId || matchesCust) {
+          return { ...w, ...updateFields };
+        }
+        return w;
+      });
+      setCachedData('otas_wo_dispatch_cache', newWoList);
+      return {
+        ...prevData,
+        woDispatchData: newWoList
+      };
     });
   };
 
@@ -1804,32 +1938,34 @@ function App({ onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v6', null);
-        setCachedData('otas_odp_cache_v4', null);
+        setCachedData('otas_pelanggan_cache_v7', null);
+        setCachedData('otas_odp_cache_v5', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_po_release_cache', null);
         setCachedData('otas_detail_po_cache', null);
         setCachedData('otas_visit_cache', null);
         setCachedData('otas_teknisi_cache', null);
+        setCachedData('otas_wo_dispatch_cache', null);
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v6');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v7');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v6', null);
+        setCachedData('otas_pelanggan_cache_v7', null);
       }
 
       if (isForce) {
         setCachedData('otas_station_cache', null);
       }
 
-      let parsedOdp = getCachedData('otas_odp_cache_v4');
+      let parsedOdp = getCachedData('otas_odp_cache_v5');
       let cachedStation = isForce ? null : getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
       let cachedVisit = getCachedData('otas_visit_cache');
       let cachedTeknisi = getCachedData('otas_teknisi_cache');
+      let cachedWoDispatch = isForce ? null : getCachedData('otas_wo_dispatch_cache');
 
       const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo && cachedStation;
 
@@ -1842,7 +1978,7 @@ function App({ onLogout }) {
       }
 
       // Hydrate state langsung jika cache lokal tersedia
-      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit || cachedDetailPo || cachedTeknisi) {
+      if (parsedPelanggan || parsedOdp || cachedStation || cachedVisit || cachedDetailPo || cachedTeknisi || cachedWoDispatch) {
         setData(prev => ({
           ...prev,
           pelangganData: parsedPelanggan || prev.pelangganData,
@@ -1850,27 +1986,48 @@ function App({ onLogout }) {
           stationData: cachedStation?.length > 0 ? cachedStation : prev.stationData,
           detailPoData: cachedDetailPo?.length > 0 ? cachedDetailPo : prev.detailPoData,
           visitData: cachedVisit?.length > 0 ? cachedVisit : prev.visitData,
-          teknisiData: cachedTeknisi?.length > 0 ? cachedTeknisi : prev.teknisiData
+          teknisiData: cachedTeknisi?.length > 0 ? cachedTeknisi : prev.teknisiData,
+          woDispatchData: (cachedWoDispatch && cachedWoDispatch.length > 0) ? cachedWoDispatch : prev.woDispatchData
         }));
       }
 
-      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation) {
+      if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation || !cachedWoDispatch || !cachedWoDispatch.length) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumns = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
+        const pelangganColumnsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
+        const pelangganColumnsWithDismantle = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
+        const pelangganColumnsWithPending = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending';
+        const pelangganColumnsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
+
+        const fetchPelangganSafe = async () => {
+          try {
+            return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithIkrPartner, 'id_pelanggan');
+          } catch (_errIkr) {
+            try {
+              return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithDismantle, 'id_pelanggan');
+            } catch (colErr) {
+              try {
+                return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithPending, 'id_pelanggan');
+              } catch (_e) {
+                return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsBase, 'id_pelanggan');
+              }
+            }
+          }
+        };
         const odpColumns = 'id,label,latitude,longitude,port_terpakai,tahap_pembangunan,kapasitas,kode_odp,kode_odc,stasiun';
 
-        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas, supabaseStations] = await Promise.all([
-          parsedPelanggan ? Promise.resolve(null) : fetchAllSupabaseData('data_pelanggan', pelangganColumns, 'id_pelanggan'),
+        const [supabasePelanggan, supabaseOdp, supabaseVisit, supabasePo, supabasePetugas, supabaseStations, supabaseWoDispatch] = await Promise.all([
+          parsedPelanggan ? Promise.resolve(null) : fetchPelangganSafe(),
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
           fetchAllSupabaseData('log_visit', '*', 'id').catch(() => null),
           cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
           cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null),
-          cachedStation ? Promise.resolve(null) : fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').catch(() => null)
+          cachedStation ? Promise.resolve(null) : fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').catch(() => null),
+          fetchAllSupabaseData('log_wo_dispatch', '*', 'id').catch(() => null)
         ]);
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v6', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v7', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -1880,7 +2037,7 @@ function App({ onLogout }) {
             if (k && !uniq.has(k)) uniq.set(k, o);
           });
           parsedOdp = Array.from(uniq.values());
-          setCachedData('otas_odp_cache_v4', parsedOdp);
+          setCachedData('otas_odp_cache_v5', parsedOdp);
         }
         if (supabaseVisit && supabaseVisit.length > 0) {
           cachedVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
@@ -1905,6 +2062,10 @@ function App({ onLogout }) {
           }));
           setCachedData('otas_station_cache', cachedStation);
         }
+        if (supabaseWoDispatch) {
+          cachedWoDispatch = supabaseWoDispatch;
+          setCachedData('otas_wo_dispatch_cache', cachedWoDispatch);
+        }
 
         setData(prev => ({
           ...prev,
@@ -1913,7 +2074,8 @@ function App({ onLogout }) {
           stationData: (cachedStation && cachedStation.length > 0) ? cachedStation : prev.stationData,
           detailPoData: cachedDetailPo || prev.detailPoData,
           visitData: cachedVisit || prev.visitData,
-          teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData
+          teknisiData: (cachedTeknisi && cachedTeknisi.length > 0) ? cachedTeknisi : prev.teknisiData,
+          woDispatchData: cachedWoDispatch || prev.woDispatchData || []
         }));
       }
 
@@ -1955,7 +2117,7 @@ function App({ onLogout }) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v6', parsed);
+                setCachedData('otas_pelanggan_cache_v7', parsed);
                 setData(prev => ({
                   ...prev,
                   pelangganData: parsed
@@ -1964,15 +2126,26 @@ function App({ onLogout }) {
             }).catch(e => console.warn('[SYNC PARTNER] Gagal refetch pelanggan baru / WO dismantle:', e));
           }
 
-          // 2. Perbarui nama sales jika ada yang berubah
-          if (salesRes && salesRes.success && (salesUpdatedCount > 0 || (salesRes.salesMap && Object.keys(salesRes.salesMap).length > 0))) {
-            const updatedMap = new Map();
+          // 2. Perbarui nama sales & IKR partner jika ada yang berubah
+          if (salesRes && salesRes.success && (salesUpdatedCount > 0 || (salesRes.salesMap && Object.keys(salesRes.salesMap).length > 0) || (salesRes.ikrMap && Object.keys(salesRes.ikrMap).length > 0))) {
+            const updatedSalesMap = new Map();
+            const updatedIkrMap = new Map();
+
             if (salesRes.updatedList && salesRes.updatedList.length > 0) {
-              salesRes.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
+              salesRes.updatedList.forEach(u => {
+                const uid = String(u.id_pelanggan).trim().toUpperCase();
+                if (u.nama_sales) updatedSalesMap.set(uid, u.nama_sales);
+                if (u.ikr_partner) updatedIkrMap.set(uid, u.ikr_partner);
+              });
             }
             if (salesRes.salesMap) {
               Object.entries(salesRes.salesMap).forEach(([id, s]) => {
-                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedMap.set(String(id).trim().toUpperCase(), s);
+                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedSalesMap.set(String(id).trim().toUpperCase(), s);
+              });
+            }
+            if (salesRes.ikrMap) {
+              Object.entries(salesRes.ikrMap).forEach(([id, ikr]) => {
+                if (ikr && ikr !== '-') updatedIkrMap.set(String(id).trim().toUpperCase(), ikr);
               });
             }
 
@@ -1980,19 +2153,44 @@ function App({ onLogout }) {
               let hasChanges = false;
               const nextList = (prev.pelangganData || []).map(p => {
                 const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-                if (updatedMap.has(id)) {
-                  const s = updatedMap.get(id);
-                  const cur = String(p.namaSales || p.nama_sales || '').trim();
+                let pSales = p.namaSales || p.nama_sales || '';
+                let pIkr = p.ikrPartner || p.ikr_partner || '';
+                let itemChanged = false;
+
+                if (updatedSalesMap.has(id)) {
+                  const s = updatedSalesMap.get(id);
+                  const cur = String(pSales).trim();
                   if (!cur || cur === '-' || cur.toLowerCase() === 'daftar mandiri' || cur !== s) {
-                    hasChanges = true;
-                    return { ...p, namaSales: s, nama_sales: s, sales: s };
+                    pSales = s;
+                    itemChanged = true;
                   }
+                }
+
+                if (updatedIkrMap.has(id)) {
+                  const ikrVal = updatedIkrMap.get(id);
+                  const curIkr = String(pIkr).trim();
+                  if (!curIkr || curIkr === '-' || curIkr !== ikrVal) {
+                    pIkr = ikrVal;
+                    itemChanged = true;
+                  }
+                }
+
+                if (itemChanged) {
+                  hasChanges = true;
+                  return {
+                    ...p,
+                    namaSales: pSales,
+                    nama_sales: pSales,
+                    sales: pSales,
+                    ikrPartner: pIkr,
+                    ikr_partner: pIkr
+                  };
                 }
                 return p;
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v6', nextList);
+                setCachedData('otas_pelanggan_cache_v7', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -2140,6 +2338,16 @@ function App({ onLogout }) {
         }
       }).catch(err => console.warn('Silent Supabase Visit fail:', err));
 
+      fetchAllSupabaseData('log_wo_dispatch', '*', 'id').then(supabaseWo => {
+        if (supabaseWo) {
+          setCachedData('otas_wo_dispatch_cache', supabaseWo);
+          setData(prev => ({
+            ...prev,
+            woDispatchData: supabaseWo
+          }));
+        }
+      }).catch(err => console.warn('Silent Supabase WO fail:', err));
+
       setLastSyncedTime(new Date());
     } catch (err) {
       console.error("Silent background sync failed:", err);
@@ -2180,7 +2388,7 @@ function App({ onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v6', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v7', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -2279,7 +2487,7 @@ function App({ onLogout }) {
                 return true;
               });
             }
-            setCachedData('otas_odp_cache_v4', newOdpData);
+            setCachedData('otas_odp_cache_v5', newOdpData);
             return {
               ...prev,
               odpData: newOdpData
@@ -2358,6 +2566,42 @@ function App({ onLogout }) {
       )
       .subscribe();
 
+    // Setup Supabase Real-Time Listener untuk log_wo_dispatch (Monitoring Harian WO Teknisi)
+    const woDispatchChannel = supabase
+      .channel('schema-wo-dispatch-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'log_wo_dispatch'
+        },
+        (payload) => {
+          setData(prev => {
+            let newWoList = [...(prev.woDispatchData || [])];
+            if (payload.eventType === 'INSERT') {
+              const item = payload.new;
+              const exists = newWoList.some(w => w.id === item.id);
+              if (!exists) newWoList.unshift(item);
+            } else if (payload.eventType === 'UPDATE') {
+              const item = payload.new;
+              const idx = newWoList.findIndex(w => w.id === item.id);
+              if (idx !== -1) newWoList[idx] = { ...newWoList[idx], ...item };
+              else newWoList.unshift(item);
+            } else if (payload.eventType === 'DELETE') {
+              const deletedId = payload.old?.id;
+              newWoList = newWoList.filter(w => w.id !== deletedId);
+            }
+            setCachedData('otas_wo_dispatch_cache', newWoList);
+            return {
+              ...prev,
+              woDispatchData: newWoList
+            };
+          });
+        }
+      )
+      .subscribe();
+
     // Setup interval sinkronisasi otomatis setiap 30 detik untuk sisa data non-pelanggan (seperti KPI/stok stasiun)
     const interval = setInterval(() => {
       fetchDataSilent();
@@ -2369,6 +2613,7 @@ function App({ onLogout }) {
       supabase.removeChannel(odpChannel);
       supabase.removeChannel(poChannel);
       supabase.removeChannel(petugasChannel);
+      supabase.removeChannel(woDispatchChannel);
       clearInterval(interval);
     };
   }, []);
@@ -2471,8 +2716,17 @@ function App({ onLogout }) {
                   {/* Dot saat sidebar collapsed jika ada tiket gamas aktif */}
                   {!isSidebarOpen && item.id === 'gamas' && activeGamasCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                      {hasUrgentGamas ? (
+                        <>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </>
+                      )}
                     </span>
                   )}
                   {/* Dot saat sidebar collapsed jika ada tiket visit open */}
@@ -2491,11 +2745,20 @@ function App({ onLogout }) {
                 {/* Badge Gamas saat sidebar terbuka (hanya jika ada tiket aktif) */}
                 {isSidebarOpen && item.id === 'gamas' && activeGamasCount > 0 && (
                   <span
-                    className={`ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isActive
-                      ? 'bg-rose-500 text-white border border-rose-400 shadow-sm'
-                      : 'bg-rose-900/80 text-rose-200 border border-rose-700'
+                    className={`ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      hasUrgentGamas
+                        ? isActive
+                          ? 'bg-rose-500 text-white border border-rose-400 shadow-sm'
+                          : 'bg-rose-900/80 text-rose-200 border border-rose-700'
+                        : isActive
+                          ? 'bg-emerald-500 text-white border border-emerald-400 shadow-sm'
+                          : 'bg-emerald-900/80 text-emerald-200 border border-emerald-600'
                       }`}
-                    title={`${activeGamasCount} Gangguan Massal Aktif`}
+                    title={
+                      hasUrgentGamas
+                        ? `${activeGamasCount} Gangguan Massal Aktif`
+                        : `${activeGamasCount} Tiket Selesai WO (Menunggu Validasi)`
+                    }
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
                     <span>{activeGamasCount}</span>
@@ -2673,6 +2936,8 @@ function App({ onLogout }) {
                   visitData={data.visitData}
                   petugasList={data.teknisiData}
                   odpData={data.odpData}
+                  woDispatchData={data.woDispatchData}
+                  poReleaseData={data.detailPoData}
                   isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))}
                   onRefresh={() => fetchData(true)}
                   onGoToCoverage={handleGoToCoverage}
@@ -2680,6 +2945,8 @@ function App({ onLogout }) {
                   onLocalPelangganUpdate={handleLocalPelangganUpdate}
                   onLocalVisitUpdate={handleLocalVisitAction}
                   onLocalPelangganDelete={handleLocalPelangganDelete}
+                  onLocalWoDispatchAdd={handleLocalWoDispatchAdd}
+                  onLocalWoDispatchDelete={handleLocalWoDispatchDelete}
                   initialStatusFilter={initialDatabaseStatusFilter}
                   initialStationFilter={initialDatabaseStationFilter}
                 />
@@ -2704,12 +2971,15 @@ function App({ onLogout }) {
                   onRefresh={() => fetchData(true)}
                   onLocalVisitUpdate={handleLocalVisitAction}
                   onPartnerVisitRefresh={refreshOpenPartnerVisits}
+                  onLocalWoDispatchAdd={handleLocalWoDispatchAdd}
+                  onLocalWoDispatchUpdate={handleLocalWoDispatchUpdate}
+                  onLocalWoDispatchDelete={handleLocalWoDispatchDelete}
                 />
               </div>
             )}
             {visitedTabs.has('gamas') && (
               <div className={activeTab === 'gamas' ? 'w-full' : 'hidden'}>
-                <GamasDashboardView />
+                <GamasDashboardView onGamasUpdate={refreshActiveGamasCount} />
               </div>
             )}
             {visitedTabs.has('team') && (
@@ -2719,6 +2989,8 @@ function App({ onLogout }) {
                   pelangganData={data.pelangganData}
                   visitData={data.visitData}
                   odpData={data.odpData}
+                  woDispatchData={data.woDispatchData}
+                  onLocalWoDispatchDelete={handleLocalWoDispatchDelete}
                   isLoading={isLoading || (isBackgroundSyncing && (!data.pelangganData || data.pelangganData.length === 0))}
                   isSyncing={isLoading || isBackgroundSyncing}
                   onRefresh={() => fetchData(true)}
@@ -3018,6 +3290,25 @@ const cleanOdpStr = (str) => {
   return clean;
 };
 
+// Helper pencocokan nama stasiun (termasuk alias Tawang / Semarang Tawang)
+export const isStationMatch = (stationA, stationB) => {
+  const a = String(stationA || '').trim().toLowerCase();
+  const b = String(stationB || '').trim().toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if ((a === 'semarang tawang' && b === 'tawang') || (a === 'tawang' && b === 'semarang tawang')) return true;
+  return false;
+};
+
+// Helper normalisasi nama tahap pembangunan (dash, non-breaking space, trim, lowercase)
+export const normalizeTahapStr = (str) => {
+  return String(str || '')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u00A0\s]+/g, ' ')
+    .trim()
+    .toLowerCase();
+};
+
 // ==========================================
 // MODALS & POP-UPS
 // ==========================================
@@ -3061,55 +3352,48 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
     });
 
     let mapped = customersInOdp.map(item => {
-      // 1. LEBURKAN SEMUA TEKS UNTUK PENCARIAN
+      // 1. LEBURKAN SEMUA TEKS UNTUK PENCARIAN & STATUS RESMI
       const allTextInRow = Object.values(item).map(v => String(v).toUpperCase()).join(' | ');
+      const rawAkt = String(item.aktivasi || item.statusAktivasi || '').trim().toUpperCase();
+      const globStat = typeof getGlobalStatusStr === 'function' ? String(getGlobalStatusStr(item)).toUpperCase() : '';
 
-      // 2. TENTUKAN NAMA STATUSNYA TERLEBIH DAHULU
+      // 2. TENTUKAN NAMA STATUSNYA TERLEBIH DAHULU (PASTIKAN DISMANTLED LENGKAP)
       let finalLabel = 'UNKNOWN';
 
-      if (allTextInRow.includes('READY TO DISMANTLE') || allTextInRow.includes('READY')) {
+      if (globStat === 'READY TO DISMANTLE' || rawAkt.includes('READY TO DISMANTLE') || allTextInRow.includes('READY TO DISMANTLE') || allTextInRow.includes('READY')) {
         finalLabel = 'READY TO DISMANTLE';
-      } else if (allTextInRow.includes('DISMANTLE')) {
-        finalLabel = 'DISMANTLE';
-      } else if (allTextInRow.includes('AKTIF') || allTextInRow.includes('DONE')) {
+      } else if (globStat === 'DISMANTLED' || rawAkt.includes('DISMANTLE') || allTextInRow.includes('DISMANTLE')) {
+        finalLabel = 'DISMANTLED';
+      } else if (globStat === 'AKTIF' || allTextInRow.includes('AKTIF') || allTextInRow.includes('DONE')) {
         finalLabel = 'AKTIF';
-      } else if (allTextInRow.includes('WAITING')) {
+      } else if (globStat === 'WAITING' || allTextInRow.includes('WAITING')) {
         finalLabel = 'WAITING';
-      } else if (allTextInRow.includes('KENDALA')) {
+      } else if (globStat === 'KENDALA' || allTextInRow.includes('KENDALA')) {
         finalLabel = 'KENDALA';
       } else {
-        // Fallback jika kosong/berbeda: Minta bantuan fungsi bawaan
-        if (typeof getGlobalStatusStr === 'function') {
-          finalLabel = String(getGlobalStatusStr(item)).toUpperCase();
-        }
+        finalLabel = globStat || 'UNKNOWN';
       }
 
-      // 3. BARU KITA BERIKAN WARNA BERDASARKAN HASIL AKHIR STATUS (ANTI BOCOR)
+      // 3. WARNA STATUS
       let statusColor = 'bg-slate-100 text-slate-500 border-slate-200';
       let mapColorHex = '#94a3b8'; // Abu-abu default
 
-      if (finalLabel.includes('READY TO DISMANTLE') || finalLabel.includes('READY')) {
-        finalLabel = 'READY TO DISMANTLE';
+      if (finalLabel === 'READY TO DISMANTLE') {
         statusColor = 'bg-orange-100 text-orange-700 border-orange-200';
         mapColorHex = '#f97316'; // Oren
-      } else if (finalLabel.includes('DISMANTLE')) {
-        finalLabel = 'DISMANTLE';
-        statusColor = 'bg-slate-100 text-slate-500 border-slate-200';
+      } else if (finalLabel === 'DISMANTLED') {
+        statusColor = 'bg-slate-100 text-slate-600 border-slate-300';
         mapColorHex = '#94a3b8'; // Abu-abu
-      } else if (finalLabel.includes('AKTIF') || finalLabel === 'DONE') {
-        finalLabel = 'AKTIF';
+      } else if (finalLabel === 'AKTIF') {
         statusColor = 'bg-emerald-100 text-emerald-700 border-emerald-200';
         mapColorHex = '#3b82f6'; // Biru (Untuk Peta & Kabel)
-      } else if (finalLabel.includes('WAITING')) {
-        finalLabel = 'WAITING';
+      } else if (finalLabel === 'WAITING') {
         statusColor = 'bg-amber-100 text-amber-700 border-amber-200';
         mapColorHex = '#eab308'; // Kuning
-      } else if (finalLabel.includes('KENDALA')) {
-        finalLabel = 'KENDALA';
+      } else if (finalLabel === 'KENDALA') {
         statusColor = 'bg-rose-100 text-rose-700 border-rose-200';
         mapColorHex = '#ef4444'; // Merah
       } else {
-        // Jika ada status aneh lainnya
         statusColor = 'bg-slate-100 text-slate-600 border-slate-200';
         mapColorHex = '#94a3b8';
       }
@@ -3124,6 +3408,7 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
         nama: item.namaPelanggan || item.NamaPelanggan || 'Tanpa Nama',
         sn: item.snOnt || item.SnOnt || '-',
         statusLabel: finalLabel,
+        isDismantled: finalLabel === 'DISMANTLED',
         statusColor: statusColor,
         mapColorHex: mapColorHex,
         rawItem: item
@@ -3133,6 +3418,14 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
     mapped.sort((a, b) => a.portNum - b.portNum);
     return mapped;
   }, [pelangganData, odp]);
+
+  const activePortCount = useMemo(() => {
+    return realCustomers.filter(c => c.statusLabel !== 'DISMANTLED').length;
+  }, [realCustomers]);
+
+  const dismantledPortCount = useMemo(() => {
+    return realCustomers.filter(c => c.statusLabel === 'DISMANTLED').length;
+  }, [realCustomers]);
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
@@ -3195,8 +3488,13 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {realCustomers.map((cust, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-2 py-2 sm:px-6 sm:py-4 text-center font-black text-slate-700 bg-slate-50/30 group-hover:bg-white">{cust.rawPort}</td>
+                    <tr key={idx} className={`hover:bg-slate-50/50 transition-colors group ${cust.isDismantled ? 'opacity-70 hover:opacity-100 bg-slate-50/40' : ''}`}>
+                      <td className="px-2 py-2 sm:px-6 sm:py-4 text-center font-black text-slate-700 bg-slate-50/30 group-hover:bg-white">
+                        {cust.rawPort}
+                        {cust.isDismantled && (
+                          <span className="block text-[8px] font-bold text-slate-400 font-sans tracking-tight">IDLE</span>
+                        )}
+                      </td>
                       <td className="px-2 py-2 sm:px-6 sm:py-4 font-mono text-[9px] sm:text-[13px] text-slate-600 font-medium break-all sm:break-normal">{cust.idPelanggan}</td>
                       <td className="px-2 py-2 sm:px-6 sm:py-4 font-bold text-slate-800 break-words">{cust.nama}</td>
                       <td className="px-2 py-2 sm:px-6 sm:py-4 font-mono text-[9px] sm:text-[13px] text-slate-500 break-all sm:break-normal">{cust.sn}</td>
@@ -3219,9 +3517,16 @@ function OdpDetailModal({ odp, pelangganData, allOdps = [], onClose }) {
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-white shrink-0 relative z-20">
-          <div className="text-xs text-slate-500 font-medium">
-            <span className="text-emerald-600 font-bold text-sm">{realCustomers.length}</span> dari <span className="font-bold">{odp.kapasitas}</span> Port Terpakai
+        <div className="p-4 border-t border-slate-100 flex flex-wrap justify-between items-center gap-3 bg-white shrink-0 relative z-20">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
+            <div>
+              <span className="text-emerald-600 font-bold text-sm">{activePortCount}</span> dari <span className="font-bold">{odp.kapasitas}</span> Port Terpakai
+            </div>
+            {dismantledPortCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200" title="Pelanggan berstatus DISMANTLED tidak dihitung sebagai port terpakai sehingga port ODP menjadi idle untuk report baru">
+                {dismantledPortCount} Dismantled (Port Idle)
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="px-6 py-2.5 text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all active:scale-95">Tutup</button>
         </div>
@@ -3291,18 +3596,42 @@ export function OkupansiView({ data, setData }) {
   const [showMassDeleteModal, setShowMassDeleteModal] = useState(false);
   const [isMassDeleting, setIsMassDeleting] = useState(false);
   const [massDeleteTahap, setMassDeleteTahap] = useState('ALL');
+  const [isManageSelectMode, setIsManageSelectMode] = useState(false);
+  const [selectedManageOdpIds, setSelectedManageOdpIds] = useState([]);
+  const [showMassUpdateTahapModal, setShowMassUpdateTahapModal] = useState(false);
+  const [isMassUpdatingTahap, setIsMassUpdatingTahap] = useState(false);
+  const [massUpdateNewTahap, setMassUpdateNewTahap] = useState('');
   const [isSyncingPorts, setIsSyncingPorts] = useState(false);
 
-  // Peta dinamis jumlah pelanggan per ODP (dibersihkan dari karakter tersembunyi)
-  const customerCountByOdp = useMemo(() => {
+  // Peta dinamis jumlah pelanggan aktif per ODP (exclude pelanggan DISMANTLED agar port ODP idle)
+  const { customerCountByOdp, odpWithCustomersSet } = useMemo(() => {
     const map = {};
+    const odpSet = new Set();
     (data?.pelangganData || []).forEach(p => {
-      const k = cleanOdpStr(p.odpAktual || p.odp || p.kodeOdp);
-      if (k) {
-        map[k] = (map[k] || 0) + 1;
+      const keys = [
+        cleanOdpStr(p.odpAktual),
+        cleanOdpStr(p.odp),
+        cleanOdpStr(p.kodeOdp),
+        cleanOdpStr(p.kode_odp)
+      ].filter(Boolean);
+
+      if (keys.length === 0) return;
+      keys.forEach(k => odpSet.add(k));
+
+      // Exclude pelanggan berstatus DISMANTLED agar kapasitas port menjadi idle
+      const globStat = typeof getGlobalStatusStr === 'function' ? String(getGlobalStatusStr(p)).toUpperCase() : '';
+      const rawAkt = String(p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+      if (globStat === 'DISMANTLED' || rawAkt === 'DISMANTLED' || rawAkt === 'DISMANTLE') {
+        return;
       }
+
+      // Hitung per key unik untuk pelanggan aktif
+      const uniqueKeys = Array.from(new Set(keys));
+      uniqueKeys.forEach(k => {
+        map[k] = (map[k] || 0) + 1;
+      });
     });
-    return map;
+    return { customerCountByOdp: map, odpWithCustomersSet: odpSet };
   }, [data?.pelangganData]);
 
   // State untuk lipat/buka (collapse/expand) grup Tahap Pembangunan
@@ -3402,34 +3731,30 @@ export function OkupansiView({ data, setData }) {
     }
   };
 
-  // Helper pencocokan nama stasiun (termasuk alias Tawang / Semarang Tawang)
-  const isStationMatch = (stationA, stationB) => {
-    const a = String(stationA || '').trim().toLowerCase();
-    const b = String(stationB || '').trim().toLowerCase();
-    if (!a || !b) return false;
-    if (a === b) return true;
-    if ((a === 'semarang tawang' && b === 'tawang') || (a === 'tawang' && b === 'semarang tawang')) return true;
-    return false;
-  };
-
-  // Helper normalisasi nama tahap pembangunan (dash, non-breaking space, trim, lowercase)
-  const normalizeTahapStr = (str) => {
-    return String(str || '')
-      .replace(/[\u2013\u2014]/g, '-')
-      .replace(/[\u00A0\s]+/g, ' ')
-      .trim()
-      .toLowerCase();
-  };
-
-  // Daftar seluruh tahap pembangunan unik (hanya menampilkan tahap milik stasiun yang dipilih)
+  // Daftar seluruh tahap pembangunan unik (disinkronkan dari data resmi PO Release milik stasiun terpilih)
   const allTahapList = useMemo(() => {
-    let list = data?.odpData || [];
+    let poList = data?.detailPoData || [];
     if (manageStationFilter) {
-      list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
+      poList = poList.filter(p => isStationMatch(p.stasiun, manageStationFilter));
     }
-    const tahap = list.map(o => o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').filter(Boolean);
-    return [...new Set(tahap)].sort();
-  }, [data?.odpData, manageStationFilter]);
+    const set = new Set();
+    poList.forEach(p => {
+      const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
+      if (t) set.add(t);
+    });
+    // Fallback dari odpData jika poList belum terisi
+    if (set.size === 0) {
+      let list = data?.odpData || [];
+      if (manageStationFilter) {
+        list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
+      }
+      list.forEach(o => {
+        const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+        if (t) set.add(t);
+      });
+    }
+    return Array.from(set).sort();
+  }, [data?.detailPoData, data?.odpData, manageStationFilter]);
 
   // Otomatis reset manageTahapFilter jika stasiun berganti dan tahap aktif tidak ada di stasiun baru
   useEffect(() => {
@@ -3586,7 +3911,7 @@ export function OkupansiView({ data, setData }) {
             }
             return o;
           });
-          setCachedData('otas_odp_cache_v4', updated);
+          setCachedData('otas_odp_cache_v5', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -3632,6 +3957,8 @@ export function OkupansiView({ data, setData }) {
     setManageSortKey('kodeOdp');
     setManageSortOrder('asc');
     setManagePage(1);
+    setIsManageSelectMode(false);
+    setSelectedManageOdpIds([]);
     setShowManageOdpModal(true);
   };
 
@@ -3682,7 +4009,7 @@ export function OkupansiView({ data, setData }) {
             kodeOdc: payload.kode_odc,
             tahapPembangunan: payload.tahap_pembangunan
           } : o);
-          setCachedData('otas_odp_cache_v4', updated);
+          setCachedData('otas_odp_cache_v5', updated);
           return { ...prev, odpData: updated };
         });
       }
@@ -3713,7 +4040,7 @@ export function OkupansiView({ data, setData }) {
       if (typeof setData === 'function') {
         setData(prev => {
           const filtered = (prev.odpData || []).filter(o => o.id !== deletingOdp.id);
-          setCachedData('otas_odp_cache_v4', filtered);
+          setCachedData('otas_odp_cache_v5', filtered);
           return { ...prev, odpData: filtered };
         });
       }
@@ -3735,9 +4062,13 @@ export function OkupansiView({ data, setData }) {
   }, [filteredManageOdps]);
 
   const targetMassDeleteOdps = useMemo(() => {
+    if (isManageSelectMode && selectedManageOdpIds.length > 0) {
+      const idSet = new Set(selectedManageOdpIds);
+      return (data?.odpData || []).filter(o => idSet.has(o.id));
+    }
     if (massDeleteTahap === 'ALL') return filteredManageOdps;
     return filteredManageOdps.filter(o => (o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === massDeleteTahap);
-  }, [filteredManageOdps, massDeleteTahap]);
+  }, [isManageSelectMode, selectedManageOdpIds, data?.odpData, filteredManageOdps, massDeleteTahap]);
 
   const handleMassDeleteOdp = async () => {
     if (!targetMassDeleteOdps || targetMassDeleteOdps.length === 0) return;
@@ -3755,14 +4086,16 @@ export function OkupansiView({ data, setData }) {
       if (typeof setData === 'function') {
         setData(prev => {
           const filtered = (prev.odpData || []).filter(o => !idsToDelete.includes(o.id));
-          setCachedData('otas_odp_cache_v4', filtered);
+          setCachedData('otas_odp_cache_v5', filtered);
           return { ...prev, odpData: filtered };
         });
       }
 
-      setSyncToast({ show: true, type: 'success', message: `${idsToDelete.length} ODP berhasil dihapus massal!` });
+      setSyncToast({ show: true, type: 'success', message: `${idsToDelete.length} ODP berhasil dihapus!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
       setShowMassDeleteModal(false);
+      setIsManageSelectMode(false);
+      setSelectedManageOdpIds([]);
       setManagePage(1);
     } catch (err) {
       console.error("Gagal hapus ODP massal:", err);
@@ -3772,6 +4105,90 @@ export function OkupansiView({ data, setData }) {
       setIsMassDeleting(false);
     }
   };
+
+  const handleMassUpdateTahap = async () => {
+    if (!filteredManageOdps || filteredManageOdps.length === 0) return;
+    const cleanNewTahap = String(massUpdateNewTahap || '').trim();
+    if (!cleanNewTahap) {
+      alert('Nama tahap pembangunan tujuan tidak boleh kosong.');
+      return;
+    }
+
+    setIsMassUpdatingTahap(true);
+    try {
+      const idsToUpdate = filteredManageOdps.map(o => o.id);
+      const odpCodes = Array.from(new Set(filteredManageOdps.map(o => cleanOdpStr(o.kodeOdp || o.label || o.kode_odp)).filter(Boolean)));
+
+      const BATCH_SIZE = 200;
+      for (let i = 0; i < idsToUpdate.length; i += BATCH_SIZE) {
+        const batch = idsToUpdate.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('odp').update({ tahap_pembangunan: cleanNewTahap }).in('id', batch);
+        if (error) throw error;
+      }
+
+      // Sinkronkan juga ke data_pelanggan agar tidak pernah terjadi inkonsistensi nama tahap
+      if (odpCodes.length > 0) {
+        for (let i = 0; i < odpCodes.length; i += BATCH_SIZE) {
+          const batchOdp = odpCodes.slice(i, i + BATCH_SIZE);
+          await supabase.from('data_pelanggan').update({ tahap_pembangunan: cleanNewTahap }).in('odp', batchOdp);
+        }
+      }
+
+      if (typeof setData === 'function') {
+        setData(prev => {
+          const updatedOdp = (prev.odpData || []).map(o => idsToUpdate.includes(o.id) ? { ...o, tahap_pembangunan: cleanNewTahap, tahapPembangunan: cleanNewTahap } : o);
+          setCachedData('otas_odp_cache_v5', updatedOdp);
+
+          const odpSet = new Set(odpCodes.map(c => cleanOdpStr(c)));
+          const updatedPel = (prev.pelangganData || []).map(p => {
+            const pKey = cleanOdpStr(p.odp || p.odpAktual || p.kodeOdp || '');
+            if (pKey && odpSet.has(pKey)) {
+              return { ...p, tahapPembangunan: cleanNewTahap, tahap_pembangunan: cleanNewTahap };
+            }
+            return p;
+          });
+          setCachedData('otas_pelanggan_cache_v7', updatedPel);
+
+          return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
+        });
+      }
+
+      setSyncToast({ show: true, type: 'success', message: `${idsToUpdate.length} ODP & pelanggan terkait berhasil diubah ke "${cleanNewTahap}"!` });
+      setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
+      setShowMassUpdateTahapModal(false);
+      setMassUpdateNewTahap('');
+      setManageTahapFilter(cleanNewTahap);
+    } catch (err) {
+      console.error("Gagal ubah tahap ODP massal:", err);
+      setSyncToast({ show: true, type: 'error', message: 'Gagal mengubah tahap ODP: ' + err.message });
+      setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
+    } finally {
+      setIsMassUpdatingTahap(false);
+    }
+  };
+
+  // Daftar tahap pembangunan resmi dari PO Release untuk modal ubah tahap massal
+  const massUpdateAvailableTahaps = useMemo(() => {
+    const st = manageStationFilter || selectedStation;
+    let poList = data?.detailPoData || [];
+    if (st) {
+      poList = poList.filter(p => isStationMatch(p.stasiun, st));
+    }
+    const set = new Set();
+    poList.forEach(p => {
+      const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
+      if (t) set.add(t);
+    });
+    if (set.size === 0) {
+      (data?.odpData || []).forEach(o => {
+        if (!st || isStationMatch(o.stasiun, st)) {
+          const t = String(o.tahapPembangunan || o.tahap_pembangunan || '').trim();
+          if (t) set.add(t);
+        }
+      });
+    }
+    return Array.from(set).sort();
+  }, [data?.detailPoData, data?.odpData, manageStationFilter, selectedStation]);
 
   // 1. Dapatkan daftar Stasiun Unik
   const uniqueStations = useMemo(() => {
@@ -3798,20 +4215,31 @@ export function OkupansiView({ data, setData }) {
     }
   }, [uniqueStations]);
 
-  // Tahap pembangunan unik untuk stasiun terpilih di form manual
+  // Tahap pembangunan unik untuk stasiun terpilih di form manual - Disinkronkan dari data resmi PO Release
   const manualAvailableTahaps = useMemo(() => {
     const st = manualStation || manageStationFilter || selectedStation;
-    let list = data?.odpData || [];
+    let poList = data?.detailPoData || [];
     if (st) {
-      list = list.filter(o => isStationMatch(o.stasiun, st));
+      poList = poList.filter(p => isStationMatch(p.stasiun, st));
     }
     const set = new Set();
-    list.forEach(o => {
-      const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+    poList.forEach(p => {
+      const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
       if (t) set.add(t);
     });
+    // Fallback jika detailPoData belum terisi
+    if (set.size === 0) {
+      let list = data?.odpData || [];
+      if (st) {
+        list = list.filter(o => isStationMatch(o.stasiun, st));
+      }
+      list.forEach(o => {
+        const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+        if (t) set.add(t);
+      });
+    }
     return Array.from(set).sort();
-  }, [data?.odpData, manualStation, manageStationFilter, selectedStation]);
+  }, [data?.detailPoData, data?.odpData, manualStation, manageStationFilter, selectedStation]);
 
   const handleAddManualRow = () => {
     setManualOdpRows(prev => [
@@ -4061,7 +4489,9 @@ export function OkupansiView({ data, setData }) {
       const odpLabel = odp.kodeOdp || odp['Kode ODP'] || odp.label || odp.Label || 'ODP-UNKNOWN';
       const kapasitas = Number(odp.kapasitas || odp.Kapasitas) || 0;
       const odpCleanKey = cleanOdpStr(odpLabel || odp.kodeOdp || odp.label);
-      const countFromCust = customerCountByOdp[odpCleanKey];
+      const countFromCust = odpWithCustomersSet?.has(odpCleanKey)
+        ? (customerCountByOdp[odpCleanKey] || 0)
+        : customerCountByOdp[odpCleanKey];
       const terpakai = countFromCust !== undefined ? countFromCust : (Number(odp.portTerpakai || odp['Port Terpakai'] || odp.port_terpakai) || 0);
 
       // Short Label ODC
@@ -4647,7 +5077,7 @@ export function OkupansiView({ data, setData }) {
                   }`}
               >
                 <Icon name="edit-3" size={15} className={addOdpTab === 'manual' ? 'text-emerald-600' : 'text-slate-400'} />
-                <span>âœï¸ Input Manual (1 - 2 ODP)</span>
+                <span>Input Manual (1 - 2 ODP)</span>
                 <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
                   Cepat
                 </span>
@@ -4661,7 +5091,7 @@ export function OkupansiView({ data, setData }) {
                   }`}
               >
                 <Icon name="file-spreadsheet" size={15} className={addOdpTab === 'excel' ? 'text-emerald-600' : 'text-slate-400'} />
-                <span>ðŸ“ Upload File Excel (Massal)</span>
+                <span>Upload File Excel (Massal)</span>
               </button>
             </div>
 
@@ -4737,53 +5167,31 @@ export function OkupansiView({ data, setData }) {
                       </select>
                     </div>
 
-                    {/* Pilih / Tambah Tahap */}
+                    {/* Pilih Tahap Pembangunan (Terkunci dari PO Release) */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
-                        <Icon name="tag" size={13} className="text-purple-600" />
-                        <span>Tahap Pembangunan <span className="text-rose-500">*</span></span>
-                      </label>
-                      {!isManualNewTahap ? (
-                        <select
-                          value={manualTahap}
-                          onChange={(e) => {
-                            if (e.target.value === '___NEW___') {
-                              setIsManualNewTahap(true);
-                              setManualNewTahapInput('');
-                            } else {
-                              setManualTahap(e.target.value);
-                            }
-                          }}
-                          className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                        >
-                          <option value="" disabled>-- Pilih Tahap Pembangunan --</option>
-                          {manualAvailableTahaps.map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                          <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Tahap Baru...</option>
-                        </select>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            type="text"
-                            value={manualNewTahapInput}
-                            onChange={(e) => setManualNewTahapInput(e.target.value)}
-                            placeholder="Ketik nama tahap baru..."
-                            className="flex-1 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsManualNewTahap(false);
-                              setManualNewTahapInput('');
-                            }}
-                            className="p-2 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                            title="Batal buat tahap baru"
-                          >
-                            <Icon name="x" size={15} />
-                          </button>
-                        </div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                          <Icon name="tag" size={13} className="text-purple-600" />
+                          <span>Tahap Pembangunan <span className="text-rose-500">*</span></span>
+                        </label>
+                        <span className="text-[10px] text-purple-600 font-semibold flex items-center gap-1">
+                          <Icon name="lock" size={10} /> Terkunci PO Release
+                        </span>
+                      </div>
+                      <select
+                        value={manualTahap}
+                        onChange={(e) => setManualTahap(e.target.value)}
+                        className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="" disabled>-- Pilih Tahap Pembangunan (PO Release) --</option>
+                        {manualAvailableTahaps.map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      {manualAvailableTahaps.length === 0 && (
+                        <p className="text-[10px] text-amber-600 mt-1 italic">
+                          Belum ada data PO Release untuk stasiun ini. Silakan input data PO terlebih dahulu.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -5096,38 +5504,17 @@ export function OkupansiView({ data, setData }) {
                               <span>{manageTahapFilter}</span>
                               <span className="text-[10px] font-normal text-purple-500 ml-1">(Terkunci dari filter modal)</span>
                             </div>
-                          ) : !isNewTahap ? (
+                          ) : (
                             <select
                               value={inputTahap}
-                              onChange={(e) => {
-                                if (e.target.value === '___NEW___') {
-                                  setIsNewTahap(true);
-                                  setInputTahap('');
-                                } else {
-                                  setInputTahap(e.target.value);
-                                }
-                              }}
+                              onChange={(e) => setInputTahap(e.target.value)}
                               className="text-sm px-3 py-1.5 w-64 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors cursor-pointer"
                             >
-                              <option value="" disabled hidden>Pilih atau Tambah Baru</option>
+                              <option value="" disabled hidden>-- Pilih Tahap (PO Release) --</option>
                               {allTahapList && allTahapList.map(t => (
                                 <option key={t} value={t} className="text-slate-700">{t}</option>
                               ))}
-                              <option value="___NEW___" className="font-bold text-emerald-600">+ Tambah Baru...</option>
                             </select>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <input
-                                autoFocus
-                                value={inputTahap}
-                                onChange={(e) => setInputTahap(e.target.value)}
-                                placeholder="Ketik tahap baru..."
-                                className="text-sm px-3 py-1.5 w-56 border border-slate-300 bg-white text-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-colors"
-                              />
-                              <button onClick={() => { setIsNewTahap(false); setInputTahap(''); }} className="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-colors">
-                                <Icon name="x" size={16} />
-                              </button>
-                            </div>
                           )}
                         </div>
                       </div>
@@ -5334,7 +5721,11 @@ export function OkupansiView({ data, setData }) {
                 </div>
               </div>
               <button
-                onClick={() => setShowManageOdpModal(false)}
+                onClick={() => {
+                  setShowManageOdpModal(false);
+                  setIsManageSelectMode(false);
+                  setSelectedManageOdpIds([]);
+                }}
                 className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
               >
                 <Icon name="x" size={20} />
@@ -5342,11 +5733,11 @@ export function OkupansiView({ data, setData }) {
             </div>
 
             {/* TOOLBAR FILTER & AKSI */}
-            <div className="p-4 border-b border-slate-100 bg-white flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0">
-              <div className="flex flex-wrap items-center gap-2 flex-1">
+            <div className="p-3.5 border-b border-slate-100 bg-white flex flex-col xl:flex-row gap-2.5 items-stretch xl:items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 {/* Filter Stasiun */}
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
-                  <Icon name="map-pin" size={14} className="text-slate-400 shrink-0" />
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm shrink-0">
+                  <Icon name="map-pin" size={13} className="text-slate-400 shrink-0" />
                   <select
                     value={manageStationFilter}
                     onChange={(e) => {
@@ -5354,7 +5745,7 @@ export function OkupansiView({ data, setData }) {
                       setManageTahapFilter('');
                       setManagePage(1);
                     }}
-                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[130px]"
                   >
                     <option value="">Semua Stasiun</option>
                     {uniqueStations.map(st => (
@@ -5364,15 +5755,15 @@ export function OkupansiView({ data, setData }) {
                 </div>
 
                 {/* Filter Tahap Pembangunan */}
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
-                  <Icon name="tag" size={14} className="text-slate-400 shrink-0" />
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm shrink-0">
+                  <Icon name="tag" size={13} className="text-slate-400 shrink-0" />
                   <select
                     value={manageTahapFilter}
                     onChange={(e) => {
                       setManageTahapFilter(e.target.value);
                       setManagePage(1);
                     }}
-                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[160px]"
+                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[140px]"
                   >
                     <option value="">Semua Tahap</option>
                     {allTahapList.map(t => (
@@ -5382,8 +5773,8 @@ export function OkupansiView({ data, setData }) {
                 </div>
 
                 {/* Search Box */}
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-1 min-w-[180px] shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
-                  <Icon name="search" size={14} className="text-slate-400 shrink-0" />
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-1 min-w-[140px] shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
+                  <Icon name="search" size={13} className="text-slate-400 shrink-0" />
                   <input
                     type="text"
                     value={manageSearch}
@@ -5396,35 +5787,74 @@ export function OkupansiView({ data, setData }) {
                   />
                   {manageSearch && (
                     <button onClick={() => { setManageSearch(''); setManagePage(1); }} className="text-slate-400 hover:text-slate-600">
-                      <Icon name="x" size={13} />
+                      <Icon name="x" size={12} />
                     </button>
                   )}
                 </div>
               </div>
 
               {/* Tombol Aksi Toolbar */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
                 <button
                   onClick={handleSyncPortsFromPelanggan}
                   disabled={isSyncingPorts || filteredManageOdps.length === 0}
-                  className={`px-3 sm:px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs sm:text-sm font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isSyncingPorts || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  className={`px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isSyncingPorts || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
                   title={filteredManageOdps.length > 0 ? `Sinkronkan keterisian port untuk ${filteredManageOdps.length} ODP terpilih dari data pelanggan riil` : 'Tidak ada ODP sesuai filter'}
                 >
-                  <Icon name="refresh-cw" size={14} className={isSyncingPorts ? 'animate-spin text-blue-600' : 'text-blue-600'} />
-                  <span>{isSyncingPorts ? 'Menyinkronkan...' : 'Sinkronkan Port'}</span>
+                  <Icon name="refresh-cw" size={13} className={isSyncingPorts ? 'animate-spin text-blue-600' : 'text-blue-600'} />
+                  <span>Sinkronkan Port</span>
                 </button>
                 <button
                   onClick={() => {
-                    setMassDeleteTahap(manageTahapFilter || (uniqueTahapInFilter.length === 1 ? uniqueTahapInFilter[0] : 'ALL'));
-                    setShowMassDeleteModal(true);
+                    setMassUpdateNewTahap(manageTahapFilter || '');
+                    setShowMassUpdateTahapModal(true);
                   }}
-                  disabled={isMassDeleting || filteredManageOdps.length === 0}
-                  className={`px-3 sm:px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs sm:text-sm font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isMassDeleting || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  title={filteredManageOdps.length > 0 ? `Hapus ${filteredManageOdps.length} ODP yang tampil di filter ini` : 'Tidak ada ODP sesuai filter'}
+                  disabled={isMassUpdatingTahap || filteredManageOdps.length === 0}
+                  className={`px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isMassUpdatingTahap || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  title={filteredManageOdps.length > 0 ? `Ubah Tahap Pembangunan untuk ${filteredManageOdps.length} ODP terpilih` : 'Tidak ada ODP sesuai filter'}
                 >
-                  <Icon name="trash-2" size={14} className={isMassDeleting ? 'animate-pulse text-rose-600' : 'text-rose-600'} />
-                  <span className="hidden sm:inline">{isMassDeleting ? 'Menghapus...' : 'Hapus Massal'}</span>
+                  <Icon name="tag" size={13} className={isMassUpdatingTahap ? 'animate-pulse text-amber-600' : 'text-amber-600'} />
+                  <span>{isMassUpdatingTahap ? 'Memproses...' : 'Ubah Tahap'}</span>
                 </button>
+                {!isManageSelectMode ? (
+                  <button
+                    onClick={() => {
+                      setIsManageSelectMode(true);
+                      setSelectedManageOdpIds([]);
+                    }}
+                    disabled={isMassDeleting || filteredManageOdps.length === 0}
+                    className={`px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${isMassDeleting || filteredManageOdps.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    title={filteredManageOdps.length > 0 ? "Pilih ODP untuk dihapus massal" : "Tidak ada ODP sesuai filter"}
+                  >
+                    <Icon name="trash-2" size={13} className="text-rose-600" />
+                    <span>Hapus Massal</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        if (selectedManageOdpIds.length === 0) return;
+                        setShowMassDeleteModal(true);
+                      }}
+                      disabled={isMassDeleting || selectedManageOdpIds.length === 0}
+                      className={`px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0 ${selectedManageOdpIds.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={selectedManageOdpIds.length > 0 ? `Hapus ${selectedManageOdpIds.length} ODP yang dicentang` : 'Centang ODP yang ingin dihapus terlebih dahulu'}
+                    >
+                      <Icon name="trash-2" size={13} className="text-white" />
+                      <span>Hapus ({selectedManageOdpIds.length}) Terpilih</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsManageSelectMode(false);
+                        setSelectedManageOdpIds([]);
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
+                      title="Batalkan mode pilih"
+                    >
+                      <span>Batal</span>
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     const defaultSt = manageStationFilter || selectedStation || (uniqueStations.length > 0 ? uniqueStations[0] : '');
@@ -5443,13 +5873,53 @@ export function OkupansiView({ data, setData }) {
                     setParsedExcelData([]);
                     setShowBulkModal(true);
                   }}
-                  className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
+                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
                 >
-                  <Icon name="upload-cloud" size={16} />
+                  <Icon name="upload-cloud" size={13} className="text-emerald-700" />
                   <span>+ Tambah / Upload ODP</span>
                 </button>
               </div>
             </div>
+
+            {/* BANNER SELEKSI HAPUS MASSAL */}
+            {isManageSelectMode && (
+              <div className="px-4 py-2 bg-rose-50 border-b border-rose-200/80 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 animate-fade">
+                <div className="flex items-center gap-2 text-rose-900 font-semibold">
+                  <Icon name="check-square" size={15} className="text-rose-600 shrink-0" />
+                  <span>
+                    Centang ODP yang ingin dihapus: <strong className="text-rose-700 font-black">{selectedManageOdpIds.length}</strong> dari {filteredManageOdps.length} ODP terpilih
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedManageOdpIds.length < filteredManageOdps.length ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedManageOdpIds(filteredManageOdps.map(o => o.id))}
+                      className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 font-bold border border-rose-200 rounded-lg text-[11px] transition-colors cursor-pointer"
+                    >
+                      Pilih Semua ({filteredManageOdps.length} ODP)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedManageOdpIds([])}
+                      className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 font-bold border border-rose-200 rounded-lg text-[11px] transition-colors cursor-pointer"
+                    >
+                      Batalkan Semua
+                    </button>
+                  )}
+                  {selectedManageOdpIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedManageOdpIds([])}
+                      className="px-2 py-1 text-slate-500 hover:text-slate-800 text-[11px] font-semibold cursor-pointer"
+                    >
+                      Kosongkan
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* TABEL DAFTAR ODP */}
             <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 min-h-0">
@@ -5457,6 +5927,25 @@ export function OkupansiView({ data, setData }) {
                 <table className="w-full text-left text-xs text-slate-600 min-w-[850px]">
                   <thead className="bg-slate-100/80 text-slate-500 uppercase text-[10px] font-bold tracking-wider sticky top-0 z-10 border-b border-slate-200">
                     <tr>
+                      {isManageSelectMode && (
+                        <th className="py-3 px-3 text-center w-10 whitespace-nowrap bg-rose-50/80">
+                          <input
+                            type="checkbox"
+                            checked={paginatedManageOdps.length > 0 && paginatedManageOdps.every(o => selectedManageOdpIds.includes(o.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const pageIds = paginatedManageOdps.map(o => o.id);
+                                setSelectedManageOdpIds(prev => Array.from(new Set([...prev, ...pageIds])));
+                              } else {
+                                const pageIds = new Set(paginatedManageOdps.map(o => o.id));
+                                setSelectedManageOdpIds(prev => prev.filter(id => !pageIds.has(id)));
+                              }
+                            }}
+                            className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer accent-rose-600"
+                            title="Centang semua ODP di halaman ini"
+                          />
+                        </th>
+                      )}
                       <th className="py-3 px-3.5 text-center w-12 whitespace-nowrap">No</th>
                       <th
                         onClick={() => handleManageSort('kodeOdp')}
@@ -5521,7 +6010,7 @@ export function OkupansiView({ data, setData }) {
                   <tbody className="divide-y divide-slate-100 font-medium">
                     {paginatedManageOdps.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="py-12 text-center text-slate-400">
+                        <td colSpan={isManageSelectMode ? 9 : 8} className="py-12 text-center text-slate-400">
                           <Icon name="inbox" size={36} className="mx-auto mb-2 text-slate-300" />
                           <p className="font-bold text-sm">Tidak ada data ODP yang sesuai</p>
                           <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau filter stasiun/tahap</p>
@@ -5531,14 +6020,46 @@ export function OkupansiView({ data, setData }) {
                       paginatedManageOdps.map((odp, idx) => {
                         const rowNum = (managePage - 1) * MANAGE_ITEMS_PER_PAGE + idx + 1;
                         const odpKey = cleanOdpStr(odp.kodeOdp || odp.label || odp.kode_odp);
-                        const countFromCust = customerCountByOdp[odpKey];
+                        const countFromCust = odpWithCustomersSet?.has(odpKey)
+                          ? (customerCountByOdp[odpKey] || 0)
+                          : customerCountByOdp[odpKey];
                         const terpakai = countFromCust !== undefined ? countFromCust : (Number(odp.portTerpakai ?? odp.port_terpakai) || 0);
                         const kapasitas = Number(odp.kapasitas) || 8;
                         const pct = kapasitas > 0 ? (terpakai / kapasitas) * 100 : 0;
                         const hasCoords = odp.latitude && odp.longitude && odp.latitude !== '0' && odp.longitude !== '0';
+                        const isSelected = selectedManageOdpIds.includes(odp.id);
 
                         return (
-                          <tr key={odp.id || odp.kodeOdp || idx} className="hover:bg-slate-50/80 transition-colors">
+                          <tr
+                            key={odp.id || odp.kodeOdp || idx}
+                            onClick={() => {
+                              if (isManageSelectMode) {
+                                setSelectedManageOdpIds(prev =>
+                                  prev.includes(odp.id) ? prev.filter(id => id !== odp.id) : [...prev, odp.id]
+                                );
+                              }
+                            }}
+                            className={`transition-colors ${
+                              isManageSelectMode && isSelected
+                                ? 'bg-rose-50/70 hover:bg-rose-100/60'
+                                : 'hover:bg-slate-50/80'
+                            } ${isManageSelectMode ? 'cursor-pointer select-none' : ''}`}
+                          >
+                            {isManageSelectMode && (
+                              <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedManageOdpIds(prev =>
+                                      checked ? [...prev, odp.id] : prev.filter(id => id !== odp.id)
+                                    );
+                                  }}
+                                  className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer accent-rose-600"
+                                />
+                              </td>
+                            )}
                             <td className="py-2.5 px-3.5 text-center text-slate-400 font-bold text-[11px] whitespace-nowrap">{rowNum}</td>
                             <td className="py-2.5 px-3.5 whitespace-nowrap">
                               <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
@@ -5572,6 +6093,7 @@ export function OkupansiView({ data, setData }) {
                                   rel="noopener noreferrer"
                                   className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
                                   title="Lihat di Google Maps"
+                                  onClick={(e) => e.stopPropagation()}
                                 >
                                   <Icon name="map-pin" size={11} className="shrink-0" />
                                   <span>{odp.latitude}, {odp.longitude}</span>
@@ -5580,7 +6102,7 @@ export function OkupansiView({ data, setData }) {
                                 <span className="text-slate-300 italic">-</span>
                               )}
                             </td>
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">
                                 <button
                                   onClick={() => handleOpenEdit(odp)}
@@ -5843,8 +6365,11 @@ export function OkupansiView({ data, setData }) {
               <div className="w-14 h-14 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
                 <Icon name="alert-triangle" size={28} />
               </div>
-              <h3 className="text-lg font-black text-slate-800 mb-2">Hapus ODP Massal</h3>
-              {uniqueTahapInFilter.length > 1 && (
+              <h3 className="text-lg font-black text-slate-800 mb-2">
+                {isManageSelectMode ? 'Hapus ODP Terpilih' : 'Hapus ODP Massal'}
+              </h3>
+              
+              {!isManageSelectMode && uniqueTahapInFilter.length > 1 && (
                 <div className="w-full text-left mb-4">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Pilih Tahap Pembangunan yang Ingin Dihapus</label>
                   <select
@@ -5862,12 +6387,29 @@ export function OkupansiView({ data, setData }) {
                   </select>
                 </div>
               )}
+
               <p className="text-sm text-slate-600">
-                Anda yakin ingin menghapus permanen <strong>{targetMassDeleteOdps.length} ODP</strong> ini?
+                Anda yakin ingin menghapus permanen <strong>{targetMassDeleteOdps.length} ODP</strong> {isManageSelectMode ? 'yang dicentang' : 'ini'}?
               </p>
-              <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-3 mt-4 text-xs text-rose-800 text-left">
+
+              {isManageSelectMode && targetMassDeleteOdps.length > 0 && (
+                <div className="w-full max-h-28 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl p-2 my-2.5 flex flex-wrap gap-1 text-left custom-scrollbar">
+                  {targetMassDeleteOdps.slice(0, 30).map(o => (
+                    <span key={o.id} className="text-[10px] font-mono font-bold bg-white border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
+                      {o.kodeOdp || o.label}
+                    </span>
+                  ))}
+                  {targetMassDeleteOdps.length > 30 && (
+                    <span className="text-[10px] font-semibold text-slate-400 self-center">
+                      +{targetMassDeleteOdps.length - 30} lainnya...
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-3 mt-2 text-xs text-rose-800 text-left">
                 <span className="font-bold block mb-1">Perhatian:</span>
-                Tindakan ini tidak dapat dibatalkan. Semua ODP dalam daftar filter saat ini akan dihapus dari sistem.
+                Tindakan ini tidak dapat dibatalkan. {isManageSelectMode ? `${targetMassDeleteOdps.length} ODP yang dicentang` : 'Semua ODP dalam daftar filter saat ini'} akan dihapus dari sistem.
               </div>
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
@@ -5887,6 +6429,71 @@ export function OkupansiView({ data, setData }) {
                   <><Icon name="loader" size={14} className="animate-spin" /> Menghapus...</>
                 ) : (
                   <><Icon name="trash-2" size={14} /> Ya, Hapus {targetMassDeleteOdps.length} ODP</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* MODAL UBAH TAHAP PEMBANGUNAN MASSAL */}
+      {showMassUpdateTahapModal && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 animate-fade">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-modal">
+            <div className="p-5 flex flex-col items-center text-center">
+              <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-4">
+                <Icon name="tag" size={28} />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-1">Ubah Tahap Massal</h3>
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                Perbarui tahap pembangunan untuk <strong>{filteredManageOdps.length} ODP</strong> yang sedang tampil pada filter saat ini.
+              </p>
+
+              <div className="w-full text-left mb-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Pilih Tahap Pembangunan Baru
+                  </label>
+                  <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+                    <Icon name="lock" size={10} /> Terkunci PO Release
+                  </span>
+                </div>
+                <select
+                  value={massUpdateNewTahap}
+                  onChange={(e) => setMassUpdateNewTahap(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-shadow cursor-pointer"
+                >
+                  <option value="" disabled>-- Pilih dari Daftar PO Release --</option>
+                  {massUpdateAvailableTahaps.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="w-full bg-amber-50 border border-amber-200/80 rounded-xl p-3 mt-3 text-xs text-amber-800 text-left leading-relaxed">
+                <span className="font-bold block mb-1">Perhatian:</span>
+                Tindakan ini akan langsung memperbarui kolom tahap pembangunan pada database Supabase untuk seluruh {filteredManageOdps.length} ODP terpilih.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowMassUpdateTahapModal(false)}
+                disabled={isMassUpdatingTahap}
+                className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200 transition-colors text-xs cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleMassUpdateTahap}
+                disabled={isMassUpdatingTahap || !massUpdateNewTahap.trim()}
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md flex items-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-50"
+              >
+                {isMassUpdatingTahap ? (
+                  <><Icon name="loader" size={14} className="animate-spin" /> Memperbarui...</>
+                ) : (
+                  <><Icon name="check" size={14} /> Ya, Ubah {filteredManageOdps.length} ODP</>
                 )}
               </button>
             </div>
@@ -6932,66 +7539,137 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
     };
   }, [data.pelangganData, selectedDate, dailyStats.aktivasi, bastDisplayCount, isSelectedToday, partnerBastData]);
 
-  // --- STASIUN DINAMIS ---
+  // --- STASIUN DINAMIS (Single-pass grouping O(N) dengan O(1) ODP lookup) ---
   const dynamicStationData = useMemo(() => {
-    const stationAktifTodayMap = {};
-    const stationTotalAktivasiMap = {};
-    const stationHcAktifMap = {};
-    const stationNamesSet = new Set();
-
-    (data.pelangganData || []).forEach(p => {
-      let rawSt = String(p.stasiun || '').trim();
-      if (!rawSt) return;
-      let stKey = rawSt.toLowerCase();
-      if (stKey === 'tawang') {
-        stKey = 'semarang tawang';
-        rawSt = 'Semarang Tawang';
-      }
-      stationNamesSet.add(rawSt);
-
-      const ikr = String(p.ikr || p.status_ikr || '').toLowerCase();
-      const akt = String(p.aktivasi || p.status_aktivasi || '').toLowerCase();
-
-      // Total Aktivasi (Sudah / Aktif / Dismantle / Ready to Dismantle)
-      if (akt.includes('sudah') || akt.includes('aktif') || akt.includes('dismantle') || ikr.includes('sudah')) {
-        stationTotalAktivasiMap[stKey] = (stationTotalAktivasiMap[stKey] || 0) + 1;
-      }
-
-      // HC Aktif (Sudah / Aktif)
-      if (akt.includes('sudah') || akt === 'aktif') {
-        stationHcAktifMap[stKey] = (stationHcAktifMap[stKey] || 0) + 1;
-      }
-
-      // Aktivasi Hari Ini (pada selectedDate)
-      const rawAkt = p.tglAktivasi || p.timestampAktivasi || ((akt.includes('sudah') || akt === 'aktif') ? (p.tanggalRegistrasi || p.createdAt) : '');
-      const tAkt = standardizeDate(rawAkt);
-      if (tAkt === selectedDate && (akt.includes('sudah') || akt === 'aktif')) {
-        stationAktifTodayMap[stKey] = (stationAktifTodayMap[stKey] || 0) + 1;
-      }
-    });
-
     const defaultStations = ['Brumbung', 'Wadu', 'Kradenan', 'Sulur', 'Randublatung', 'Alastua', 'Krengseng', 'Weleri', 'Kaliwungu', 'Kalibodri', 'Semarang Tawang'];
-    let baseStations = safeStationData;
-    const hasSheetData = baseStations && baseStations.length > 0;
+    const hasSheetData = safeStationData && safeStationData.length > 0;
 
+    let baseStations = safeStationData;
     if (!hasSheetData) {
-      const setList = Array.from(stationNamesSet);
-      const combined = Array.from(new Set([...setList, ...defaultStations]));
+      const stationNamesSet = new Set();
+      (data.pelangganData || []).forEach(p => {
+        let rawSt = String(p.stasiun || '').trim();
+        if (rawSt) {
+          if (rawSt.toLowerCase() === 'tawang') rawSt = 'Semarang Tawang';
+          stationNamesSet.add(rawSt);
+        }
+      });
+      const combined = Array.from(new Set([...Array.from(stationNamesSet), ...defaultStations]));
       baseStations = combined.map(st => ({ stasiun: st }));
     }
 
-    return baseStations.map(station => {
-      const rawSt = String(station.stasiun || '').trim();
-      let stKey = rawSt.toLowerCase();
-      if (stKey === 'tawang') stKey = 'semarang tawang';
-      const aktifPadaTanggalIni = stationAktifTodayMap[stKey] || 0;
+    const normalizeSt = (name) => {
+      let s = String(name || '').trim().toLowerCase();
+      if (s === 'tawang') return 'semarang tawang';
+      return s;
+    };
 
-      // Ambil kapasitas Homepass dari PO Release Supabase
-      const poForStation = (data.detailPoData || []).filter(po => {
-        let pSt = String(po.stasiun || '').trim().toLowerCase();
-        if (pSt === 'tawang') pSt = 'semarang tawang';
-        return pSt === stKey || pSt.includes(stKey) || stKey.includes(pSt);
-      });
+    // Pre-build lookup list for baseStations
+    const stationLookup = (baseStations || []).map(station => {
+      const rawSt = String(station.stasiun || '').trim();
+      const stKey = normalizeSt(rawSt);
+      return { station, rawSt, stKey };
+    });
+
+    const findMatchedStKey = (rawName) => {
+      if (!rawName) return null;
+      const s = normalizeSt(rawName);
+      const exact = stationLookup.find(item => item.stKey === s);
+      if (exact) return exact.stKey;
+      const partial = stationLookup.find(item => item.stKey.includes(s) || s.includes(item.stKey));
+      return partial ? partial.stKey : null;
+    };
+
+    // 1. Group PO by station
+    const poByStation = {};
+    (data.detailPoData || []).forEach(po => {
+      const matchedKey = findMatchedStKey(po.stasiun);
+      if (!matchedKey) return;
+      if (!poByStation[matchedKey]) poByStation[matchedKey] = [];
+      poByStation[matchedKey].push(po);
+    });
+
+    // 2. Pre-index ODPs and group customer metrics by station in single pass
+    const odpLookupMap = buildOdpLookupMap(data.odpData);
+    const metricsByStation = {};
+
+    (data.pelangganData || []).forEach(p => {
+      const matchedKey = findMatchedStKey(p.stasiun);
+      if (!matchedKey) return;
+
+      if (!metricsByStation[matchedKey]) {
+        metricsByStation[matchedKey] = {
+          aktifPadaTanggalIni: 0,
+          liveAktReg: 0,
+          liveAktPerc: 0,
+          liveHcAktReg: 0,
+          liveHcAktPerc: 0,
+          liveTotAkt: 0,
+          liveTotHcAkt: 0,
+          liveSuspend: 0,
+          liveReady: 0,
+          liveDismantled: 0,
+          liveSuspendReg: 0,
+          liveSuspendPerc: 0,
+          liveReadyReg: 0,
+          liveReadyPerc: 0,
+          liveDismantledReg: 0,
+          liveDismantledPerc: 0,
+        };
+      }
+      const m = metricsByStation[matchedKey];
+
+      const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+      const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
+
+      const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
+      const isSuspend = akt === 'SUSPEND';
+      const isReady = akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY');
+      const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
+      const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
+
+      const isPerc = isPercepatanCustomer(p, odpLookupMap);
+
+      if (isSuspend) {
+        m.liveSuspend++;
+        if (isPerc) m.liveSuspendPerc++;
+        else m.liveSuspendReg++;
+      }
+      if (isReady) {
+        m.liveReady++;
+        if (isPerc) m.liveReadyPerc++;
+        else m.liveReadyReg++;
+      }
+      if (isDis) {
+        m.liveDismantled++;
+        if (isPerc) m.liveDismantledPerc++;
+        else m.liveDismantledReg++;
+      }
+
+      if (isAktivasi) {
+        m.liveTotAkt++;
+        if (isAktif) m.liveTotHcAkt++;
+
+        if (isPerc) {
+          m.liveAktPerc++;
+          if (isAktif) m.liveHcAktPerc++;
+        } else {
+          m.liveAktReg++;
+          if (isAktif) m.liveHcAktReg++;
+        }
+      }
+
+      // Aktivasi Hari Ini (pada selectedDate)
+      const rawAkt = p.tglAktivasi || p.timestampAktivasi || (isAktif ? (p.tanggalRegistrasi || p.createdAt) : '');
+      const tAkt = standardizeDate(rawAkt);
+      if (tAkt === selectedDate && isAktif) {
+        m.aktifPadaTanggalIni++;
+      }
+    });
+
+    // 3. Assemble station data
+    return stationLookup.map(({ station, rawSt, stKey }) => {
+      const poForStation = poByStation[stKey] || [];
 
       let poHpReg = 0;
       let poHpPerc = 0;
@@ -7001,68 +7679,69 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
       });
       const totalHpStation = poHpReg + poHpPerc;
 
-      // Kalkulasi riil angka HC langsung dari pelanggan aktual (Supabase data_pelanggan)
-      let liveAktReg = 0;
-      let liveAktPerc = 0;
-      let liveHcAktReg = 0;
-      let liveHcAktPerc = 0;
-      let liveTotAkt = 0;
-      let liveTotHcAkt = 0;
-      let liveSuspend = 0;
-      let liveReady = 0;
-      let liveDismantled = 0;
+      const m = metricsByStation[stKey] || {
+        aktifPadaTanggalIni: 0,
+        liveAktReg: 0,
+        liveAktPerc: 0,
+        liveHcAktReg: 0,
+        liveHcAktPerc: 0,
+        liveTotAkt: 0,
+        liveTotHcAkt: 0,
+        liveSuspend: 0,
+        liveReady: 0,
+        liveDismantled: 0,
+        liveSuspendReg: 0,
+        liveSuspendPerc: 0,
+        liveReadyReg: 0,
+        liveReadyPerc: 0,
+        liveDismantledReg: 0,
+        liveDismantledPerc: 0,
+      };
 
-      (data.pelangganData || []).forEach(p => {
-        let pSt = String(p.stasiun || '').trim().toLowerCase();
-        if (pSt === 'tawang') pSt = 'semarang tawang';
-        if (pSt !== stKey && !(stKey.includes(pSt) || pSt.includes(stKey))) return;
-
-        const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
-        const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
-
-        const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
-        const isSuspend = akt === 'SUSPEND';
-        const isReady = akt === 'READY TO DISMANTLE';
-        const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
-        const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
-
-        if (isSuspend) liveSuspend++;
-        if (isReady) liveReady++;
-        if (isDis) liveDismantled++;
-
-        if (isAktivasi) {
-          liveTotAkt++;
-          if (isAktif) liveTotHcAkt++;
-
-          const isPerc = isPercepatanCustomer(p, data.odpData);
-          if (isPerc) {
-            liveAktPerc++;
-            if (isAktif) liveHcAktPerc++;
-          } else {
-            liveAktReg++;
-            if (isAktif) liveHcAktReg++;
-          }
-        }
-      });
+      let liveAktReg = m.liveAktReg;
+      let liveAktPerc = m.liveAktPerc;
+      let liveHcAktReg = m.liveHcAktReg;
+      let liveHcAktPerc = m.liveHcAktPerc;
+      let liveTotAkt = m.liveTotAkt;
+      let liveTotHcAkt = m.liveTotHcAkt;
+      let liveSuspend = m.liveSuspend;
+      let liveReady = m.liveReady;
+      let liveDismantled = m.liveDismantled;
+      let liveSuspendReg = m.liveSuspendReg;
+      let liveSuspendPerc = m.liveSuspendPerc;
+      let liveReadyReg = m.liveReadyReg;
+      let liveReadyPerc = m.liveReadyPerc;
+      let liveDismantledReg = m.liveDismantledReg;
+      let liveDismantledPerc = m.liveDismantledPerc;
 
       // Fallback ke PO release table jika pelangganData belum selesai load di latar belakang
       if (liveTotAkt === 0 && poForStation.length > 0) {
         let fbTotAkt = 0, fbHcAkt = 0, fbSusp = 0, fbReady = 0, fbDism = 0, fbAktReg = 0, fbAktPerc = 0, fbHcAktReg = 0, fbHcAktPerc = 0;
+        let fbSuspReg = 0, fbSuspPerc = 0, fbReadyReg = 0, fbReadyPerc = 0, fbDismReg = 0, fbDismPerc = 0;
         poForStation.forEach(po => {
           const tAkt = Number(po.totalAktivasiHc || 0);
           const hAkt = Number(po.hcAktif || 0);
+          const susp = Number(po.suspend || 0);
+          const rdy = Number(po.readyToDismantle || 0);
+          const dism = Number(po.dismantled || 0);
           fbTotAkt += tAkt;
           fbHcAkt += hAkt;
-          fbSusp += Number(po.suspend || 0);
-          fbReady += Number(po.readyToDismantle || 0);
-          fbDism += Number(po.dismantled || 0);
+          fbSusp += susp;
+          fbReady += rdy;
+          fbDism += dism;
           const isP = String(po.segmen || po.tahapPembangunan || '').toLowerCase().includes('percepatan') || Number(po.hpPercepatan || 0) > 0;
           if (isP) {
             fbAktPerc += tAkt;
             fbHcAktPerc += hAkt;
+            fbSuspPerc += susp;
+            fbReadyPerc += rdy;
+            fbDismPerc += dism;
           } else {
             fbAktReg += tAkt;
             fbHcAktReg += hAkt;
+            fbSuspReg += susp;
+            fbReadyReg += rdy;
+            fbDismReg += dism;
           }
         });
         if (fbTotAkt > 0) {
@@ -7075,6 +7754,12 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
           liveAktPerc = fbAktPerc;
           liveHcAktReg = fbHcAktReg;
           liveHcAktPerc = fbHcAktPerc;
+          liveSuspendReg = fbSuspReg;
+          liveSuspendPerc = fbSuspPerc;
+          liveReadyReg = fbReadyReg;
+          liveReadyPerc = fbReadyPerc;
+          liveDismantledReg = fbDismReg;
+          liveDismantledPerc = fbDismPerc;
         }
       }
 
@@ -7095,12 +7780,18 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         suspend: liveSuspend,
         readyToDismantle: liveReady,
         dismantled: liveDismantled,
+        suspendReguler: liveSuspendReg,
+        suspendPercepatan: liveSuspendPerc,
+        readyReguler: liveReadyReg,
+        readyPercepatan: liveReadyPerc,
+        dismantledReguler: liveDismantledReg,
+        dismantledPercepatan: liveDismantledPerc,
         performaHc: perfStation,
         hpPercepatanVal: poHpPerc,
-        aktifHariIniVal: Number(aktifPadaTanggalIni || 0),
+        aktifHariIniVal: Number(m.aktifPadaTanggalIni || 0),
       };
     });
-  }, [safeStationData, data.pelangganData, data.detailPoData, selectedDate]);
+  }, [safeStationData, data.pelangganData, data.detailPoData, data.odpData, selectedDate]);
 
   const totalAktivasiHarian = useMemo(() => {
     const fromChart = dynamicStationData.reduce((acc, curr) => acc + (Number(curr.aktifHariIniVal) || 0), 0);
@@ -8906,7 +9597,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
         <div style="font-family: 'Inter', sans-serif; padding: 4px; min-width: 140px;">
           <strong style="font-size:12px; color:#1e293b; display: block; margin-bottom: 2px;">${customer?.namaPelanggan || 'Pelanggan'}</strong>
           <span style="font-size:10px; color:#64748b; font-family:monospace;">ID: ${customer?.idPelanggan || '-'}</span><br/>
-          <div style="margin-top: 4px; font-size:10px; color:#2563eb; font-weight: bold;">ðŸ“ Titik Pelanggan</div>
+          <div style="margin-top: 4px; font-size:10px; color:#2563eb; font-weight: bold;">Titik Pelanggan</div>
         </div>
       `)
       .addTo(userLayerRef.current)
@@ -9058,7 +9749,7 @@ function CustomerCoverageModal({ customer, odpData = [], onSelectOdp, onClose })
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-base font-bold text-slate-800 truncate">
-                  Coverage ODP Terdekat â€” {customer?.namaPelanggan || 'Pelanggan'}
+                  Coverage ODP Terdekat : {customer?.namaPelanggan || 'Pelanggan'}
                 </h2>
                 {customer?.idPelanggan && (
                   <span className="px-2 py-0.5 bg-blue-100 text-blue-700 font-mono text-[11px] font-bold rounded-md">
@@ -9457,7 +10148,24 @@ function QuickScanCoverageModal({
     setScanProgress(30);
 
     const timer = setTimeout(() => {
-      // 1. Parsing ODP valid
+      // 1. Parsing ODP valid & hitung port aktif (exclude pelanggan DISMANTLED agar port idle)
+      const activeCustMap = {};
+      const odpWithCustSet = new Set();
+      (allCustomers || []).forEach(p => {
+        const keys = [cleanOdpStr(p.odpAktual), cleanOdpStr(p.odp), cleanOdpStr(p.kodeOdp)].filter(Boolean);
+        if (keys.length === 0) return;
+        keys.forEach(k => odpWithCustSet.add(k));
+
+        const globStat = typeof getGlobalStatusStr === 'function' ? String(getGlobalStatusStr(p)).toUpperCase() : '';
+        const rawAkt = String(p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+        if (globStat === 'DISMANTLED' || rawAkt === 'DISMANTLED' || rawAkt === 'DISMANTLE') return;
+
+        const uniqueKeys = Array.from(new Set(keys));
+        uniqueKeys.forEach(k => {
+          activeCustMap[k] = (activeCustMap[k] || 0) + 1;
+        });
+      });
+
       const parsedOdps = [];
       if (Array.isArray(odpData)) {
         for (let i = 0; i < odpData.length; i++) {
@@ -9467,8 +10175,11 @@ function QuickScanCoverageModal({
           if (lat > 0 && lng < 0) { const t = lat; lat = lng; lng = t; }
           if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
           const cap = Number(o.kapasitas) || 8;
-          const used = Number(o.portTerpakai ?? o.port_terpakai) || 0;
           const officialKode = o.kodeOdp || o.kode_odp || o['Kode ODP'] || o.label || "";
+          const kClean = cleanOdpStr(officialKode);
+          const used = odpWithCustSet.has(kClean)
+            ? (activeCustMap[kClean] || 0)
+            : (Number(o.portTerpakai ?? o.port_terpakai) || 0);
           parsedOdps.push({
             ...o,
             kodeOdp: officialKode,
@@ -9590,7 +10301,7 @@ function QuickScanCoverageModal({
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [targetList, odpData, optimalRadius, maxRadius]);
+  }, [targetList, odpData, allCustomers, optimalRadius, maxRadius]);
 
   // Statistik Ringkasan
   const stats = useMemo(() => {
@@ -10401,11 +11112,53 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 // ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
-function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, petugasList = [], odpData = [] }) {
+function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalWoDispatchAdd, onLocalWoDispatchDelete, woDispatchData = [], petugasList = [], odpData = [], detailPoData = [] }) {
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Cari WO dispatch aktif untuk pelanggan ini dari data.activeWo atau woDispatchData
+  const activeDispatch = useMemo(() => {
+    if (data?.activeWo) {
+      return {
+        id: data.activeWo.id || null,
+        petugas: data.activeWo.petugas || '',
+        username: data.activeWo.username || (data.activeWo.petugas?.startsWith('@') ? data.activeWo.petugas : `@${data.activeWo.petugas}`),
+        tanggal: data.activeWo.tanggal || '',
+        tipe: String(data.activeWo.tipe || 'AKTIVASI').toUpperCase(),
+        status: String(data.activeWo.status || 'DISPATCHED').toUpperCase(),
+        catatan: data.activeWo.catatan || '',
+        alasanDismantle: data.activeWo.alasanDismantle || ''
+      };
+    }
+    const targetId = String(data?.idPelanggan || data?.id_pelanggan || '').trim().toUpperCase();
+    if (!targetId || !woDispatchData || !Array.isArray(woDispatchData)) return null;
+    const found = woDispatchData.find(w => {
+      const wid = String(w.id_pelanggan || w.idPelanggan || '').trim().toUpperCase();
+      const stat = String(w.status_wo || w.statusWo || 'DISPATCHED').toUpperCase();
+      return wid === targetId && stat !== 'DONE' && stat !== 'CANCELLED';
+    });
+    if (!found) return null;
+    const u = found.petugas_username || found.petugas || '';
+    const uname = u ? (u.startsWith('@') ? u : `@${u}`) : '';
+    return {
+      id: found.id,
+      petugas: found.petugas || '',
+      username: uname,
+      tanggal: found.tanggal_wo || found.tanggalWo || '',
+      tipe: String(found.tipe_wo || found.tipeWo || 'AKTIVASI').toUpperCase(),
+      status: String(found.status_wo || found.statusWo || 'DISPATCHED').toUpperCase(),
+      catatan: found.catatan || '',
+      alasanDismantle: found.alasan_dismantle || ''
+    };
+  }, [data, woDispatchData]);
 
   // Tipe penugasan WO operasional (visit, aktivasi, dismantle)
   const initialWoTask = useMemo(() => {
+    if (activeDispatch?.tipe) {
+      const t = activeDispatch.tipe.toLowerCase();
+      if (t.includes('dismantle')) return 'dismantle';
+      if (t.includes('visit')) return 'visit';
+      return 'aktivasi';
+    }
     if (initialTask) return initialTask;
     const rawAkt = String(data?.aktivasi || '').trim().toLowerCase();
     const globalStat = String(getGlobalStatusStr(data || {})).toUpperCase();
@@ -10416,12 +11169,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       return 'aktivasi';
     }
     return 'visit';
-  }, [initialTask, data]);
+  }, [initialTask, data, activeDispatch]);
 
   const [woTaskType, setWoTaskType] = useState(initialWoTask);
 
   useEffect(() => {
-    if (initialTask) {
+    if (activeDispatch) {
+      if (activeDispatch.tipe) {
+        const t = activeDispatch.tipe.toLowerCase();
+        if (t.includes('dismantle')) setWoTaskType('dismantle');
+        else if (t.includes('visit')) setWoTaskType('visit');
+        else setWoTaskType('aktivasi');
+      }
+      if (activeDispatch.petugas) {
+        setFormData(prev => ({
+          ...prev,
+          petugas: activeDispatch.petugas,
+          tanggalDismantle: activeDispatch.tanggal ? (activeDispatch.tanggal.includes('T') ? activeDispatch.tanggal.split('T')[0] : activeDispatch.tanggal.split(' ')[0]) : prev.tanggalDismantle,
+          alasanDismantle: activeDispatch.alasanDismantle || prev.alasanDismantle,
+          catatanDismantle: activeDispatch.catatan || prev.catatanDismantle,
+          catatanAktivasi: activeDispatch.catatan || prev.catatanAktivasi
+        }));
+      }
+    } else if (initialTask) {
       setWoTaskType(initialTask);
     } else if (data) {
       const rawAkt = String(data?.aktivasi || '').trim().toLowerCase();
@@ -10434,7 +11204,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         setWoTaskType('visit');
       }
     }
-  }, [initialTask, data]);
+  }, [initialTask, data, activeDispatch]);
 
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
@@ -10445,23 +11215,27 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     nomorHp: data?.nomorHp || '',
     odpAktual: data?.odpAktual || data?.odp || data?.kodeOdp || '',
     portOdp: data?.portOdp || '',
+    kabelPrecon: data?.kabelPrecon || data?.kabel_precon || data?.pemakaian_precon || '',
+    tahapPembangunan: data?.tahapPembangunan || data?.tahap_pembangunan || '',
     snOnt: data?.snOnt || '',
     latitude: data?.latitude || '',
     longitude: data?.longitude || '',
     aktivasi: data?.aktivasi || '',
     catatan: data?.catatan || '', // Field Catatan Pelanggan Baru
-    issueKendala: data?.issueKendala || '',
+    catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || '') : ''),
+    issueKendala: (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING') ? '' : (data?.issueKendala || ''),
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
-    petugas: data?.petugasIkr || data?.petugasAktivasi || '',
+    petugas: activeDispatch?.petugas || data?.activeWo?.petugas || data?.petugasIkr || data?.petugasAktivasi || '',
     petugasIkr: data?.petugasIkr || '',
+    ikrPartner: data?.ikrPartner || data?.ikr_partner || '',
     petugasAktivasi: data?.petugasAktivasi || '',
     tglIkr: data?.tglIkr ? (String(data.tglIkr).includes('T') ? data.tglIkr.split('T')[0] : String(data.tglIkr).split(' ')[0]) : todayDateStr,
-    tanggalDismantle: data?.tanggalDismantle ? (String(data.tanggalDismantle).includes('T') ? data.tanggalDismantle.split('T')[0] : String(data.tanggalDismantle).split(' ')[0]) : todayDateStr,
+    tanggalDismantle: (activeDispatch?.tanggal || data?.tanggalDismantle) ? (String(activeDispatch?.tanggal || data.tanggalDismantle).includes('T') ? String(activeDispatch?.tanggal || data.tanggalDismantle).split('T')[0] : String(activeDispatch?.tanggal || data.tanggalDismantle).split(' ')[0]) : todayDateStr,
     reasonDismantle: data?.reasonDismantle || '',
-    alasanDismantle: 'Permintaan Berhenti Langganan',
-    catatanAktivasi: '',
-    catatanDismantle: ''
+    alasanDismantle: activeDispatch?.alasanDismantle || 'Permintaan Berhenti Langganan',
+    catatanAktivasi: activeDispatch?.tipe === 'AKTIVASI' ? (activeDispatch.catatan || '') : '',
+    catatanDismantle: activeDispatch?.tipe === 'DISMANTLE' ? (activeDispatch.catatan || '') : ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -10472,6 +11246,163 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
   const [editingField, setEditingField] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [showCoveragePopup, setShowCoveragePopup] = useState(false);
+  const [showConfirmDeleteWo, setShowConfirmDeleteWo] = useState(false);
+
+  // Sinkronkan internalData saat prop data diperbarui
+  useEffect(() => {
+    if (data) setInternalData(data);
+  }, [data]);
+
+  // State asynchronous untuk mengambil tahap_pembangunan ODP jika tidak ada di memori
+  const [asyncOdpTahap, setAsyncOdpTahap] = useState(null);
+
+  // Mencari data ODP di odpData lokal secara instan
+  const matchedOdpFromLocal = useMemo(() => {
+    const rawOdpStr = String(internalData.kodeOdp || internalData.odpAktual || internalData.odp || data?.odpAktual || data?.odp || data?.kodeOdp || '').trim();
+    if (!rawOdpStr || !odpData || !odpData.length) return null;
+    const cleanKey = cleanOdpStr(rawOdpStr);
+    const simpleKey = rawOdpStr.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    return odpData.find(o => {
+      const k1 = cleanOdpStr(o.kodeOdp || o.kode_odp || o.label);
+      if (k1 && k1 === cleanKey) return true;
+      const k2 = String(o.label || o.kodeOdp || o.kode_odp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      return Boolean(k2 && k2 === simpleKey);
+    }) || null;
+  }, [internalData.kodeOdp, internalData.odpAktual, internalData.odp, data, odpData]);
+
+  // Fetch ke Supabase 'odp' jika belum ditemukan di odpData lokal
+  useEffect(() => {
+    const rawOdpStr = String(internalData.kodeOdp || internalData.odpAktual || internalData.odp || data?.odpAktual || data?.odp || data?.kodeOdp || '').trim();
+    if (!rawOdpStr) {
+      setAsyncOdpTahap(null);
+      return;
+    }
+
+    if (matchedOdpFromLocal && (matchedOdpFromLocal.tahapPembangunan || matchedOdpFromLocal.tahap_pembangunan)) {
+      setAsyncOdpTahap(matchedOdpFromLocal.tahapPembangunan || matchedOdpFromLocal.tahap_pembangunan);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchTahapFromDb = async () => {
+      try {
+        const { data: dbOdp } = await supabase
+          .from('odp')
+          .select('tahap_pembangunan,kode_odp,label')
+          .or(`kode_odp.eq.${rawOdpStr},label.eq.${rawOdpStr}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (isMounted && dbOdp && dbOdp.tahap_pembangunan) {
+          setAsyncOdpTahap(dbOdp.tahap_pembangunan);
+        }
+      } catch (_e) { }
+    };
+
+    fetchTahapFromDb();
+    return () => { isMounted = false; };
+  }, [internalData.kodeOdp, internalData.odpAktual, internalData.odp, data, matchedOdpFromLocal]);
+
+  // Tahap Pembangunan efektif dari kode ODP (prioritas ODP, fallback internalData / data)
+  const effectiveTahapPembangunan = useMemo(() => {
+    if (matchedOdpFromLocal && (matchedOdpFromLocal.tahapPembangunan || matchedOdpFromLocal.tahap_pembangunan)) {
+      return matchedOdpFromLocal.tahapPembangunan || matchedOdpFromLocal.tahap_pembangunan;
+    }
+    if (asyncOdpTahap) {
+      return asyncOdpTahap;
+    }
+    return internalData.tahapPembangunan || internalData.tahap_pembangunan || data?.tahapPembangunan || data?.tahap_pembangunan || '-';
+  }, [matchedOdpFromLocal, asyncOdpTahap, internalData.tahapPembangunan, internalData.tahap_pembangunan, data]);
+
+  // Opsi tahap pembangunan resmi dari PO Release milik stasiun pelanggan ini
+  const customerStationTahapOptions = useMemo(() => {
+    const custStation = internalData.stasiun || data?.stasiun;
+    let poList = (detailPoData && detailPoData.length > 0)
+      ? detailPoData
+      : (getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache') || []);
+
+    if (custStation) {
+      poList = poList.filter(p => isStationMatch(p.stasiun, custStation));
+    }
+    const set = new Set();
+    poList.forEach(p => {
+      const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
+      if (t) set.add(t);
+    });
+    // Fallback jika belum terload dari PO Release
+    if (set.size === 0 && odpData && odpData.length > 0) {
+      let filteredOdp = odpData;
+      if (custStation) {
+        filteredOdp = odpData.filter(o => isStationMatch(o.stasiun, custStation));
+      }
+      filteredOdp.forEach(o => {
+        const t = String(o.tahapPembangunan || o.tahap_pembangunan || '').trim();
+        if (t) set.add(t);
+      });
+    }
+    return Array.from(set).sort();
+  }, [internalData.stasiun, data?.stasiun, detailPoData, odpData]);
+
+  // Fungsi memicu modal konfirmasi kustom pembatalan WO
+  const handleDeleteWo = () => {
+    if (!activeDispatch) return;
+    setShowConfirmDeleteWo(true);
+  };
+
+  // Eksekusi membatalkan & menghapus penugasan WO dari log_wo_dispatch
+  const executeDeleteWo = async () => {
+    if (!activeDispatch) return;
+    const custId = data?.idPelanggan || internalData?.idPelanggan || '';
+
+    setIsSaving(true);
+    setMessage(null);
+
+    try {
+      const targetId = String(custId).trim().toUpperCase();
+      let delQuery = supabase.from('log_wo_dispatch').delete();
+      if (activeDispatch.id) {
+        delQuery = delQuery.eq('id', activeDispatch.id);
+      } else {
+        delQuery = delQuery.eq('id_pelanggan', targetId);
+      }
+      const { error: sbErr } = await delQuery;
+      if (sbErr) throw sbErr;
+
+      // Jika WO Dismantle, bersihkan juga wo_dismantle di data_pelanggan
+      if (activeDispatch?.tipe === 'DISMANTLE') {
+        try {
+          const { error: resetErr } = await supabase.from('data_pelanggan').update({ wo_dismantle: null }).eq('id_pelanggan', targetId);
+          if (resetErr && resetErr.code === '42703') {
+            await supabase.from('data_pelanggan').update({ reason_dismantle: null }).eq('id_pelanggan', targetId);
+          }
+        } catch (_e) {}
+      }
+
+      // Update state lokal & cache
+      if (onLocalWoDispatchDelete) {
+        onLocalWoDispatchDelete(activeDispatch.id || targetId);
+      }
+      if (onLocalPelangganUpdate) {
+        onLocalPelangganUpdate([{
+          ...data,
+          ...internalData,
+          activeWo: null,
+          woDismantle: null
+        }]);
+      }
+
+      setShowConfirmDeleteWo(false);
+      setIsSaving(false);
+      setIsSuccess(true);
+      setTimeout(() => onClose(false), 1200);
+    } catch (err) {
+      console.error("Gagal menghapus penugasan WO:", err);
+      setIsSaving(false);
+      setShowConfirmDeleteWo(false);
+      setMessage({ type: 'error', text: err.message || 'Gagal menghapus penugasan WO' });
+    }
+  };
 
   // Status tampilan global untuk badge profil
   const displayStatusStr = useMemo(() => {
@@ -10547,16 +11478,68 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
   // STATE UNTUK CUSTOM DROPDOWN STATUS PELANGGAN (EDIT/ADD)
   const [isStatusOpen, setIsStatusOpen] = useState(false);
+  const statusTriggerRef = useRef(null);
+  const [statusDropdownPos, setStatusDropdownPos] = useState({ top: 0, bottom: 0, left: 0, width: 0, maxHeight: 320, openUp: false });
+
+  const updateStatusDropdownPos = useCallback(() => {
+    if (statusTriggerRef.current) {
+      const rect = statusTriggerRef.current.getBoundingClientRect();
+      const zoom = parseFloat(window.getComputedStyle(document.body).zoom) || 1;
+
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      // Buka ke atas jika ruang di bawah tombol kurang dari 300px dan ruang atas lebih luas
+      const openUp = spaceBelow < 300 && spaceAbove > spaceBelow;
+
+      // Konversi koordinat viewport ke zoom coordinates document.body agar pas sempurna
+      const adjustedLeft = rect.left / zoom;
+      const adjustedWidth = rect.width / zoom;
+      const adjustedTop = (rect.bottom + 6) / zoom;
+      const adjustedBottom = (window.innerHeight - rect.top + 6) / zoom;
+      const maxH = openUp ? Math.min(340, (spaceAbove - 20) / zoom) : Math.min(340, (spaceBelow - 20) / zoom);
+
+      setStatusDropdownPos({
+        top: adjustedTop,
+        bottom: adjustedBottom,
+        left: adjustedLeft,
+        width: adjustedWidth,
+        maxHeight: maxH,
+        openUp
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isStatusOpen) return;
+    updateStatusDropdownPos();
+
+    const handleScrollOrResize = () => updateStatusDropdownPos();
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, [isStatusOpen, updateStatusDropdownPos]);
+
   const statusOptions = [
     { value: 'Sudah', label: 'Aktif (Sudah)', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'check-circle' },
     { value: 'Belum', label: 'Waiting (Belum Aktif)', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'clock' },
+    { value: 'Pending', label: 'Pending', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: 'hourglass' },
     { value: 'Suspend', label: 'Suspend', bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', icon: 'pause-circle' },
     { value: 'Ready To Dismantle', label: 'Ready To Dismantle', bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-200', icon: 'alert-triangle' },
     { value: 'Dismantled', label: 'Dismantled', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', icon: 'x-circle' },
     { value: 'Kendala', label: 'Kendala', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', icon: 'alert-circle' }
   ];
 
-  const currentStatusOption = statusOptions.find(opt => opt.value === formData.aktivasi) || {
+  const currentStatusOption = statusOptions.find(opt => {
+    const val = String(formData.aktivasi || '').trim().toUpperCase();
+    const optVal = String(opt.value).toUpperCase();
+    if (optVal === val) return true;
+    if (val === 'WAITING' && optVal === 'BELUM') return true;
+    if (val === 'AKTIF' && optVal === 'SUDAH') return true;
+    return false;
+  }) || {
     label: '-- Pilih Status --', bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', icon: 'help-circle'
   };
 
@@ -10594,7 +11577,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
   const handleInlineEdit = (fieldKey, value) => {
     setEditingField(fieldKey);
-    setEditValue(value || '');
+    setEditValue((value === '-' ? '' : value) || '');
   };
 
   const saveInlineEdit = async (fieldKey) => {
@@ -10607,6 +11590,19 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
     const payload = { ...internalData, [fieldKey]: editValue };
     if (fieldKey === 'aktivasi') payload.ikr = editValue;
+    if (fieldKey === 'odpAktual' && editValue) {
+      const cleanKey = cleanOdpStr(editValue);
+      const simpleKey = String(editValue).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      const matched = odpData?.find(o => {
+        const k1 = cleanOdpStr(o.kodeOdp || o.kode_odp || o.label);
+        if (k1 && k1 === cleanKey) return true;
+        const k2 = String(o.label || o.kodeOdp || o.kode_odp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        return Boolean(k2 && k2 === simpleKey);
+      });
+      if (matched && (matched.tahapPembangunan || matched.tahap_pembangunan)) {
+        payload.tahapPembangunan = matched.tahapPembangunan || matched.tahap_pembangunan;
+      }
+    }
 
     try {
       const formatTgl = (tgl) => {
@@ -10624,6 +11620,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
       else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
 
+      const isPendingStatus = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
+
       const updateData = {
         nomor_hp: payload.nomorHp,
         alamat: payload.alamat,
@@ -10640,17 +11638,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         petugas_aktivasi: payload.petugasAktivasi,
         petugas_ikr: payload.petugasIkr,
         catatan: payload.catatan,
-        issue_kendala: payload.issueKendala,
-        tanggal_kendala: payload.tanggalKendala,
-        reporter_kendala: payload.reporterKendala,
+        catatan_pending: isPendingStatus ? (payload.catatanPending || payload.issueKendala || null) : (payload.catatanPending || null),
+        issue_kendala: isPendingStatus ? null : (payload.issueKendala || null),
+        tanggal_kendala: isPendingStatus ? null : (payload.tanggalKendala || null),
+        reporter_kendala: isPendingStatus ? null : (payload.reporterKendala || null),
         tanggal_dismantle: payload.tanggalDismantle || null,
         reason_dismantle: payload.reasonDismantle || null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
       if (payload.stasiun !== undefined) updateData.stasiun = payload.stasiun;
       if (payload.namaPelanggan !== undefined) updateData.nama_pelanggan = payload.namaPelanggan;
+      if (payload.tahapPembangunan !== undefined) updateData.tahap_pembangunan = payload.tahapPembangunan;
+      if (payload.ikrPartner !== undefined) updateData.ikr_partner = payload.ikrPartner;
 
-      const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
+      let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
+      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending'))) {
+        const fallbackData = { ...updateData };
+        delete fallbackData.catatan_pending;
+        if (isPendingStatus && payload.catatanPending) {
+          fallbackData.issue_kendala = payload.catatanPending;
+        }
+        const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', payload.idPelanggan);
+        error = res.error;
+      }
 
       if (error) throw error;
 
@@ -10669,7 +11679,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     const value = valueOverride !== null ? valueOverride : internalData[fieldKey];
 
     return (
-      <div className={`flex flex-col border-b border-slate-100 pb-2 relative group ${fullWidth ? 'md:col-span-2' : ''}`}>
+      <div className={`flex flex-col border-b border-slate-100 pb-2 relative group min-w-0 ${fullWidth ? 'col-span-2' : ''}`}>
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
         {isEditing ? (
           <div className="flex items-center gap-2 mt-1 relative z-[60]">
@@ -10687,8 +11697,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             <button disabled={isSaving} onClick={() => setEditingField(null)} className="p-1.5 bg-rose-100 text-rose-600 rounded hover:bg-rose-200 disabled:opacity-50 transition-colors"><Icon name="x" size={14} /></button>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-800 break-words pr-6">{value || '-'}</span>
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-sm font-semibold text-slate-800 break-words pr-6 min-w-0 [overflow-wrap:anywhere]">{value || '-'}</span>
             {!readOnly && fieldKey && (
               <button onClick={() => handleInlineEdit(fieldKey, value)} className="text-slate-400 hover:text-blue-500 transition-colors opacity-100 lg:opacity-0 lg:group-hover:opacity-100 absolute right-0 top-1/2 mt-1 bg-white p-1 rounded-md shadow-sm border border-slate-100">
                 <Icon name="edit-2" size={14} />
@@ -10702,10 +11712,26 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      if (name === 'odpAktual' && value) {
+        const cleanKey = cleanOdpStr(value);
+        const simpleKey = String(value).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        const matched = odpData?.find(o => {
+          const k1 = cleanOdpStr(o.kodeOdp || o.kode_odp || o.label);
+          if (k1 && k1 === cleanKey) return true;
+          const k2 = String(o.label || o.kodeOdp || o.kode_odp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          return Boolean(k2 && k2 === simpleKey);
+        });
+        if (matched && (matched.tahapPembangunan || matched.tahap_pembangunan)) {
+          next.tahapPembangunan = matched.tahapPembangunan || matched.tahap_pembangunan;
+        }
+      }
+      return next;
+    });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
       // --- LOGIKA WO OPERASIONAL (VISIT, AKTIVASI, DISMANTLE) ---
       if (type === 'log') {
@@ -10726,6 +11752,60 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           }
         }
 
+        // Helper: Ambil data pelanggan lengkap (gabungan formData, data lokal, dan Supabase master data_pelanggan)
+        const getCompleteCustomerPayload = async (extraFields = {}) => {
+          let custAlamat = formData.alamat || data.alamat || data.alamat_pelanggan || data.alamat_pemasangan || '';
+          let custHp = formData.nomorHp || data.nomorHp || data.nomor_hp || '';
+          let custOdp = formData.odpAktual || data.odpAktual || data.odp || data.kodeOdp || data.kode_odp || '';
+          let custPort = formData.portOdp || data.portOdp || data.port_odp || data.port || '';
+          let custLat = formData.latitude || data.latitude || '';
+          let custLng = formData.longitude || data.longitude || '';
+          let custSn = formData.snOnt || data.snOnt || data.sn_ont || data.sn || '';
+          let custNama = formData.namaPelanggan || data.namaPelanggan || data.nama_pelanggan || '';
+          let custStasiun = formData.stasiun || data.stasiun || '';
+
+          const targetId = String(data.idPelanggan || data.id_pelanggan || '').trim().toUpperCase();
+
+          // Jika ada field penting yang belum lengkap di memori, ambil dari master data_pelanggan
+          if (targetId && (!custAlamat || !custOdp || !custHp || !custLat || !custSn)) {
+            try {
+              const { data: dbCust } = await supabase
+                .from('data_pelanggan')
+                .select('nama_pelanggan,stasiun,alamat,nomor_hp,odp,port_odp,latitude,longitude,sn_ont')
+                .eq('id_pelanggan', targetId)
+                .maybeSingle();
+              if (dbCust) {
+                if (!custNama) custNama = dbCust.nama_pelanggan || '';
+                if (!custStasiun) custStasiun = dbCust.stasiun || '';
+                if (!custAlamat) custAlamat = dbCust.alamat || '';
+                if (!custHp) custHp = dbCust.nomor_hp || '';
+                if (!custOdp) custOdp = dbCust.odp || '';
+                if (!custPort) custPort = dbCust.port_odp || '';
+                if (!custLat) custLat = dbCust.latitude || '';
+                if (!custLng) custLng = dbCust.longitude || '';
+                if (!custSn) custSn = dbCust.sn_ont || '';
+              }
+            } catch (_e) { }
+          }
+
+          return {
+            id_pelanggan: targetId,
+            nama_pelanggan: custNama,
+            stasiun: custStasiun,
+            alamat: custAlamat || null,
+            nomor_hp: custHp || null,
+            odp: custOdp || null,
+            port: custPort || null,
+            latitude: custLat ? String(custLat).replace(/^'+/, '').trim() : null,
+            longitude: custLng ? String(custLng).replace(/^'+/, '').trim() : null,
+            sn_ont: custSn || null,
+            petugas: usernamePetugas,
+            petugas_username: usernamePetugas,
+            status_wo: 'DISPATCHED',
+            ...extraFields
+          };
+        };
+
         // 1. TUGAS VISIT GANGGUAN
         if (woTaskType === 'visit') {
           if (!formData.catatanKendala.trim()) {
@@ -10735,27 +11815,60 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           setIsSaving(true);
           setMessage(null);
 
+          const now = new Date();
+          const localTimestamp = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + ' ' +
+            String(now.getHours()).padStart(2, '0') + ':' +
+            String(now.getMinutes()).padStart(2, '0') + ':' +
+            String(now.getSeconds()).padStart(2, '0');
+          const tglWo = localTimestamp.split(' ')[0];
+
+          const woVisitPayload = await getCompleteCustomerPayload({
+            tanggal_wo: tglWo,
+            tipe_wo: 'VISIT',
+            catatan: `[${formData.keluhan || 'Keluhan'}] ${formData.catatanKendala || ''}`
+          });
+
           const payload = {
-            idPelanggan: data.idPelanggan || '',
-            namaPelanggan: data.namaPelanggan || '',
-            stasiun: data.stasiun || '',
+            idPelanggan: woVisitPayload.id_pelanggan,
+            namaPelanggan: woVisitPayload.nama_pelanggan,
+            stasiun: woVisitPayload.stasiun,
             keluhan: formData.keluhan || '',
             catatan: formData.catatanKendala || '',
-            snOnt: data.snOnt || '',
-            odpAktual: data.kodeOdp || data.odpAktual || '',
-            portOdp: data.portOdp || '',
-            nomorHp: data.nomorHp || '',
-            latitude: data.latitude || '',
-            longitude: data.longitude || '',
-            petugas: usernamePetugas
+            snOnt: woVisitPayload.sn_ont || '',
+            odpAktual: woVisitPayload.odp || '',
+            portOdp: woVisitPayload.port || '',
+            nomorHp: woVisitPayload.nomor_hp || '',
+            alamat: woVisitPayload.alamat || '',
+            latitude: woVisitPayload.latitude || '',
+            longitude: woVisitPayload.longitude || '',
+            petugas: usernamePetugas,
+            timestamp: localTimestamp
           };
 
           const finalizeSuccessLog = () => {
             try { if (onLocalVisitUpdate) onLocalVisitUpdate('add', payload); } catch (e) { console.error("Abaikan error tabel:", e); }
             setIsSaving(false);
             setIsSuccess(true);
-            setTimeout(() => onClose(false), 1500);
+            setTimeout(() => onClose(true), 1500);
           };
+
+          // Simpan ke log_wo_dispatch untuk monitoring harian
+          const { error: woVisitErr } = await supabase.from('log_wo_dispatch').insert([woVisitPayload]);
+          if (woVisitErr) console.warn("Supabase log_wo_dispatch visit insert warning:", woVisitErr);
+          if (onLocalWoDispatchAdd) onLocalWoDispatchAdd(woVisitPayload);
+          if (onLocalPelangganUpdate) {
+            onLocalPelangganUpdate({
+              ...data,
+              activeWo: {
+                petugas: usernamePetugas,
+                tanggal: woVisitPayload.tanggal_wo,
+                tipe: 'VISIT',
+                status: 'DISPATCHED'
+              }
+            });
+          }
 
           sendTelegramVisitDM(payload, listTeknisi);
           finalizeSuccessLog();
@@ -10783,42 +11896,60 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           };
 
           const tglIkrFormatted = formatTgl(formData.tglIkr);
+          const tglWo = formData.tglIkr || new Date().toISOString().split('T')[0];
           const catatanBaru = formData.catatanAktivasi?.trim()
-            ? (data?.catatan ? `${data.catatan}\n[WO AKTIVASI] ${formData.catatanAktivasi.trim()}` : `[WO AKTIVASI] ${formData.catatanAktivasi.trim()}`)
+            ? (data?.catatan ? `${data.catatan}\n[WO AKTIVASI - ${usernamePetugas}] ${formData.catatanAktivasi.trim()}` : `[WO AKTIVASI - ${usernamePetugas}] ${formData.catatanAktivasi.trim()}`)
             : (data?.catatan || '');
 
+          // Catatan: Pada data_pelanggan, kita TIDAK mengisi petugas_ikr atau petugas_aktivasi
+          // agar kolom permanen tetap bersih dan fokus pada reporting final saat selesai aktif.
           const updateData = {
-            petugas_ikr: usernamePetugas,
-            petugas_aktivasi: usernamePetugas,
             tgl_ikr: tglIkrFormatted,
             catatan: catatanBaru
           };
 
+          const woAktivasiPayload = await getCompleteCustomerPayload({
+            tanggal_wo: tglWo,
+            tipe_wo: 'AKTIVASI',
+            catatan: formData.catatanAktivasi || ''
+          });
+
           const doSaveAktivasi = async () => {
             try {
-              const { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
-              if (sbErr) throw sbErr;
+              // 1. Simpan penugasan harian ke log_wo_dispatch
+              const { error: woErr } = await supabase.from('log_wo_dispatch').insert([woAktivasiPayload]);
+              if (woErr) throw woErr;
+              if (onLocalWoDispatchAdd) onLocalWoDispatchAdd(woAktivasiPayload);
 
+              // 2. Simpan catatan & tgl_ikr ke data_pelanggan (tanpa mengisi petugas_ikr / petugas_aktivasi)
+              const { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
+              if (sbErr) console.warn("Update data_pelanggan tgl/catatan:", sbErr);
+
+              // 3. Update lokal dengan penanda activeWo agar UI langsung menampilkan badge penugasan
               const localUpdated = {
                 ...data,
-                petugasIkr: usernamePetugas,
-                petugasAktivasi: usernamePetugas,
                 tglIkr: tglIkrFormatted,
-                catatan: catatanBaru
+                catatan: catatanBaru,
+                activeWo: {
+                  petugas: usernamePetugas,
+                  tanggal: tglWo,
+                  tipe: 'AKTIVASI',
+                  status: 'DISPATCHED'
+                }
               };
 
               if (onLocalPelangganUpdate) onLocalPelangganUpdate([localUpdated]);
 
               const telePayload = {
-                idPelanggan: data.idPelanggan || '',
-                namaPelanggan: data.namaPelanggan || '',
-                stasiun: data.stasiun || '',
-                alamat: data.alamat || '',
-                latitude: data.latitude || '',
-                longitude: data.longitude || '',
-                nomorHp: data.nomorHp || '',
-                odpAktual: data.kodeOdp || data.odpAktual || '',
-                portOdp: data.portOdp || '',
+                idPelanggan: woAktivasiPayload.id_pelanggan,
+                namaPelanggan: woAktivasiPayload.nama_pelanggan,
+                stasiun: woAktivasiPayload.stasiun,
+                alamat: woAktivasiPayload.alamat || '',
+                latitude: woAktivasiPayload.latitude || '',
+                longitude: woAktivasiPayload.longitude || '',
+                nomorHp: woAktivasiPayload.nomor_hp || '',
+                odpAktual: woAktivasiPayload.odp || '',
+                portOdp: woAktivasiPayload.port || '',
                 tglIkr: formData.tglIkr || '',
                 catatan: formData.catatanAktivasi || '',
                 petugas: usernamePetugas
@@ -10849,21 +11980,46 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           setMessage(null);
 
           const tglDismantle = formData.tanggalDismantle || new Date().toISOString().split('T')[0];
-          const reasonStr = `[WO DISMANTLE] Teknisi: ${usernamePetugas} | Alasan: ${formData.alasanDismantle || 'Permintaan Berhenti Langganan'}${formData.catatanDismantle?.trim() ? ` | Catatan: ${formData.catatanDismantle.trim()}` : ''}`;
+          const woStr = `[WO DISMANTLE] Teknisi: ${usernamePetugas}${formData.catatanDismantle?.trim() ? ` | Catatan: ${formData.catatanDismantle.trim()}` : ''}`;
+          const reasonPure = formData.alasanDismantle || 'Permintaan Berhenti Langganan';
 
           const updateData = {
             status_aktivasi: 'Ready To Dismantle',
             tanggal_dismantle: tglDismantle,
-            reason_dismantle: reasonStr
+            wo_dismantle: woStr,
+            reason_dismantle: reasonPure
           };
           if (formData.snOnt && formData.snOnt.trim()) {
             updateData.sn_ont = formData.snOnt.trim();
           }
 
+          const woDismantlePayload = await getCompleteCustomerPayload({
+            tanggal_wo: tglDismantle,
+            tipe_wo: 'DISMANTLE',
+            catatan: formData.catatanDismantle || 'WO Dismantle perangkat pelanggan',
+            alasan_dismantle: reasonPure
+          });
+
           const doSaveDismantle = async () => {
             try {
-              const { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
-              if (sbErr) throw sbErr;
+              // 1. Simpan penugasan harian ke log_wo_dispatch
+              const { error: woDismantleErr } = await supabase.from('log_wo_dispatch').insert([woDismantlePayload]);
+              if (woDismantleErr) console.warn("Supabase log_wo_dispatch dismantle insert warning:", woDismantleErr);
+              if (onLocalWoDispatchAdd) onLocalWoDispatchAdd(woDismantlePayload);
+
+              // 2. Update status data_pelanggan
+              let { error: sbErr } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', data.idPelanggan);
+              if (sbErr && sbErr.code === '42703' && updateData.wo_dismantle) {
+                const fallbackUpdate = {
+                  ...updateData,
+                  reason_dismantle: `${updateData.wo_dismantle} | Alasan: ${updateData.reason_dismantle}`
+                };
+                delete fallbackUpdate.wo_dismantle;
+                const { error: fbErr } = await supabase.from('data_pelanggan').update(fallbackUpdate).eq('id_pelanggan', data.idPelanggan);
+                if (fbErr) throw fbErr;
+              } else if (sbErr) {
+                throw sbErr;
+              }
 
               const localUpdated = {
                 ...data,
@@ -10872,22 +12028,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 status_aktivasi: 'Ready To Dismantle',
                 tanggalDismantle: tglDismantle,
                 tanggal_dismantle: tglDismantle,
-                reasonDismantle: reasonStr,
-                reason_dismantle: reasonStr,
-                ...(formData.snOnt && formData.snOnt.trim() ? { snOnt: formData.snOnt.trim(), sn_ont: formData.snOnt.trim() } : {})
+                woDismantle: woStr,
+                reasonDismantle: reasonPure,
+                reason_dismantle: reasonPure,
+                ...(formData.snOnt && formData.snOnt.trim() ? { snOnt: formData.snOnt.trim(), sn_ont: formData.snOnt.trim() } : {}),
+                activeWo: {
+                  petugas: usernamePetugas,
+                  tanggal: tglDismantle,
+                  tipe: 'DISMANTLE',
+                  status: 'DISPATCHED'
+                }
               };
 
               if (onLocalPelangganUpdate) onLocalPelangganUpdate([localUpdated]);
 
               const telePayload = {
-                idPelanggan: data.idPelanggan || '',
-                namaPelanggan: data.namaPelanggan || '',
-                stasiun: data.stasiun || '',
-                alamat: data.alamat || '',
-                latitude: data.latitude || '',
-                longitude: data.longitude || '',
-                nomorHp: data.nomorHp || '',
-                snOnt: formData.snOnt || data.snOnt || '',
+                idPelanggan: woDismantlePayload.id_pelanggan,
+                namaPelanggan: woDismantlePayload.nama_pelanggan,
+                stasiun: woDismantlePayload.stasiun,
+                alamat: woDismantlePayload.alamat || '',
+                latitude: woDismantlePayload.latitude || '',
+                longitude: woDismantlePayload.longitude || '',
+                nomorHp: woDismantlePayload.nomor_hp || '',
+                snOnt: woDismantlePayload.sn_ont || '',
                 tanggalDismantle: tglDismantle,
                 reasonDismantle: formData.alasanDismantle || 'Permintaan Berhenti Langganan',
                 catatan: formData.catatanDismantle || '',
@@ -10920,6 +12083,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         const nowIso = new Date().toISOString();
         const formattedId = String(formData.idPelanggan).trim().toUpperCase();
 
+        const isPendingAdd = String(formData.aktivasi || '').trim().toUpperCase() === 'PENDING';
         const supabaseAddPayload = {
           id_pelanggan: formattedId,
           nama_pelanggan: formData.namaPelanggan || '',
@@ -10929,12 +12093,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           nama_sales: formData.namaSales || 'Daftar Mandiri',
           odp: String(formData.odpAktual || '').trim().toUpperCase(),
           port_odp: formData.portOdp || '',
+          kabel_precon: formData.kabelPrecon || '',
+          tahap_pembangunan: formData.tahapPembangunan || '',
           latitude: formData.latitude ? String(formData.latitude).replace(/^'+/, '').trim().replace(',', '.') : '',
           longitude: formData.longitude ? String(formData.longitude).replace(/^'+/, '').trim().replace(',', '.') : '',
-          status_ikr: 'Belum',
+          status_ikr: isPendingAdd ? 'Pending' : 'Belum',
           status_aktivasi: formData.aktivasi || 'Belum',
           catatan: formData.catatan || '',
-          issue_kendala: formData.issueKendala || '',
+          catatan_pending: isPendingAdd ? (formData.catatanPending || '') : null,
+          issue_kendala: isPendingAdd ? null : (formData.issueKendala || ''),
           tanggal_dismantle: formData.tanggalDismantle || null,
           reason_dismantle: formData.reasonDismantle || null,
           created_at: nowIso,
@@ -10947,7 +12114,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
               onLocalPelangganUpdate([{
                 ...formData,
                 idPelanggan: formattedId,
-                ikr: 'Belum',
+                ikr: isPendingAdd ? 'Pending' : 'Belum',
                 aktivasi: formData.aktivasi || 'Belum'
               }]);
             }
@@ -10959,7 +12126,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         const doAdd = async () => {
           try {
             // 1. Simpan langsung ke Supabase
-            const { error: sbErr } = await supabase.from('data_pelanggan').insert([supabaseAddPayload]);
+            let { error: sbErr } = await supabase.from('data_pelanggan').insert([supabaseAddPayload]);
+            if (sbErr && (sbErr.code === '42703' || String(sbErr.message || '').includes('catatan_pending'))) {
+              const fallbackAdd = { ...supabaseAddPayload };
+              delete fallbackAdd.catatan_pending;
+              if (isPendingAdd && formData.catatanPending) {
+                fallbackAdd.issue_kendala = formData.catatanPending;
+              }
+              const res = await supabase.from('data_pelanggan').insert([fallbackAdd]);
+              sbErr = res.error;
+            }
             if (sbErr) throw sbErr;
 
             finalizeSuccessAdd();
@@ -11010,6 +12186,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
           else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
 
+          const isPendingUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
+
           const updateData = {
             nomor_hp: updatePayload.nomorHp,
             alamat: updatePayload.alamat,
@@ -11026,17 +12204,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             petugas_aktivasi: updatePayload.petugasAktivasi,
             petugas_ikr: updatePayload.petugasIkr,
             catatan: updatePayload.catatan,
-            issue_kendala: updatePayload.issueKendala || null,
-            tanggal_kendala: updatePayload.tanggalKendala || null,
-            reporter_kendala: updatePayload.reporterKendala || null,
+            catatan_pending: isPendingUpdate ? (updatePayload.catatanPending || updatePayload.issueKendala || null) : (updatePayload.catatanPending || null),
+            issue_kendala: isPendingUpdate ? null : (updatePayload.issueKendala || null),
+            tanggal_kendala: isPendingUpdate ? null : (updatePayload.tanggalKendala || null),
+            reporter_kendala: isPendingUpdate ? null : (updatePayload.reporterKendala || null),
             tanggal_dismantle: updatePayload.tanggalDismantle || null,
             reason_dismantle: updatePayload.reasonDismantle || null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
           if (updatePayload.stasiun !== undefined) updateData.stasiun = updatePayload.stasiun;
           if (updatePayload.namaPelanggan !== undefined) updateData.nama_pelanggan = updatePayload.namaPelanggan;
+          if (updatePayload.tahapPembangunan !== undefined) updateData.tahap_pembangunan = updatePayload.tahapPembangunan;
+          if (updatePayload.ikrPartner !== undefined) updateData.ikr_partner = updatePayload.ikrPartner;
 
-          const { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
+          let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
+          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending'))) {
+            const fallbackData = { ...updateData };
+            delete fallbackData.catatan_pending;
+            if (isPendingUpdate && updatePayload.catatanPending) {
+              fallbackData.issue_kendala = updatePayload.catatanPending;
+            }
+            const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', updatePayload.idPelanggan);
+            error = res.error;
+          }
 
           if (error) throw error;
 
@@ -11143,7 +12333,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 {renderEditableDetailRow({ label: "Latitude", fieldKey: "latitude" })}
                 {renderEditableDetailRow({ label: "Longitude", fieldKey: "longitude" })}
                 {renderEditableDetailRow({ label: "Catatan", fieldKey: "catatan", fullWidth: true })}
-                {renderEditableDetailRow({ label: "Issue / Kendala", fieldKey: "issueKendala", fullWidth: true })}
+                {String(internalData.aktivasi || '').trim().toUpperCase() === 'PENDING' ? (
+                  renderEditableDetailRow({ label: "Catatan Update Pending", fieldKey: "catatanPending", fullWidth: true })
+                ) : (
+                  renderEditableDetailRow({ label: "Issue / Kendala", fieldKey: "issueKendala", fullWidth: true })
+                )}
 
                 <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
                 {renderEditableDetailRow({ label: "Status IKR", fieldKey: "ikr", options: statusOptions })}
@@ -11166,10 +12360,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 {renderEditableDetailRow({ label: "KODE ODP", fieldKey: "odpAktual", valueOverride: internalData.kodeOdp || internalData.odpAktual })}
                 {renderEditableDetailRow({ label: "Port ODP", fieldKey: "portOdp" })}
                 {renderEditableDetailRow({ label: "Kabel Precon", fieldKey: "kabelPrecon" })}
-                <div className="hidden md:block"></div>
+                {renderEditableDetailRow({
+                  label: "Tahap Pembangunan",
+                  fieldKey: "tahapPembangunan",
+                  valueOverride: effectiveTahapPembangunan,
+                  options: customerStationTahapOptions
+                })}
                 <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
                 {renderEditableDetailRow({ label: "Petugas IKR", fieldKey: "petugasIkr" })}
                 {renderEditableDetailRow({ label: "Petugas Aktivasi", fieldKey: "petugasAktivasi" })}
+                {renderEditableDetailRow({ label: "IKR Partner", fieldKey: "ikrPartner", valueOverride: internalData.ikrPartner || internalData.ikr_partner || '-' })}
 
                 {/* FOTO DOKUMENTASI */}
                 <div className="md:col-span-2 mt-4">
@@ -11338,6 +12538,33 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                       <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Port ODP</label>
                       <input type="text" name="portOdp" value={formData.portOdp} onChange={handleInputChange} disabled={isSaving} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
                     </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Kabel Precon</label>
+                      <input type="text" name="kabelPrecon" value={formData.kabelPrecon || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Cth: 50m, 100m..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold text-slate-500 block uppercase tracking-wider">Tahap Pembangunan</label>
+                        <span className="text-[10px] text-purple-600 font-semibold flex items-center gap-1">
+                          <Icon name="lock" size={10} /> Terkunci PO Release
+                        </span>
+                      </div>
+                      <select
+                        name="tahapPembangunan"
+                        value={formData.tahapPembangunan || ''}
+                        onChange={handleInputChange}
+                        disabled={isSaving}
+                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Tahap Pembangunan (PO Release) --</option>
+                        {customerStationTahapOptions.map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                        {formData.tahapPembangunan && !customerStationTahapOptions.includes(formData.tahapPembangunan) && (
+                          <option value={formData.tahapPembangunan}>{formData.tahapPembangunan}</option>
+                        )}
+                      </select>
+                    </div>
                   </>
                 )}
 
@@ -11357,12 +12584,39 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                   <textarea rows="2" name="catatan" value={formData.catatan} onChange={handleInputChange} disabled={isSaving} placeholder="Opsional: Tulis catatan administratif..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50 resize-y"></textarea>
                 </div>
 
-                {/* 8B. ISSUE / KENDALA */}
+                {/* 8B. CATATAN UPDATE PENDING ATAU ISSUE / KENDALA */}
                 {type !== 'add' && (
-                  <div className="md:col-span-2">
-                    <label className="text-[11px] font-bold text-rose-500 mb-1.5 block uppercase tracking-wider">Issue / Kendala</label>
-                    <textarea rows="2" name="issueKendala" value={formData.issueKendala || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Opsional: Tulis kendala yang dialami di lapangan..." className="w-full p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-sm font-medium focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50 resize-y"></textarea>
-                  </div>
+                  <>
+                    {String(formData.aktivasi || '').trim().toUpperCase() === 'PENDING' ? (
+                      <div className="md:col-span-2">
+                        <label className="text-[11px] font-bold text-blue-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                          <Icon name="hourglass" size={13} className="text-blue-500" /> Catatan Update Pending
+                        </label>
+                        <textarea
+                          rows="2"
+                          name="catatanPending"
+                          value={formData.catatanPending || ''}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          placeholder="Cth: Pelanggan sedang di luar kota, reschedule instalasi minggu depan..."
+                          className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-blue-900 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50 resize-y"
+                        ></textarea>
+                      </div>
+                    ) : (
+                      <div className="md:col-span-2">
+                        <label className="text-[11px] font-bold text-rose-500 mb-1.5 block uppercase tracking-wider">Issue / Kendala</label>
+                        <textarea
+                          rows="2"
+                          name="issueKendala"
+                          value={formData.issueKendala || ''}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          placeholder="Opsional: Tulis kendala yang dialami di lapangan..."
+                          className="w-full p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-sm font-medium focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50 resize-y"
+                        ></textarea>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* 8C. PETUGAS IKR & PETUGAS AKTIVASI MANUAL */}
@@ -11376,6 +12630,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                       <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas Aktivasi</label>
                       <input type="text" name="petugasAktivasi" value={formData.petugasAktivasi || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas aktivasi..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
                     </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">IKR Partner</label>
+                      <input type="text" name="ikrPartner" value={formData.ikrPartner || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama IKR partner..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                    </div>
                   </>
                 )}
 
@@ -11385,10 +12643,13 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     Status Pelanggan <span className="text-slate-400 font-medium normal-case ml-1">({type === 'add' ? 'Aktivasi' : 'Update Status'})</span>
                   </label>
 
-                  {isStatusOpen && <div className="fixed inset-0 z-[75]" onClick={() => setIsStatusOpen(false)}></div>}
-
                   <div
-                    onClick={() => !isSaving && setIsStatusOpen(!isStatusOpen)}
+                    ref={statusTriggerRef}
+                    onClick={() => {
+                      if (isSaving) return;
+                      if (!isStatusOpen) updateStatusDropdownPos();
+                      setIsStatusOpen(!isStatusOpen);
+                    }}
                     className={`w-full p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer shadow-sm select-none ${currentStatusOption.bg} ${currentStatusOption.border} ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:ring-2 hover:ring-offset-1 hover:ring-blue-500/20'}`}
                   >
                     <div className={`flex items-center gap-2 font-bold ${currentStatusOption.text}`}>
@@ -11398,26 +12659,45 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     <Icon name={isStatusOpen ? "chevron-up" : "chevron-down"} size={16} className={`opacity-70 ${currentStatusOption.text}`} />
                   </div>
 
-                  {isStatusOpen && !isSaving && (
-                    <div className="absolute left-0 right-0 top-[100%] mt-2 bg-white border border-slate-100 shadow-2xl rounded-xl py-2 z-[85] animate-dropdown">
-                      {statusOptions.map((opt, i) => (
-                        <div
-                          key={i}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFormData(prev => ({ ...prev, aktivasi: opt.value }));
-                            setIsStatusOpen(false);
-                          }}
-                          className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`p-1.5 rounded-lg border ${opt.bg} ${opt.border} ${opt.text}`}><Icon name={opt.icon} size={14} /></div>
-                            <span className={`text-sm font-bold ${formData.aktivasi === opt.value ? 'text-slate-800' : 'text-slate-600 group-hover/opt:text-slate-800'}`}>{opt.label}</span>
+                  {isStatusOpen && !isSaving && ReactDOM.createPortal(
+                    <>
+                      {/* Backdrop transparan untuk menutup saat klik di luar dropdown */}
+                      <div
+                        className="fixed inset-0 z-[10005]"
+                        onClick={() => setIsStatusOpen(false)}
+                      />
+                      <div
+                        style={{
+                          position: 'fixed',
+                          top: statusDropdownPos.openUp ? 'auto' : `${statusDropdownPos.top}px`,
+                          bottom: statusDropdownPos.openUp ? `${statusDropdownPos.bottom}px` : 'auto',
+                          left: `${statusDropdownPos.left}px`,
+                          width: `${statusDropdownPos.width}px`,
+                          maxHeight: `${statusDropdownPos.maxHeight || 320}px`,
+                          zIndex: 10006
+                        }}
+                        className="bg-white border border-slate-200 shadow-2xl rounded-xl py-2 overflow-y-auto animate-fade custom-scrollbar"
+                      >
+                        {statusOptions.map((opt, i) => (
+                          <div
+                            key={i}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFormData(prev => ({ ...prev, aktivasi: opt.value }));
+                              setIsStatusOpen(false);
+                            }}
+                            className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`p-1.5 rounded-lg border ${opt.bg} ${opt.border} ${opt.text}`}><Icon name={opt.icon} size={14} /></div>
+                              <span className={`text-sm font-bold ${formData.aktivasi === opt.value ? 'text-slate-800' : 'text-slate-600 group-hover/opt:text-slate-800'}`}>{opt.label}</span>
+                            </div>
+                            {formData.aktivasi === opt.value && <Icon name="check" size={16} className="text-blue-600" />}
                           </div>
-                          {formData.aktivasi === opt.value && <Icon name="check" size={16} className="text-blue-600" />}
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    </>,
+                    document.body
                   )}
                 </div>
 
@@ -11483,6 +12763,45 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 </button>
               </div>
 
+              {/* BANNER NOTIFIKASI JIKA ADA PENUGASAN WO AKTIF */}
+              {activeDispatch && (
+                <div className="p-3 sm:p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex items-center justify-between gap-3 shadow-2xs animate-fade">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                      <Icon name={getWoDispatchBadgeProps(activeDispatch, internalData)?.icon || 'zap'} size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] font-extrabold text-amber-950">
+                          Penugasan WO Aktif ({activeDispatch.tipe || 'WO'})
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-200/90 text-amber-900 font-bold uppercase">
+                          {activeDispatch.status || 'DISPATCHED'}
+                        </span>
+                        {activeDispatch.tanggal && (
+                          <span className="text-[10px] text-amber-700">
+                            · {activeDispatch.tanggal}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-amber-800 truncate mt-0.5">
+                        Teknisi Ditugaskan: <strong className="text-amber-950 font-black">{selectedPetugasObj?.nama || activeDispatch.petugas}</strong> {activeDispatch.username && <span className="font-semibold text-amber-900">({activeDispatch.username})</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDeleteWo}
+                    disabled={isSaving}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50 active:scale-95"
+                    title="Batalkan dan hapus penugasan WO ini"
+                  >
+                    <Icon name="trash-2" size={13} />
+                    <span>Hapus WO</span>
+                  </button>
+                </div>
+              )}
+
               {/* CONTEXTUAL BANNER */}
               {woTaskType === 'visit' && (
                 <div className="p-3 bg-rose-50/70 border border-rose-200/80 rounded-xl flex items-start gap-2.5">
@@ -11526,8 +12845,21 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     {renderEditableDetailRow({ label: "ID Pelanggan", fieldKey: "idPelanggan", readOnly: true })}
                     {renderEditableDetailRow({ label: "Stasiun", fieldKey: "stasiun", readOnly: true, valueOverride: toProperCase(internalData.stasiun) })}
                     {renderEditableDetailRow({ label: "Nomor HP", fieldKey: "nomorHp", fullWidth: true, readOnly: true })}
-                    {renderEditableDetailRow({ label: "KODE ODP", fieldKey: "odpAktual", readOnly: true, valueOverride: internalData.kodeOdp || internalData.odpAktual })}
-                    {renderEditableDetailRow({ label: "Port", fieldKey: "portOdp", readOnly: true })}
+                    {/* KODE ODP & PORT (Diberi ruang penuh agar Port bergeser ke kanan dan tidak menumpuk) */}
+                    <div className="col-span-2 flex items-center justify-between border-b border-slate-100 pb-2">
+                      <div className="flex flex-col min-w-0 pr-4 flex-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Kode ODP</span>
+                        <span className="text-sm font-semibold text-slate-800 break-all select-all" title={internalData.kodeOdp || internalData.odpAktual}>
+                          {internalData.kodeOdp || internalData.odpAktual || '-'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-start shrink-0 pl-4 min-w-[64px] text-left">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Port</span>
+                        <span className="text-sm font-bold text-slate-800">
+                          {internalData.portOdp || '-'}
+                        </span>
+                      </div>
+                    </div>
                     {renderEditableDetailRow({ label: "SN ONT", fieldKey: "snOnt", fullWidth: true, readOnly: true })}
                     {renderEditableDetailRow({ label: "Lat / Long", fieldKey: "latitude", readOnly: true, valueOverride: `${internalData.latitude || '-'} , ${internalData.longitude || '-'}`, fullWidth: true })}
                   </div>
@@ -11550,7 +12882,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     <div className="relative">
                       <input
                         type="text"
-                        value={isPetugasOpen ? petugasSearch : (formData.petugas || '')}
+                        value={isPetugasOpen ? petugasSearch : (selectedPetugasObj?.nama || formData.petugas || '')}
                         onChange={(e) => {
                           setPetugasSearch(e.target.value);
                           if (!isPetugasOpen) setIsPetugasOpen(true);
@@ -11797,34 +13129,50 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
         {/* Modal Footer */}
         {type !== 'detail' ? (
-          <div className="p-5 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 mt-auto shrink-0 z-[60] relative">
-            <button onClick={() => !isSaving && onClose(false)} disabled={isSaving} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50">Batal</button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all transform active:scale-95 disabled:opacity-50 flex items-center ${
-                type === 'add'
-                  ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
+          <div className="p-4 sm:p-5 border-t border-slate-100 flex justify-between items-center bg-slate-50 mt-auto shrink-0 z-[60] relative">
+            <div>
+              {type === 'log' && activeDispatch && (
+                <button
+                  type="button"
+                  onClick={handleDeleteWo}
+                  disabled={isSaving}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
+                  title="Batalkan dan hapus penugasan WO pelanggan ini"
+                >
+                  <Icon name="trash-2" size={14} />
+                  <span>Hapus Penugasan WO</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button onClick={() => !isSaving && onClose(false)} disabled={isSaving} className="px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50">Batal</button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all transform active:scale-95 disabled:opacity-50 flex items-center ${
+                  type === 'add'
+                    ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
+                    : type === 'log'
+                      ? (woTaskType === 'aktivasi'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/30'
+                          : woTaskType === 'dismantle'
+                            ? 'bg-orange-600 hover:bg-orange-700 shadow-orange-500/30'
+                            : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30')
+                      : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
+                }`}
+              >
+                <Icon name="send" size={15} className="mr-1.5" />
+                {type === 'add'
+                  ? 'Simpan Pelanggan Baru'
                   : type === 'log'
                     ? (woTaskType === 'aktivasi'
-                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/30'
+                        ? (isSaving ? 'Menyimpan & Mengirim WO...' : (activeDispatch ? 'Perbarui WO Aktivasi' : 'Kirim WO Aktivasi'))
                         : woTaskType === 'dismantle'
-                          ? 'bg-orange-600 hover:bg-orange-700 shadow-orange-500/30'
-                          : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30')
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'
-              }`}
-            >
-              <Icon name="send" size={15} className="mr-1.5" />
-              {type === 'add'
-                ? 'Simpan Pelanggan Baru'
-                : type === 'log'
-                  ? (woTaskType === 'aktivasi'
-                      ? (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Aktivasi')
-                      : woTaskType === 'dismantle'
-                        ? (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Dismantle')
-                        : (isSaving ? 'Menyimpan & Mengirim WO...' : 'Kirim WO Visit'))
-                  : 'Simpan Perubahan'}
-            </button>
+                          ? (isSaving ? 'Menyimpan & Mengirim WO...' : (activeDispatch ? 'Perbarui WO Dismantle' : 'Kirim WO Dismantle'))
+                          : (isSaving ? 'Menyimpan & Mengirim WO...' : (activeDispatch ? 'Perbarui WO Visit' : 'Kirim WO Visit')))
+                    : 'Simpan Perubahan'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="p-5 border-t border-slate-100 flex justify-between items-center bg-slate-50 mt-auto shrink-0">
@@ -11855,12 +13203,87 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           odpData={odpData}
           onSelectOdp={(code) => {
             if (type === 'edit') {
-              setFormData(prev => ({ ...prev, odpAktual: code }));
+              const matched = odpData?.find(o => cleanOdpStr(o.kodeOdp || o.kode_odp || o.label) === cleanOdpStr(code));
+              setFormData(prev => ({
+                ...prev,
+                odpAktual: code,
+                ...(matched && (matched.tahapPembangunan || matched.tahap_pembangunan) ? { tahapPembangunan: matched.tahapPembangunan || matched.tahap_pembangunan } : {})
+              }));
             }
             setShowCoveragePopup(false);
           }}
           onClose={() => setShowCoveragePopup(false)}
         />
+      )}
+      {/* MODAL KONFIRMASI HAPUS PENUGASAN WO (CUSTOM ELEGAN DI DEPAN MODAL PENUGASAN) */}
+      {showConfirmDeleteWo && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-[2px] animate-fade">
+          <div className="absolute inset-0" onClick={() => !isSaving && setShowConfirmDeleteWo(false)}></div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-modal border border-slate-100 relative z-10">
+            <div className="p-5 flex flex-col items-center text-center">
+              <div className="w-14 h-14 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-3.5 shadow-xs">
+                <Icon name="alert-triangle" size={28} />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-1.5">Batalkan Penugasan WO?</h3>
+              <p className="text-xs text-slate-500 mb-3.5 leading-relaxed">
+                Anda yakin ingin membatalkan dan menghapus penugasan <strong>WO {activeDispatch?.tipe || ''}</strong> untuk pelanggan berikut?
+              </p>
+
+              {/* CARD DETAIL WO */}
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-left space-y-1.5 mb-3 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">Pelanggan:</span>
+                  <strong className="text-slate-800 truncate max-w-[190px]">{data?.namaPelanggan || internalData?.namaPelanggan || '-'}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">ID Pelanggan:</span>
+                  <span className="font-mono font-bold text-slate-700">{data?.idPelanggan || internalData?.idPelanggan || '-'}</span>
+                </div>
+                {activeDispatch?.petugas && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-medium">Teknisi:</span>
+                    <span className="font-bold text-blue-700">{activeDispatch.petugas}</span>
+                  </div>
+                )}
+                {activeDispatch?.tanggal && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-medium">Tanggal WO:</span>
+                    <span className="text-slate-700 font-semibold">{formatDateDisplay(activeDispatch.tanggal)}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-2.5 text-[11px] text-rose-800 text-left">
+                <span className="font-bold block mb-0.5">Perhatian:</span>
+                Tindakan ini akan menghapus tiket penugasan teknisi dan status pelanggan akan dikembalikan.
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex gap-2.5 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDeleteWo(false)}
+                disabled={isSaving}
+                className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200 transition-colors text-xs cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteWo}
+                disabled={isSaving}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-md flex items-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-70 active:scale-95"
+              >
+                {isSaving ? (
+                  <><Icon name="loader" size={13} className="animate-spin" /> Menghapus...</>
+                ) : (
+                  <><Icon name="trash-2" size={13} /> Ya, Hapus Penugasan</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -12185,7 +13608,7 @@ function MonitoringGamasView() {
           <div>
             <h2 className="text-xl font-bold text-slate-800 leading-none">Monitoring Gangguan Massal</h2>
             <p className={`text-sm mt-1 font-semibold ${totalAktif > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {totalAktif > 0 ? `âš  ${totalAktif} Gangguan Massal Aktif` : 'âœ“ Semua stasiun beroperasi normal'}
+              {totalAktif > 0 ? `${totalAktif} Gangguan Massal Aktif` : 'Semua stasiun beroperasi normal'}
             </p>
           </div>
         </div>
@@ -12251,7 +13674,7 @@ function MonitoringGamasView() {
                         )}
                         <button
                           onClick={() => setFilterStation(selected ? null : st.name)}
-                          title={`${st.name}${affected ? ' â€” OLT Down' : ' â€” Online'}`}
+                          title={`${st.name}${affected ? ' : OLT Down' : ' : Online'}`}
                           className={`
                             relative z-10 flex flex-col items-center w-[76px] rounded-2xl border-2 px-1 py-2.5 cursor-pointer transition-all duration-200 shadow-sm
                             ${selected ? 'bg-blue-600 border-blue-500 shadow-blue-400/40 shadow-lg scale-110'
@@ -12586,7 +14009,17 @@ function MonitoringGamasView() {
 // ==========================================
 // HALAMAN: MANAJEMEN TIKET GANGGUAN (DENGAN FITUR RESOLVE & DELETE)
 // ==========================================
-function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onRefresh, onLocalVisitUpdate, onPartnerVisitRefresh }) {
+function DataGangguanView({
+  visitData,
+  pelangganData = [],
+  petugasList = [],
+  onRefresh,
+  onLocalVisitUpdate,
+  onPartnerVisitRefresh,
+  onLocalWoDispatchAdd,
+  onLocalWoDispatchUpdate,
+  onLocalWoDispatchDelete
+}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [stationFilter, setStationFilter] = useState('');
@@ -12913,6 +14346,39 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
         });
         if (sbErr) throw sbErr;
       }
+
+      // DUAL WRITE: Sinkronkan ke log_wo_dispatch jika ada penugasan petugas
+      if (usernamePetugas) {
+        const woVisitPayload = {
+          tanggal_wo: localTimestamp.split(' ')[0],
+          tipe_wo: 'VISIT',
+          id_pelanggan: payload.idPelanggan,
+          nama_pelanggan: payload.namaPelanggan,
+          stasiun: payload.stasiun,
+          alamat: p.alamat || null,
+          nomor_hp: payload.nomorHp || null,
+          odp: payload.odpAktual || null,
+          port: payload.portOdp || null,
+          sn_ont: payload.snOnt || null,
+          latitude: payload.latitude ? String(payload.latitude).replace(/^'+/, '').trim() : null,
+          longitude: payload.longitude ? String(payload.longitude).replace(/^'+/, '').trim() : null,
+          petugas: payload.petugas,
+          petugas_username: usernamePetugas,
+          status_wo: 'DISPATCHED',
+          catatan: `[${payload.keluhan}] ${payload.catatan}`
+        };
+
+        const { data: woData, error: woErr } = await supabase
+          .from('log_wo_dispatch')
+          .insert([woVisitPayload])
+          .select();
+
+        if (woErr) console.warn("Supabase log_wo_dispatch insert warning:", woErr);
+        if (onLocalWoDispatchAdd) {
+          onLocalWoDispatchAdd(woData && woData[0] ? woData[0] : woVisitPayload);
+        }
+      }
+
       setNewTicketIsSaving(false);
       setNewTicketSuccess(true);
       setTimeout(() => {
@@ -13077,12 +14543,34 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     };
 
     try {
-      // 1. Eksekusi update langsung ke Supabase dan state lokal
+      // 1. Eksekusi update langsung ke Supabase dan state lokal untuk log_visit
       if (onLocalVisitUpdate) {
         await onLocalVisitUpdate('resolve', payload);
       }
 
-      // 2. Sukses, tutup modal
+      // 2. DUAL WRITE: Update juga di log_wo_dispatch agar WO selesai & hilang dari badge aktif di Database Pelanggan
+      const nowIso = new Date().toISOString();
+      const woUpdatePayload = {
+        status_wo: 'DONE',
+        tindakan: resolveTindakan,
+        material: resolveMaterial || null,
+        waktu_close: nowIso,
+        updated_at: nowIso
+      };
+
+      const { error: woCloseErr } = await supabase
+        .from('log_wo_dispatch')
+        .update(woUpdatePayload)
+        .eq('id_pelanggan', payload.idPelanggan)
+        .eq('status_wo', 'DISPATCHED');
+
+      if (woCloseErr) console.warn("Supabase log_wo_dispatch close warning:", woCloseErr);
+
+      if (onLocalWoDispatchUpdate) {
+        onLocalWoDispatchUpdate(payload.idPelanggan, woUpdatePayload);
+      }
+
+      // 3. Sukses, tutup modal
       setTimeout(() => {
         setIsResolving(false);
         setResolveTarget(null);
@@ -13101,12 +14589,28 @@ function DataGangguanView({ visitData, pelangganData = [], petugasList = [], onR
     setIsProcessing(true);
 
     try {
-      // 1. Eksekusi hapus di Supabase dan state lokal
+      // 1. Eksekusi hapus di Supabase dan state lokal untuk log_visit
       if (onLocalVisitUpdate) {
         await onLocalVisitUpdate('delete', deleteTarget);
       }
 
-      // 2. Sukses, tutup modal
+      // 2. DUAL WRITE: Hapus penugasan terkait di log_wo_dispatch jika berstatus DISPATCHED
+      if (deleteTarget.idPelanggan) {
+        const { error: woDelErr } = await supabase
+          .from('log_wo_dispatch')
+          .delete()
+          .eq('id_pelanggan', deleteTarget.idPelanggan)
+          .eq('tipe_wo', 'VISIT')
+          .eq('status_wo', 'DISPATCHED');
+
+        if (woDelErr) console.warn("Supabase log_wo_dispatch delete warning:", woDelErr);
+
+        if (onLocalWoDispatchDelete) {
+          onLocalWoDispatchDelete(deleteTarget.idPelanggan);
+        }
+      }
+
+      // 3. Sukses, tutup modal
       setTimeout(() => {
         setDeleteTarget(null);
         setIsProcessing(false);
@@ -14486,13 +15990,15 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
   const [isSuccess, setIsSuccess] = useState(false);
   const [message, setMessage] = useState(null);
 
-  // STATE BARU UNTUK MENGONTROL DROPDOWN MANA YANG SEDANG TERBUKA
+  // STATE UNTUK MENGONTROL DROPDOWN MANA YANG SEDANG TERBUKA DAN POSISINYA
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, bottom: 0, left: 0, width: 0, maxHeight: 300, openUp: false });
 
   // OPSI STATUS DENGAN WARNA CUSTOM (SESUAI REQUEST)
   const statusOptions = [
     { value: 'Sudah', label: 'Aktif (Sudah)', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'check-circle' },
     { value: 'Belum', label: 'Waiting (Belum Aktif)', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'clock' },
+    { value: 'Pending', label: 'Pending', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: 'hourglass' },
     { value: 'Suspend', label: 'Suspend', bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', icon: 'pause-circle' },
     { value: 'Ready To Dismantle', label: 'Ready To Dismantle', bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-200', icon: 'alert-triangle' },
     { value: 'Dismantled', label: 'Dismantled', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', icon: 'x-circle' },
@@ -14503,6 +16009,58 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = 'auto'; };
   }, []);
+
+  const justOpenedRef = useRef(false);
+
+  const handleToggleDropdown = (idx, e) => {
+    if (isSaving) return;
+    if (openDropdownIdx === idx) {
+      setOpenDropdownIdx(null);
+      return;
+    }
+
+    const targetEl = e.currentTarget;
+    const rect = targetEl.getBoundingClientRect();
+    const zoom = parseFloat(window.getComputedStyle(document.body).zoom) || 1;
+
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    // Buka ke atas jika ruang di bawah tombol kurang dari 280px dan ruang atas lebih luas
+    const openUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+
+    const adjustedLeft = rect.left / zoom;
+    const adjustedWidth = rect.width / zoom;
+    const adjustedTop = (rect.bottom + 4) / zoom;
+    const adjustedBottom = (window.innerHeight - rect.top + 4) / zoom;
+    const maxH = Math.max(160, Math.min(320, (openUp ? spaceAbove - 20 : spaceBelow - 20) / zoom));
+
+    setDropdownPos({
+      top: adjustedTop,
+      bottom: adjustedBottom,
+      left: adjustedLeft,
+      width: adjustedWidth,
+      maxHeight: maxH,
+      openUp
+    });
+    setOpenDropdownIdx(idx);
+    justOpenedRef.current = true;
+    setTimeout(() => { justOpenedRef.current = false; }, 250);
+  };
+
+  useEffect(() => {
+    if (openDropdownIdx === null) return;
+    const handleScrollOrResize = (e) => {
+      if (justOpenedRef.current) return;
+      if (e && e.target && e.target.classList && e.target.classList.contains('custom-scrollbar')) return;
+      setOpenDropdownIdx(null);
+    };
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, [openDropdownIdx]);
 
   const handleInputChange = (index, field, value) => {
     const newData = [...bulkData];
@@ -14560,11 +16118,13 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     }
   };
 
-  return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/70 animate-fade" onClick={() => !isSaving && onClose(false)}></div>
+  return (
+    <>
+      {ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/70 animate-fade" onClick={() => !isSaving && onClose(false)}></div>
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col h-[85vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl relative z-10 animate-modal flex flex-col h-[85vh] overflow-hidden">
 
         {isSaving && !isSuccess && (
           <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center animate-fade">
@@ -14600,7 +16160,8 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0 bg-white p-2 rounded-lg border border-slate-200 shadow-sm w-full sm:w-auto">
             <span className="text-[10px] font-bold text-slate-400 uppercase sm:ml-2 mb-1 sm:mb-0">Set Semua Ke:</span>
-            <div className="flex w-full sm:w-auto gap-1.5">
+            <div className="flex w-full sm:w-auto gap-1.5 flex-wrap">
+              <button onClick={() => applyToAll('Pending')} className="flex-1 sm:flex-none px-1.5 sm:px-3 py-1.5 bg-blue-50 text-blue-700 text-[10px] sm:text-xs font-bold rounded hover:bg-blue-100 transition-colors border border-blue-200 text-center">Pending</button>
               <button onClick={() => applyToAll('Ready To Dismantle')} className="flex-1 sm:flex-none px-1.5 sm:px-3 py-1.5 bg-orange-50 text-orange-800 text-[10px] sm:text-xs font-bold rounded hover:bg-orange-100 transition-colors border border-orange-200 text-center">Ready to Dismantle</button>
               <button onClick={() => applyToAll('Dismantled')} className="flex-1 sm:flex-none px-1.5 sm:px-3 py-1.5 bg-slate-100 text-slate-700 text-[10px] sm:text-xs font-bold rounded hover:bg-slate-200 transition-colors border border-slate-300 text-center">Dismantled</button>
               <button onClick={() => applyToAll('Kendala')} className="flex-1 sm:flex-none px-1.5 sm:px-3 py-1.5 bg-rose-50 text-rose-700 text-[10px] sm:text-xs font-bold rounded hover:bg-rose-100 transition-colors border border-rose-200 text-center">Kendala</button>
@@ -14629,7 +16190,7 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
                   <div className="mt-1 relative z-10">
                     <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Update Ke:</div>
                     <div
-                      onClick={() => !isSaving && setOpenDropdownIdx(openDropdownIdx === idx ? null : idx)}
+                      onClick={(e) => handleToggleDropdown(idx, e)}
                       className={`w-full min-h-[40px] px-3 py-2 flex items-center justify-between cursor-pointer rounded-lg border transition-colors ${currentOpt.bg} ${currentOpt.text} ${currentOpt.border} ${isSaving ? 'opacity-50' : 'hover:ring-2 hover:ring-inset hover:ring-blue-500/20'}`}
                     >
                       <div className="flex items-center gap-2 font-bold text-xs">
@@ -14638,35 +16199,6 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
                       </div>
                       <Icon name={openDropdownIdx === idx ? "chevron-up" : "chevron-down"} size={14} className="opacity-70" />
                     </div>
-
-                    {openDropdownIdx === idx && !isSaving && (
-                      <>
-                        <div className="fixed inset-0 z-[65]" onClick={(e) => { e.stopPropagation(); setOpenDropdownIdx(null); }}></div>
-                        <div className="absolute left-0 right-0 top-[100%] bg-white border border-slate-200 shadow-2xl rounded-xl py-1.5 z-[70] animate-dropdown mt-1">
-                          {statusOptions.map((opt, i) => (
-                            <div
-                              key={i}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleInputChange(idx, 'aktivasi', opt.value);
-                                setOpenDropdownIdx(null);
-                              }}
-                              className="px-4 py-2.5 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <div className={`p-1.5 rounded-lg border ${opt.bg} ${opt.border} ${opt.text}`}>
-                                  <Icon name={opt.icon} size={12} />
-                                </div>
-                                <span className={`text-xs font-bold ${row.aktivasi === opt.value ? 'text-slate-800' : 'text-slate-600 group-hover/opt:text-slate-800'}`}>
-                                  {opt.label}
-                                </span>
-                              </div>
-                              {row.aktivasi === opt.value && <Icon name="check" size={14} className="text-blue-600" />}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
                   </div>
                 </div>
               );
@@ -14698,9 +16230,9 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
                       <td className="px-4 py-3 font-bold text-slate-700 border-r border-slate-100 bg-slate-50 truncate">{row.namaPelanggan}</td>
                       <td className="px-4 py-3 text-slate-600 border-r border-slate-100 bg-slate-50 truncate">{String(row.stasiun).charAt(0).toUpperCase() + String(row.stasiun).slice(1).toLowerCase()}</td>
 
-                      <td className={`p-0 relative border-l-2 ${row.aktivasi ? 'border-blue-500' : 'border-transparent'} ${openDropdownIdx === idx ? 'z-[60]' : 'z-0'}`}>
+                      <td className={`p-0 relative border-l-2 ${row.aktivasi ? 'border-blue-500' : 'border-transparent'}`}>
                         <div
-                          onClick={() => !isSaving && setOpenDropdownIdx(openDropdownIdx === idx ? null : idx)}
+                          onClick={(e) => handleToggleDropdown(idx, e)}
                           className={`w-full h-full min-h-[46px] px-4 py-2 flex items-center justify-between cursor-pointer transition-colors ${currentOpt.bg} ${currentOpt.text} ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:ring-2 hover:ring-inset hover:ring-blue-500/20'}`}
                         >
                           <div className="flex items-center gap-2 font-bold text-xs">
@@ -14709,35 +16241,6 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
                           </div>
                           <Icon name={openDropdownIdx === idx ? "chevron-up" : "chevron-down"} size={14} className="opacity-70" />
                         </div>
-
-                        {openDropdownIdx === idx && !isSaving && (
-                          <>
-                            <div className="fixed inset-0 z-[65]" onClick={(e) => { e.stopPropagation(); setOpenDropdownIdx(null); }}></div>
-                            <div className="absolute left-0 right-0 top-[100%] bg-white border border-slate-200 shadow-2xl rounded-xl py-1.5 z-[70] animate-dropdown min-w-[200px] mt-1 mx-1">
-                              {statusOptions.map((opt, i) => (
-                                <div
-                                  key={i}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleInputChange(idx, 'aktivasi', opt.value);
-                                    setOpenDropdownIdx(null);
-                                  }}
-                                  className="px-4 py-2.5 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
-                                >
-                                  <div className="flex items-center gap-2.5">
-                                    <div className={`p-1.5 rounded-lg border ${opt.bg} ${opt.border} ${opt.text}`}>
-                                      <Icon name={opt.icon} size={12} />
-                                    </div>
-                                    <span className={`text-xs font-bold ${row.aktivasi === opt.value ? 'text-slate-800' : 'text-slate-600 group-hover/opt:text-slate-800'}`}>
-                                      {opt.label}
-                                    </span>
-                                  </div>
-                                  {row.aktivasi === opt.value && <Icon name="check" size={14} className="text-blue-600" />}
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        )}
                       </td>
                     </tr>
                   );
@@ -14756,7 +16259,54 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
       </div>
     </div>,
     document.body
-  );
+  )}
+
+  {/* PORTAL DROPDOWN STATUS MASSAL (LANGSUNG KE DOCUMENT.BODY AGAR BEBAS DARI STACKING CONTEXT & OVERFLOW-HIDDEN) */}
+  {openDropdownIdx !== null && !isSaving && ReactDOM.createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[10005]"
+        onClick={(e) => { e.stopPropagation(); setOpenDropdownIdx(null); }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          top: dropdownPos.openUp ? 'auto' : `${dropdownPos.top}px`,
+          bottom: dropdownPos.openUp ? `${dropdownPos.bottom}px` : 'auto',
+          left: `${dropdownPos.left}px`,
+          width: `${Math.max(220, dropdownPos.width)}px`,
+          maxHeight: `${dropdownPos.maxHeight || 300}px`,
+          zIndex: 10006
+        }}
+        className="bg-white border border-slate-200 shadow-2xl rounded-xl py-1.5 overflow-y-auto animate-fade custom-scrollbar portal-dropdown-menu"
+      >
+        {statusOptions.map((opt, i) => (
+          <div
+            key={i}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleInputChange(openDropdownIdx, 'aktivasi', opt.value);
+              setOpenDropdownIdx(null);
+            }}
+            className="px-4 py-2.5 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className={`p-1.5 rounded-lg border ${opt.bg} ${opt.border} ${opt.text}`}>
+                <Icon name={opt.icon} size={12} />
+              </div>
+              <span className={`text-xs font-bold ${bulkData[openDropdownIdx]?.aktivasi === opt.value ? 'text-slate-800' : 'text-slate-600 group-hover/opt:text-slate-800'}`}>
+                {opt.label}
+              </span>
+            </div>
+            {bulkData[openDropdownIdx]?.aktivasi === opt.value && <Icon name="check" size={14} className="text-blue-600" />}
+          </div>
+        ))}
+      </div>
+    </>,
+    document.body
+  )}
+</>
+);
 }
 
 
@@ -14869,8 +16419,32 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
 // ==========================================
 // HALAMAN 2: DATABASE & MANAJEMEN PELANGGAN
 // ==========================================
-function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false }) {
+function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], poReleaseData = [], onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, onLocalWoDispatchAdd, onLocalWoDispatchDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false }) {
   const isPageLoading = Boolean(isLoading || !pelangganData || (Array.isArray(pelangganData) && pelangganData.length === 0 && isLoading));
+
+  // Map WO Dispatch aktif (belum selesai) per ID Pelanggan
+  const activeWoMap = useMemo(() => {
+    const map = new Map();
+    (woDispatchData || []).forEach(w => {
+      const id = String(w.id_pelanggan || w.idPelanggan || '').trim().toUpperCase();
+      const status = String(w.status_wo || w.statusWo || 'DISPATCHED').toUpperCase();
+      if (id && status !== 'DONE' && status !== 'CANCELLED') {
+        const u = w.petugas_username || w.petugas || '';
+        const uname = u ? (u.startsWith('@') ? u : `@${u}`) : '';
+        map.set(id, {
+          id: w.id,
+          petugas: w.petugas,
+          username: uname,
+          tanggal: w.tanggal_wo || w.tanggalWo,
+          tipe: w.tipe_wo || w.tipeWo,
+          status: status,
+          alasanDismantle: w.alasan_dismantle,
+          catatan: w.catatan
+        });
+      }
+    });
+    return map;
+  }, [woDispatchData]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -14885,10 +16459,16 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const [filterSales, setFilterSales] = useState('');
   const [filterStatus, setFilterStatus] = useState(initialStatusFilter ? [initialStatusFilter] : []);
   const [dismantleWoFilter, setDismantleWoFilter] = useState('ALL'); // 'ALL' | 'WITH_WO' | 'WITHOUT_WO'
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterDateType, setFilterDateType] = useState('AUTO'); // 'AUTO' | 'AKTIVASI' | 'REGISTRASI' | 'IKR' | 'DISMANTLE'
 
   const [tempFilterStation, setTempFilterStation] = useState('');
   const [tempFilterSales, setTempFilterSales] = useState('');
   const [tempFilterStatus, setTempFilterStatus] = useState([]);
+  const [tempFilterStartDate, setTempFilterStartDate] = useState('');
+  const [tempFilterEndDate, setTempFilterEndDate] = useState('');
+  const [tempFilterDateType, setTempFilterDateType] = useState('AUTO');
 
   const [actionModal, setActionModal] = useState({ type: null, data: null, initialTask: null });
   const [openKendalaId, setOpenKendalaId] = useState(null);
@@ -14907,14 +16487,97 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     { val: 'READY TO DISMANTLE', label: 'Ready To Dismantle' },
     { val: 'DISMANTLED', label: 'Dismantled' },
     { val: 'WAITING', label: 'Waiting' },
+    { val: 'PENDING', label: 'Pending' },
     { val: 'KENDALA', label: 'Kendala' }
   ];
 
-  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus, dismantleWoFilter]);
+  const dateTypeOptions = [
+    { val: 'AUTO', label: 'Otomatis Sesuai Status' },
+    { val: 'AKTIVASI', label: 'Tanggal Aktivasi' },
+    { val: 'REGISTRASI', label: 'Tanggal Registrasi' },
+    { val: 'IKR', label: 'Tanggal IKR' },
+    { val: 'DISMANTLE', label: 'Tanggal Dismantle' }
+  ];
+
+  const [isSyncingDismantle, setIsSyncingDismantle] = useState(false);
+  const [dismantleSyncTime, setDismantleSyncTime] = useState(null);
+  const lastDismantleSyncRef = useRef(0);
+
+  const triggerDismantleSync = async (force = false) => {
+    const now = Date.now();
+    // Throttle: lewati jika baru saja disinkronkan kurang dari 90 detik lalu, kecuali ditekan manual (force = true)
+    if (!force && now - lastDismantleSyncRef.current < 90000) {
+      return;
+    }
+    if (isSyncingDismantle) return;
+
+    try {
+      setIsSyncingDismantle(true);
+      lastDismantleSyncRef.current = now;
+
+      const res = await syncDismantlingFast({
+        pelangganList: pelangganData || []
+      });
+
+      if (res && res.success && Array.isArray(res.dismantlingList)) {
+        const activeDismantleIds = new Set(res.dismantlingList.map(c => String(c.id_pelanggan || '').trim().toUpperCase()));
+
+        const updatedItems = res.dismantlingList.map(c => ({
+          idPelanggan: c.id_pelanggan,
+          statusAktivasi: 'Ready To Dismantle',
+          aktivasi: 'Ready To Dismantle',
+          woDismantle: c.wo_dismantle || c.reason_dismantle,
+          telatBayarHari: c.telat_bayar_hari,
+          tanggalBerakhir: c.tanggal_berakhir
+        }));
+
+        // Reset status pelanggan yang sebelumnya berstatus WO Dismantle namun di API Partner sudah selesai/tidak ada
+        const staleItems = (pelangganData || []).filter(p => {
+          const isDismantling = String(p.statusAktivasi || p.aktivasi || '').trim().toUpperCase() === 'DISMANTLING' ||
+            Boolean(p.woDismantle) || String(p.reasonDismantle || '').includes('[WO DISMANTLE]');
+          const pId = String(p.idPelanggan || '').trim().toUpperCase();
+          return isDismantling && !activeDismantleIds.has(pId);
+        }).map(p => ({
+          idPelanggan: p.idPelanggan,
+          statusAktivasi: 'Ready to Dismantle',
+          aktivasi: 'Ready to Dismantle',
+          woDismantle: null,
+          reasonDismantle: (p.reasonDismantle || '').replace(/\[WO DISMANTLE\][^\n]*/g, '').trim()
+        }));
+
+        if (onLocalPelangganUpdate && (updatedItems.length > 0 || staleItems.length > 0)) {
+          onLocalPelangganUpdate([...updatedItems, ...staleItems]);
+        }
+
+        // Sinkronkan pembersihan wo_dismantle ke Supabase jika ada pelanggan yang sudah selesai/tidak lagi berstatus dismantling di API
+        if (staleItems.length > 0) {
+          try {
+            const staleIds = staleItems.map(s => s.idPelanggan);
+            await supabase.from('data_pelanggan').update({
+              wo_dismantle: null
+            }).in('id_pelanggan', staleIds);
+          } catch (staleErr) {
+            console.warn('[RESET STALE WO DISMANTLE SUPABASE ERROR]:', staleErr);
+          }
+        }
+
+        setDismantleSyncTime(new Date());
+      }
+    } catch (err) {
+      console.warn('[AUTO SYNC DISMANTLE ERROR]:', err);
+    } finally {
+      setIsSyncingDismantle(false);
+    }
+  };
+
+  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus, dismantleWoFilter, filterStartDate, filterEndDate, filterDateType]);
 
   useEffect(() => {
     if (!filterStatus || !filterStatus.includes('READY TO DISMANTLE')) {
       setDismantleWoFilter('ALL');
+    } else {
+      // Otomatis sinkronkan WO Dismantle dari API saat filter Dismantle aktif
+      triggerDismantleSync(false);
     }
   }, [filterStatus]);
 
@@ -15003,6 +16666,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
       // MURNI LOGIKA UNTUK FILTER (Apa yang dilihat filter di pojok kanan atas)
       let finalStatus = 'WAITING';
       if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
+      else if (rawAktivasi === 'pending' || globalStat === 'PENDING') finalStatus = 'PENDING';
       else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
       else if (rawAktivasi === 'ready to dismantle' || rawAktivasi === 'dismantling' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
       else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
@@ -15018,6 +16682,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         matchStatus = filterStatus.some(fStatus => {
           if (fStatus === 'AKTIF') {
             return finalStatus.includes('AKTIF') || finalStatus.includes('DONE');
+          } else if (fStatus === 'PENDING') {
+            return finalStatus === 'PENDING';
           } else if (fStatus === 'KENDALA') {
             return finalStatus === 'KENDALA';
           } else if (fStatus === 'READY TO DISMANTLE') {
@@ -15044,7 +16710,40 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         });
       }
 
-      return matchSearch && matchStation && matchSales && matchStatus;
+      // 4. FILTER RENTANG TANGGAL
+      let matchDate = true;
+      if (filterStartDate || filterEndDate) {
+        let targetDateStr = '';
+        if (filterDateType === 'AKTIVASI') {
+          targetDateStr = standardizeDate(item.tglAktivasi || item.timestampAktivasi || item.tglIkr);
+        } else if (filterDateType === 'REGISTRASI') {
+          targetDateStr = standardizeDate(item.tanggalRegistrasi || item.createdAt);
+        } else if (filterDateType === 'IKR') {
+          targetDateStr = standardizeDate(item.tglIkr);
+        } else if (filterDateType === 'DISMANTLE') {
+          targetDateStr = standardizeDate(item.tanggalDismantle);
+        } else {
+          // AUTO: Menyesuaikan status baris
+          if (finalStatus.includes('AKTIF') || finalStatus.includes('DONE')) {
+            targetDateStr = standardizeDate(item.tglAktivasi || item.timestampAktivasi || item.tglIkr);
+          } else if (finalStatus === 'DISMANTLED') {
+            targetDateStr = standardizeDate(item.tanggalDismantle) || standardizeDate(item.tglAktivasi);
+          } else if (finalStatus === 'WAITING' || finalStatus === 'KENDALA' || finalStatus === 'PENDING') {
+            targetDateStr = standardizeDate(item.tanggalRegistrasi || item.createdAt || item.tanggalKendala);
+          } else {
+            targetDateStr = standardizeDate(item.tglAktivasi || item.tanggalRegistrasi || item.createdAt);
+          }
+        }
+
+        if (!targetDateStr) {
+          matchDate = false;
+        } else {
+          if (filterStartDate && targetDateStr < filterStartDate) matchDate = false;
+          if (filterEndDate && targetDateStr > filterEndDate) matchDate = false;
+        }
+      }
+
+      return matchSearch && matchStation && matchSales && matchStatus && matchDate;
     });
 
     if (sortAgeOrder) {
@@ -15081,6 +16780,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         const rawAktivasi = String(item.aktivasi || '').trim().toLowerCase();
         const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
         if (globalStat.includes('KENDALA')) return 'KENDALA';
+        if (rawAktivasi === 'pending' || globalStat === 'PENDING') return 'PENDING';
         if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') return 'AKTIF';
         if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') return 'READY TO DISMANTLE';
         if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') return 'DISMANTLED';
@@ -15091,11 +16791,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
       const STATUS_ORDER = {
         'WAITING': 1,
-        'KENDALA': 2,
-        'AKTIF': 3,
-        'SUSPEND': 4,
-        'READY TO DISMANTLE': 5,
-        'DISMANTLED': 6
+        'PENDING': 2,
+        'KENDALA': 3,
+        'AKTIF': 4,
+        'SUSPEND': 5,
+        'READY TO DISMANTLE': 6,
+        'DISMANTLED': 7
       };
 
       filtered.sort((a, b) => {
@@ -15196,10 +16897,10 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     }
 
     return filtered;
-  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder, dismantleWoFilter]);
+  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder, dismantleWoFilter, filterStartDate, filterEndDate, filterDateType]);
 
   const summaryCounts = useMemo(() => {
-    const counts = { WAITING: 0, AKTIF: 0, SUSPEND: 0, 'READY TO DISMANTLE': 0, DISMANTLED: 0, KENDALA: 0 };
+    const counts = { WAITING: 0, PENDING: 0, AKTIF: 0, SUSPEND: 0, 'READY TO DISMANTLE': 0, DISMANTLED: 0, KENDALA: 0 };
     if (pelangganData && Array.isArray(pelangganData)) {
       pelangganData.forEach(item => {
         const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
@@ -15211,6 +16912,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
         let finalStatus = 'WAITING';
         if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
+        else if (rawAktivasi === 'pending' || globalStat === 'PENDING') finalStatus = 'PENDING';
         else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
         else if (rawAktivasi === 'ready to dismantle' || rawAktivasi === 'dismantling' || globalStat === 'READY TO DISMANTLE') finalStatus = 'READY TO DISMANTLE';
         else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') finalStatus = 'DISMANTLED';
@@ -15220,16 +16922,44 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         else if (rawIkr === 'belum' || rawIkr === '') finalStatus = 'WAITING';
         else finalStatus = globalStat;
 
+        // Evaluasi filter tanggal jika aktif
+        if (filterStartDate || filterEndDate) {
+          let targetDateStr = '';
+          if (filterDateType === 'AKTIVASI') {
+            targetDateStr = standardizeDate(item.tglAktivasi || item.timestampAktivasi || item.tglIkr);
+          } else if (filterDateType === 'REGISTRASI') {
+            targetDateStr = standardizeDate(item.tanggalRegistrasi || item.createdAt);
+          } else if (filterDateType === 'IKR') {
+            targetDateStr = standardizeDate(item.tglIkr);
+          } else if (filterDateType === 'DISMANTLE') {
+            targetDateStr = standardizeDate(item.tanggalDismantle);
+          } else {
+            if (finalStatus.includes('AKTIF') || finalStatus.includes('DONE')) {
+              targetDateStr = standardizeDate(item.tglAktivasi || item.timestampAktivasi || item.tglIkr);
+            } else if (finalStatus === 'DISMANTLED') {
+              targetDateStr = standardizeDate(item.tanggalDismantle) || standardizeDate(item.tglAktivasi);
+            } else if (finalStatus === 'WAITING' || finalStatus === 'KENDALA' || finalStatus === 'PENDING') {
+              targetDateStr = standardizeDate(item.tanggalRegistrasi || item.createdAt || item.tanggalKendala);
+            } else {
+              targetDateStr = standardizeDate(item.tglAktivasi || item.tanggalRegistrasi || item.createdAt);
+            }
+          }
+          if (!targetDateStr) return;
+          if (filterStartDate && targetDateStr < filterStartDate) return;
+          if (filterEndDate && targetDateStr > filterEndDate) return;
+        }
+
         if (counts[finalStatus] !== undefined) {
           counts[finalStatus]++;
         }
       });
     }
     return counts;
-  }, [pelangganData, filterStation, filterSales]);
+  }, [pelangganData, filterStation, filterSales, filterStartDate, filterEndDate, filterDateType]);
 
   const colorStyles = {
     amber: { active: 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-amber-300 hover:bg-amber-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-amber-100 text-amber-600' },
+    blue: { active: 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-blue-100 text-blue-600' },
     emerald: { active: 'bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-emerald-100 text-emerald-600' },
     orange: { active: 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-orange-300 hover:bg-orange-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-orange-100 text-orange-600' },
     purple: { active: 'bg-purple-500 border-purple-500 text-white shadow-lg shadow-purple-500/30 scale-[1.02]', inactive: 'bg-white border-slate-200 text-slate-700 hover:border-purple-300 hover:bg-purple-50', iconActive: 'bg-white/20 text-white', iconInactive: 'bg-purple-100 text-purple-600' },
@@ -15243,7 +16973,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const currentData = filteredData.slice(startIndex, endIndex);
 
-  const activeFilterCount = (filterStation ? 1 : 0) + (filterSales ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0);
+  const activeFilterCount = (filterStation ? 1 : 0) + (filterSales ? 1 : 0) + (filterStatus && filterStatus.length > 0 ? 1 : 0) + (filterStartDate || filterEndDate ? 1 : 0);
   const isWaitingFilterActive = Boolean(
     Array.isArray(filterStatus) &&
     filterStatus.length === 1 &&
@@ -15284,11 +17014,182 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
     setIsExporting(true);
     setTimeout(() => {
       try {
+        // Bangun ODP Lookup Map yang mendukung normalisasi alphanumeric, cleanOdpStr, dan pemisahan koma/garis miring
+        const odpMap = new Map();
+        if (odpData && odpData.length > 0) {
+          for (let i = 0; i < odpData.length; i++) {
+            const o = odpData[i];
+            if (!o) continue;
+            const targets = [o.label, o.nama_odp, o.namaOdp, o.kodeOdp, o.kode_odp];
+            targets.forEach(t => {
+              if (!t) return;
+              String(t).split(/[,/]/).forEach(p => {
+                const k = String(p).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                if (k && !odpMap.has(k)) odpMap.set(k, o);
+                const kn = cleanOdpStr(p).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                if (kn && !odpMap.has(kn)) odpMap.set(kn, o);
+              });
+              const fullK = String(t).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+              if (fullK && !odpMap.has(fullK)) odpMap.set(fullK, o);
+              const fullKn = cleanOdpStr(t).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+              if (fullKn && !odpMap.has(fullKn)) odpMap.set(fullKn, o);
+            });
+          }
+        }
+
+        // Ambil data PO Release (dari props poReleaseData atau cache)
+        const activePoList = (poReleaseData && poReleaseData.length > 0)
+          ? poReleaseData
+          : (getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache') || []);
+
+        const cleanTahapStr = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // Helper untuk mencocokkan tahap pembangunan dengan Nomor PO Release
+        const resolveNomorPo = (item, tahapVal) => {
+          // 1. Jika pelanggan sudah memiliki data no_po_release langsung
+          const directCustPo = item.no_po_release || item.noPoRelease || item.noPo;
+          if (directCustPo && String(directCustPo).trim()) {
+            return String(directCustPo).trim();
+          }
+
+          const targetTahap = tahapVal || item.tahapPembangunan || item.tahap_pembangunan || item.tahap || '';
+          if (!targetTahap || targetTahap === '-') return '-';
+
+          const cleanT = cleanTahapStr(targetTahap);
+          const cleanTNoHp = cleanTahapStr(String(targetTahap).replace(/hp/gi, ''));
+          let targetSt = String(item.stasiun || '').toLowerCase().trim();
+          if (targetSt === 'tawang') targetSt = 'semarang tawang';
+
+          // Filter PO berdasarkan stasiun pelanggan (jika stasiun terisi)
+          const stationPos = targetSt ? activePoList.filter(p => {
+            let pSt = String(p.stasiun || '').toLowerCase().trim();
+            if (pSt === 'tawang') pSt = 'semarang tawang';
+            return pSt === targetSt || targetSt.includes(pSt) || pSt.includes(targetSt);
+          }) : activePoList;
+
+          // 1. Pencocokan langsung (exact/normalized) di dalam stasiun
+          let matched = stationPos.find(p => {
+            const pTahap = p.tahapPembangunan || p.tahap_pembangunan || '';
+            const pClean = cleanTahapStr(pTahap);
+            const pCleanNoHp = cleanTahapStr(String(pTahap).replace(/hp/gi, ''));
+            return pClean === cleanT || pCleanNoHp === cleanTNoHp || pClean === cleanTNoHp || pCleanNoHp === cleanT;
+          });
+
+          // 2. Pencocokan langsung (exact/normalized) di seluruh data PO jika stasiun tidak ketemu
+          if (!matched) {
+            matched = activePoList.find(p => {
+              const pTahap = p.tahapPembangunan || p.tahap_pembangunan || '';
+              const pClean = cleanTahapStr(pTahap);
+              const pCleanNoHp = cleanTahapStr(String(pTahap).replace(/hp/gi, ''));
+              return pClean === cleanT || pCleanNoHp === cleanTNoHp || pClean === cleanTNoHp || pCleanNoHp === cleanT;
+            });
+          }
+
+          // 3. Pencocokan cerdas berdasarkan angka, segmen, dan alias tahap stasiun
+          if (!matched && stationPos.length > 0) {
+            const isPerc = cleanT.includes('percepatan');
+            const filteredBySeg = stationPos.filter(p => {
+              const seg = String(p.segmen || p.tahapPembangunan || p.tahap_pembangunan || '').toLowerCase();
+              return isPerc ? seg.includes('percepatan') : !seg.includes('percepatan');
+            });
+
+            const cand = filteredBySeg.length > 0 ? filteredBySeg : stationPos;
+
+            // Ekstrak angka dari nama tahap (misal: 1024 dari 'Percepatan Brumbung 1024', 1152 dari 'Expand Reguler 1152HP', 585 dari '585-Handover')
+            const numMatch = targetTahap.match(/\d+/);
+            const num = numMatch ? numMatch[0] : '';
+            if (num) {
+              matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes(num));
+            }
+
+            // Aturan alias khusus per stasiun
+            if (!matched) {
+              if (targetSt.includes('sulur')) {
+                if (cleanT.includes('544')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '') === 'reguler512');
+                else if (cleanT.includes('608')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '') === 'reguler512a');
+              } else if (targetSt.includes('wadu')) {
+                if (cleanT.includes('regulera') || cleanT.includes('regulerb')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '') === 'reguler512a');
+                else if (cleanT.includes('regulerc')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '') === 'reguler512b');
+              } else if (targetSt.includes('kalibodri')) {
+                if (cleanT.includes('kjn') || cleanT.includes('1552')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes('1552'));
+                else if (cleanT.includes('duit') || cleanT.includes('512')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes('512'));
+              } else if (targetSt.includes('weleri')) {
+                if (cleanT.includes('585')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes('585'));
+                else if (cleanT.includes('512')) matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes('512'));
+              } else if (targetSt.includes('randublatung')) {
+                matched = cand.find(p => cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '').includes('512'));
+              }
+            }
+
+            // Fallback fase generik Tahap 1, 2, 3, 4
+            if (!matched) {
+              if (cleanT.includes('tahap1')) {
+                matched = cand.find(p => {
+                  const pC = cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '');
+                  return (pC.includes('512') && !pC.includes('512a') && !pC.includes('512b') && !pC.includes('512c')) || pC.includes('tahap1');
+                }) || cand[0];
+              } else if (cleanT.includes('tahap2') || cleanT.includes('regulera')) {
+                matched = cand.find(p => {
+                  const pC = cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '');
+                  return pC.includes('512a') || pC.includes('tahap2') || pC.includes('a');
+                });
+              } else if (cleanT.includes('tahap3') || cleanT.includes('regulerb')) {
+                matched = cand.find(p => {
+                  const pC = cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '');
+                  return pC.includes('512b') || pC.includes('tahap3') || pC.includes('b');
+                });
+              } else if (cleanT.includes('tahap4') || cleanT.includes('regulerc')) {
+                matched = cand.find(p => {
+                  const pC = cleanTahapStr(p.tahapPembangunan || p.tahap_pembangunan || '');
+                  return pC.includes('512c') || pC.includes('tahap4') || pC.includes('c');
+                });
+              }
+            }
+
+            // Jika hanya ada 1 PO pada segmen tersebut di stasiun
+            if (!matched && cand.length === 1) {
+              matched = cand[0];
+            }
+          }
+
+          if (matched) {
+            return matched.noPoRelease || matched.no_po_release || '-';
+          }
+          return '-';
+        };
+
+        // Cek apakah dataset yang diekspor adalah khusus Pelanggan Aktif
+        const isExportAktifOnly = (filterStatus && filterStatus.length > 0 && filterStatus.every(s => String(s).toUpperCase() === 'AKTIF' || String(s).toLowerCase() === 'sudah')) ||
+          String(customLabel || '').toLowerCase().includes('aktif') ||
+          (rowsToExport.length > 0 && rowsToExport.every(item => {
+            const rawA = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+            const g = String(getGlobalStatusStr(item)).toUpperCase();
+            return rawA === 'sudah' || rawA === 'aktif' || rawA.includes('aktif') || g === 'AKTIF' || g.includes('AKTIF') || g.includes('DONE');
+          }));
+
+        // Deteksi apakah ada catatan pending, kendala, atau dismantle yang relevan di data yang diekspor
+        const hasPendingData = !isExportAktifOnly && rowsToExport.some(item => {
+          const g = String(getGlobalStatusStr(item)).toUpperCase();
+          return g === 'PENDING' || Boolean(item.catatanPending);
+        });
+
+        const hasKendalaData = !isExportAktifOnly && rowsToExport.some(item => {
+          const g = String(getGlobalStatusStr(item)).toUpperCase();
+          return g.includes('KENDALA') || Boolean(item.issueKendala);
+        });
+
+        const hasDismantleData = !isExportAktifOnly && rowsToExport.some(item => {
+          const rawA = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+          const g = String(getGlobalStatusStr(item)).toUpperCase();
+          return rawA.includes('dismantle') || g.includes('DISMANTLE') || Boolean(item.woDismantle) || Boolean(item.reasonDismantle);
+        });
+
         const exportRows = rowsToExport.map((item, index) => {
           const rawAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
           const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
           let displayStatusStr = 'WAITING';
           if (globalStat.includes('KENDALA')) displayStatusStr = 'KENDALA';
+          else if (rawAktivasi === 'pending' || globalStat === 'PENDING') displayStatusStr = 'PENDING';
           else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif' || globalStat === 'AKTIF') displayStatusStr = 'AKTIF';
           else if (rawAktivasi === 'ready to dismantle' || globalStat === 'READY TO DISMANTLE') displayStatusStr = 'READY TO DISMANTLE';
           else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle' || globalStat === 'DISMANTLED') displayStatusStr = 'DISMANTLED';
@@ -15296,7 +17197,29 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           else if (rawAktivasi === 'kendala') displayStatusStr = 'KENDALA';
           else displayStatusStr = getGlobalStatusStr(item);
 
-          return {
+          const rawOdpStr = String(item.odpAktual || item.odp || item.kodeOdp || '').trim();
+          let tahapOdp = '';
+          if (rawOdpStr && odpMap.size > 0) {
+            const cleanKey = rawOdpStr.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+            const normalizedKey = cleanOdpStr(rawOdpStr).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+            const matched = odpMap.get(cleanKey) || odpMap.get(normalizedKey);
+            if (matched && (matched.tahapPembangunan || matched.tahap_pembangunan)) {
+              tahapOdp = matched.tahapPembangunan || matched.tahap_pembangunan;
+            }
+          }
+          if (!tahapOdp) {
+            tahapOdp = item.tahapPembangunan || item.tahap_pembangunan || item.tahap || '';
+          }
+
+          const nomorPo = resolveNomorPo(item, tahapOdp);
+
+          const rawTglAktivasi = item.tglAktivasi || item.tanggalAktivasi || item.timestampAktivasi || item.tgl_aktivasi || item.tanggal_aktivasi || '';
+          let tglAktivasiFormatted = '';
+          if (rawTglAktivasi) {
+            tglAktivasiFormatted = formatDateDisplay(rawTglAktivasi) || String(rawTglAktivasi).substring(0, 10);
+          }
+
+          const row = {
             'No': index + 1,
             'ID Pelanggan': item.idPelanggan || '',
             'Nama Pelanggan': item.namaPelanggan || '',
@@ -15306,16 +17229,37 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             'Stasiun': toProperCase(item.stasiun) || '',
             'ODP': item.odpAktual || item.odp || '',
             'Port ODP': (item.portOdp !== undefined && item.portOdp !== null) ? String(item.portOdp) : '',
+            'Tahap Pembangunan': tahapOdp || '-',
+            'Nomor PO': nomorPo || '-',
             'Status IKR': item.ikr || item.statusIkr || 'Belum',
+            'IKR Partner': item.ikrPartner || item.ikr_partner || '-',
+            'Nama Sales': item.namaSales || item.nama_sales || '-',
             'Status Aktivasi': displayStatusStr,
-            'Telat Bayar (Hari)': (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) ? Number(item.telatBayarHari) : '',
-            'Tanggal Exp / Berakhir': item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : ''
+            'Tanggal Aktivasi': tglAktivasiFormatted || '-'
           };
+
+          if (hasPendingData) {
+            row['Catatan Pending'] = displayStatusStr === 'PENDING' ? (item.catatanPending || item.issueKendala || '') : (item.catatanPending || '');
+          }
+
+          if (hasKendalaData) {
+            row['Issue Kendala'] = displayStatusStr === 'PENDING' ? '' : (item.issueKendala || '');
+          }
+
+          row['Telat Bayar (Hari)'] = (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) ? Number(item.telatBayarHari) : '';
+          row['Tanggal Exp / Berakhir'] = item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : '';
+
+          if (hasDismantleData) {
+            row['WO Dismantle'] = item.woDismantle || '';
+            row['Alasan Dismantle'] = item.reasonDismantle || '';
+          }
+
+          return row;
         });
 
         const ws = XLSX.utils.json_to_sheet(exportRows);
 
-        ws['!cols'] = [
+        const colWidths = [
           { wch: 6 },  // No
           { wch: 15 }, // ID Pelanggan
           { wch: 28 }, // Nama Pelanggan
@@ -15323,13 +17267,33 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           { wch: 40 }, // Alamat
           { wch: 22 }, // Catatan
           { wch: 16 }, // Stasiun
-          { wch: 16 }, // ODP
+          { wch: 24 }, // ODP
           { wch: 10 }, // Port ODP
+          { wch: 22 }, // Tahap Pembangunan
+          { wch: 25 }, // Nomor PO
           { wch: 13 }, // Status IKR
+          { wch: 24 }, // IKR Partner
+          { wch: 20 }, // Nama Sales
           { wch: 22 }, // Status Aktivasi
-          { wch: 18 }, // Telat Bayar (Hari)
-          { wch: 24 }  // Tanggal Exp / Berakhir
+          { wch: 18 }  // Tanggal Aktivasi
         ];
+
+        if (hasPendingData) {
+          colWidths.push({ wch: 25 }); // Catatan Pending
+        }
+        if (hasKendalaData) {
+          colWidths.push({ wch: 25 }); // Issue Kendala
+        }
+
+        colWidths.push({ wch: 18 }); // Telat Bayar (Hari)
+        colWidths.push({ wch: 24 }); // Tanggal Exp / Berakhir
+
+        if (hasDismantleData) {
+          colWidths.push({ wch: 35 }); // WO Dismantle
+          colWidths.push({ wch: 30 }); // Alasan Dismantle
+        }
+
+        ws['!cols'] = colWidths;
 
         // Format styling header (Warna Biru Muda)
         if (ws['!ref']) {
@@ -15373,8 +17337,9 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
           if (filterStation) nameParts.push(String(filterStation).trim().replace(/\s+/g, '_'));
           if (filterSales) nameParts.push(String(filterSales).trim().replace(/\s+/g, '_'));
           if (filterStatus && filterStatus.length > 0) nameParts.push(filterStatus.join('_').replace(/\s+/g, '-'));
+          if (filterStartDate || filterEndDate) nameParts.push(`${filterStartDate || 'Awal'}_sd_${filterEndDate || 'Akhir'}`);
           if (searchTerm) nameParts.push('Search');
-          if (!filterStation && !filterSales && (!filterStatus || filterStatus.length === 0) && !searchTerm) {
+          if (!filterStation && !filterSales && (!filterStatus || filterStatus.length === 0) && !filterStartDate && !filterEndDate && !searchTerm) {
             nameParts = ['Data_Semua_Pelanggan'];
           }
         }
@@ -15428,9 +17393,9 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
       )}
 
       {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-4 mb-2 sm:mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 sm:gap-3.5 mb-2 sm:mb-4">
         {isPageLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
+          Array.from({ length: 7 }).map((_, i) => (
             <div
               key={i}
               className="px-2 sm:px-4 py-2 sm:py-3 min-h-[48px] sm:min-h-0 rounded-lg sm:rounded-2xl border border-slate-200/70 bg-white flex flex-col justify-between shadow-sm animate-pulse"
@@ -15445,6 +17410,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
         ) : (
           [
             { label: 'WAITING', key: 'WAITING', icon: 'clock', color: 'amber' },
+            { label: 'PENDING', key: 'PENDING', icon: 'hourglass', color: 'blue' },
             { label: 'AKTIF', key: 'AKTIF', icon: 'check-circle', color: 'emerald' },
             { label: 'KENDALA', key: 'KENDALA', icon: 'alert-triangle', color: 'rose' },
             { label: 'SUSPEND', key: 'SUSPEND', icon: 'pause-circle', color: 'orange' },
@@ -15491,9 +17457,22 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
               <Icon name="wrench" size={14} className="text-white" />
             </div>
             <div>
-              <h4 className="text-xs sm:text-sm font-black text-amber-900 leading-tight">
-                Prioritas : Pelanggan Ready To Dismantle
-              </h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-xs sm:text-sm font-black text-amber-900 leading-tight">
+                  Prioritas : Pelanggan Ready To Dismantle
+                </h4>
+                {isSyncingDismantle ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300/80 animate-pulse">
+                    <Icon name="refresh-cw" size={10} className="animate-spin text-amber-700" />
+                    Sinkronisasi WO API...
+                  </span>
+                ) : dismantleSyncTime ? (
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300/80">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                    Auto-Sync: {dismantleCounts.withWo} WO Aktif
+                  </span>
+                ) : null}
+              </div>
               <p className="text-[10px] sm:text-xs text-amber-800/80 mt-0.5">
                 ID pelanggan yang sudah muncul WO Dismantle ke teknisi.
               </p>
@@ -15536,6 +17515,17 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 {dismantleCounts.withoutWo}
               </span>
             </button>
+
+            {/* Tombol sinkron cepat WO Dismantle */}
+            <button
+              type="button"
+              onClick={() => triggerDismantleSync(true)}
+              disabled={isSyncingDismantle}
+              className="p-1.5 rounded-lg bg-white hover:bg-amber-100/80 text-amber-800 border border-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
+              title="Sinkronkan ulang WO Dismantle dari Web Partner sekarang"
+            >
+              <Icon name="refresh-cw" size={13} className={isSyncingDismantle ? 'animate-spin text-amber-700' : ''} />
+            </button>
           </div>
         </div>
       )}
@@ -15552,6 +17542,30 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-xs sm:text-sm"
           />
         </div>
+
+        {/* PILL FILTER TANGGAL AKTIF */}
+        {(filterStartDate || filterEndDate) && (
+          <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-xs font-semibold shrink-0 animate-fade shadow-2xs">
+            <Icon name="calendar" size={13} className="text-blue-500 shrink-0" />
+            <span className="truncate max-w-[200px] sm:max-w-xs">
+              {filterDateType !== 'AUTO' ? `${dateTypeOptions.find(o => o.val === filterDateType)?.label || 'Tanggal'}: ` : 'Rentang: '}
+              {filterStartDate ? formatDateDisplay(filterStartDate) : 'Awal'} s/d {filterEndDate ? formatDateDisplay(filterEndDate) : 'Sekarang'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterStartDate('');
+                setFilterEndDate('');
+                setTempFilterStartDate('');
+                setTempFilterEndDate('');
+              }}
+              className="ml-1 p-0.5 hover:bg-blue-200/60 rounded text-blue-500 hover:text-blue-800 transition-colors"
+              title="Hapus filter rentang tanggal"
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        )}
 
         <div className="flex gap-1.5 sm:gap-2 w-full md:w-auto relative flex-wrap sm:flex-nowrap justify-end">
 
@@ -15620,6 +17634,9 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   setTempFilterStation(filterStation);
                   setTempFilterSales(filterSales);
                   setTempFilterStatus(filterStatus);
+                  setTempFilterStartDate(filterStartDate);
+                  setTempFilterEndDate(filterEndDate);
+                  setTempFilterDateType(filterDateType);
                 }
               }}
               className={`w-full flex items-center justify-center gap-1.5 sm:gap-2 border px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors ${activeFilterCount > 0 || isFilterModalOpen ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
@@ -15633,12 +17650,12 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             </button>
 
             {isFilterModalOpen && (
-              <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 sm:mt-3 w-64 sm:w-72 bg-white border border-slate-200 shadow-2xl rounded-xl sm:rounded-2xl p-4 sm:p-5 z-50 origin-top-left sm:origin-top-right animate-dropdown">
+              <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 sm:mt-3 w-72 sm:w-80 bg-white border border-slate-200 shadow-2xl rounded-xl sm:rounded-2xl p-4 sm:p-5 z-50 origin-top-left sm:origin-top-right animate-dropdown">
                 {(isStationDropdownOpen || isStatusDropdownOpen || isSalesDropdownOpen) && (
                   <div className="fixed inset-0 z-[55]" onClick={(e) => { e.stopPropagation(); setIsStationDropdownOpen(false); setIsStatusDropdownOpen(false); setIsSalesDropdownOpen(false); }}></div>
                 )}
 
-                <div className="flex justify-between items-center mb-3 sm:mb-5 border-b border-slate-100 pb-2 sm:pb-3 relative z-[56]">
+                <div className="flex justify-between items-center mb-3 sm:mb-4 border-b border-slate-100 pb-2 sm:pb-3 relative z-[56]">
                   <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center">
                     <Icon name="list-filter" size={16} className="mr-2 text-blue-500 sm:w-[18px] sm:h-[18px]" />
                     Filter Data
@@ -15648,9 +17665,15 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       setTempFilterStation('');
                       setTempFilterSales('');
                       setTempFilterStatus([]);
+                      setTempFilterStartDate('');
+                      setTempFilterEndDate('');
+                      setTempFilterDateType('AUTO');
                       setFilterStation('');
                       setFilterSales('');
                       setFilterStatus([]);
+                      setFilterStartDate('');
+                      setFilterEndDate('');
+                      setFilterDateType('AUTO');
                     }}
                     className="text-[10px] sm:text-xs text-rose-500 hover:text-rose-700 font-bold bg-rose-50 hover:bg-rose-100 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-colors"
                   >
@@ -15794,11 +17817,127 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                     )}
                   </div>
 
+                  {/* 4. FILTER RENTANG TANGGAL */}
+                  <div className="relative border-t border-slate-100 pt-3 mt-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[9px] sm:text-[11px] font-bold text-slate-500 block uppercase tracking-wider flex items-center gap-1">
+                        <Icon name="calendar" size={12} className="text-blue-500" /> Rentang Tanggal
+                      </label>
+                      {(tempFilterStartDate || tempFilterEndDate) && (
+                        <button
+                          type="button"
+                          onClick={() => { setTempFilterStartDate(''); setTempFilterEndDate(''); }}
+                          className="text-[9px] sm:text-[10px] text-rose-500 hover:text-rose-700 font-semibold transition-colors"
+                        >
+                          Hapus Tgl
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Tipe Tanggal */}
+                    <div className="mb-2">
+                      <select
+                        value={tempFilterDateType}
+                        onChange={(e) => setTempFilterDateType(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all cursor-pointer"
+                      >
+                        {dateTypeOptions.map(opt => (
+                          <option key={opt.val} value={opt.val}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Inputs Tanggal Dari & Sampai */}
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      <div>
+                        <span className="text-[9px] text-slate-400 font-bold block mb-0.5 uppercase">Dari</span>
+                        <input
+                          type="date"
+                          value={tempFilterStartDate}
+                          onChange={(e) => setTempFilterStartDate(e.target.value)}
+                          className="w-full p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 font-bold block mb-0.5 uppercase">Sampai</span>
+                        <input
+                          type="date"
+                          value={tempFilterEndDate}
+                          min={tempFilterStartDate || undefined}
+                          onChange={(e) => setTempFilterEndDate(e.target.value)}
+                          className="w-full p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Preset Buttons */}
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                          setTempFilterStartDate(today);
+                          setTempFilterEndDate(today);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded text-[10px] font-semibold transition-colors"
+                      >
+                        Hari Ini
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                          const startD = new Date(now.getTime() - 6 * 86400000);
+                          const start = `${startD.getFullYear()}-${String(startD.getMonth() + 1).padStart(2, '0')}-${String(startD.getDate()).padStart(2, '0')}`;
+                          setTempFilterStartDate(start);
+                          setTempFilterEndDate(end);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded text-[10px] font-semibold transition-colors"
+                      >
+                        7 Hari
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                          const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                          const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                          setTempFilterStartDate(start);
+                          setTempFilterEndDate(end);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded text-[10px] font-semibold transition-colors"
+                      >
+                        Bulan Ini
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                          const start = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}-01`;
+                          const lastDay = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate();
+                          const end = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                          setTempFilterStartDate(start);
+                          setTempFilterEndDate(end);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded text-[10px] font-semibold transition-colors"
+                      >
+                        Bulan Lalu
+                      </button>
+                    </div>
+                  </div>
+
                   <button
                     onClick={() => {
                       setFilterStation(tempFilterStation);
                       setFilterSales(tempFilterSales);
                       setFilterStatus(tempFilterStatus);
+                      setFilterStartDate(tempFilterStartDate);
+                      setFilterEndDate(tempFilterEndDate);
+                      setFilterDateType(tempFilterDateType);
                       setIsFilterModalOpen(false);
                     }}
                     className="w-full mt-4 sm:mt-6 bg-blue-600 text-white text-xs sm:text-sm font-bold py-2 sm:py-2.5 rounded-lg sm:rounded-xl hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all transform active:scale-[0.98]"
@@ -15897,6 +18036,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             let displayStatusStr = 'WAITING';
 
             if (globalStat.includes('KENDALA')) displayStatusStr = 'KENDALA';
+            else if (rawAktivasi === 'pending' || globalStat === 'PENDING') displayStatusStr = 'PENDING';
             else if (rawAktivasi === 'sudah') displayStatusStr = 'AKTIF';
             else if (rawAktivasi === 'belum') displayStatusStr = 'WAITING';
             else if (rawAktivasi === 'kendala') displayStatusStr = 'KENDALA';
@@ -15909,7 +18049,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
             let umurWoStr = '';
             let isWoLama = false;
-            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && item.tanggalRegistrasi) {
+            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
               const stdDate = standardizeDate(item.tanggalRegistrasi);
               if (stdDate) {
                 const regDate = new Date(stdDate);
@@ -15939,6 +18079,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             let statusColor = "bg-slate-100 text-slate-700 border-slate-200";
             if (displayStatusStr.includes("AKTIF") || displayStatusStr === "DONE") {
               statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200";
+            } else if (displayStatusStr === "PENDING" || displayStatusStr.includes("PENDING")) {
+              statusColor = "bg-blue-100 text-blue-700 border-blue-200";
             } else if (displayStatusStr.includes("WAITING")) {
               statusColor = "bg-amber-100 text-amber-700 border-amber-200";
             } else if (displayStatusStr.includes("KENDALA")) {
@@ -16100,9 +18242,23 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                   {item.alamat || 'Alamat tidak tersedia'}
                 </div>
 
-                {/* Kendala Mobile Row */}
+                {/* Pending & Kendala Mobile Row */}
                 {(() => {
                   if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
+
+                  if (displayStatusStr === 'PENDING') {
+                    const notePending = item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                    if (!notePending) return null;
+                    return (
+                      <div className="flex items-start gap-1.5 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded-md ml-6">
+                        <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal leading-tight italic">
+                          <span className="font-bold text-blue-800">PENDING:</span> {notePending}
+                        </span>
+                      </div>
+                    );
+                  }
+
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
                   if (!hasKendala && !issueText) return null;
@@ -16114,6 +18270,30 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       </span>
                     </div>
                   );
+                })()}
+
+                {/* Petugas / Active WO Badge (Mobile) */}
+                {(() => {
+                  const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
+                  if (activeDispatch) {
+                    const techUsername = activeDispatch.username || (activeDispatch.petugas?.startsWith('@') ? activeDispatch.petugas : `@${activeDispatch.petugas}`);
+                    const badgeProps = getWoDispatchBadgeProps(activeDispatch, item);
+                    return (
+                      <div className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded ml-6 w-fit shadow-2xs border ${badgeProps.badgeClass}`} title={badgeProps.title}>
+                        <Icon name={badgeProps.icon} size={10} className={`${badgeProps.iconClass} shrink-0`} />
+                        <span>WO: {techUsername}</span>
+                      </div>
+                    );
+                  }
+                  if (item.petugasAktivasi || item.petugasIkr) {
+                    return (
+                      <div className="flex items-center text-[9px] text-slate-400 pl-6" title={`Petugas: ${item.petugasAktivasi || item.petugasIkr}`}>
+                        <Icon name="user" size={9} className="mr-1 shrink-0" />
+                        <span className="truncate max-w-[180px]">{item.petugasAktivasi || item.petugasIkr}</span>
+                      </div>
+                    );
+                  }
+                  return null;
                 })()}
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-50 ml-6">
@@ -16146,7 +18326,14 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                       const woProps = getWoActionProps(displayStatusStr);
                       return (
                         <button
-                          onClick={() => setActionModal({ type: 'log', data: item, initialTask: woProps.task })}
+                          onClick={() => {
+                            const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
+                            setActionModal({
+                              type: 'log',
+                              data: { ...item, activeWo: item.activeWo || activeDispatch },
+                              initialTask: (activeDispatch?.tipe ? activeDispatch.tipe.toLowerCase() : woProps.task)
+                            });
+                          }}
                           className={`p-1.5 rounded transition-colors flex items-center justify-center ${woProps.btnClass}`}
                           title={woProps.title}
                         >
@@ -16256,6 +18443,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 let displayStatusStr = 'WAITING';
 
                 if (globalStat.includes('KENDALA')) displayStatusStr = 'KENDALA';
+                else if (rawAktivasi === 'pending' || globalStat === 'PENDING') displayStatusStr = 'PENDING';
                 else if (rawAktivasi === 'sudah') displayStatusStr = 'AKTIF';
                 else if (rawAktivasi === 'belum') displayStatusStr = 'WAITING';
                 else if (rawAktivasi === 'kendala') displayStatusStr = 'KENDALA';
@@ -16268,7 +18456,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
 
                 let umurWoStr = '';
                 let isWoLama = false;
-                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && item.tanggalRegistrasi) {
+                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
                   const stdDate = standardizeDate(item.tanggalRegistrasi);
                   if (stdDate) {
                     const regDate = new Date(stdDate);
@@ -16298,6 +18486,8 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                 let statusColor = "bg-slate-100 text-slate-700 border-slate-200";
                 if (displayStatusStr.includes("AKTIF") || displayStatusStr === "DONE") {
                   statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200";
+                } else if (displayStatusStr === "PENDING" || displayStatusStr.includes("PENDING")) {
+                  statusColor = "bg-blue-100 text-blue-700 border-blue-200";
                 } else if (displayStatusStr.includes("WAITING")) {
                   statusColor = "bg-amber-100 text-amber-700 border-amber-200";
                 } else if (displayStatusStr.includes("KENDALA")) {
@@ -16544,7 +18734,7 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                                 {isReadyToDismantle && (
                                   hasWo ? (
                                     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0" title={`IKR : ${woDismantle.teknisi}`}>
-                                      <Icon name="wrench" size={9} className="text-blue-500 shrink-0" />
+                                      <Icon name="package-minus" size={9} className="text-blue-500 shrink-0" />
                                       <span className="truncate max-w-[130px]">IKR : {woDismantle.teknisi}</span>
                                     </div>
                                   ) : (
@@ -16595,34 +18785,66 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                             })()
                           )}
 
-                          {/* BARIS 2: NOTE KENDALA DI BAWAH BADGE (1 BARIS LENGKAP) */}
+                          {/* BARIS 2: NOTE PENDING ATAU KENDALA DI BAWAH BADGE */}
                           {(() => {
                             if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
+
+                            // Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass)
+                            if (displayStatusStr === 'PENDING') {
+                              const notePending = item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                              if (!notePending) return null;
+                              return (
+                                <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[260px]">
+                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 px-2 py-1 rounded-md" title={notePending}>
+                                    <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-bold italic line-clamp-2 break-words">
+                                      <span className="font-extrabold text-blue-800">PENDING:</span> {notePending}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Jika Bukan PENDING: Tampilkan Catatan Kendala (Warna Merah)
                             const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                             const issueText = issue && issue !== item.alamat ? issue : '';
 
                             if (!hasKendala && !issueText) return null;
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[250px]">
-                                {(hasKendala || issueText) && (
-                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1 rounded-md" title={item.issueKendala || issueText}>
-                                    <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-bold italic line-clamp-2 break-words"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
+                                <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1 rounded-md" title={item.issueKendala || issueText}>
+                                  <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
+                                  <span className="leading-snug font-bold italic line-clamp-2 break-words"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* BARIS 3: PETUGAS (JIKA ADA) ATAU WO DISPATCH */}
+                          {(() => {
+                            const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
+                            const techUsername = activeDispatch ? (activeDispatch.username || (activeDispatch.petugas?.startsWith('@') ? activeDispatch.petugas : `@${activeDispatch.petugas}`)) : '';
+                            const badgeProps = activeDispatch ? getWoDispatchBadgeProps(activeDispatch, item) : null;
+
+                            return (
+                              <div className="flex flex-col gap-1 mt-0.5">
+                                {activeDispatch && badgeProps && (
+                                  <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold border shadow-2xs w-fit ${badgeProps.badgeClass}`} title={badgeProps.title}>
+                                    <Icon name={badgeProps.icon} size={9} className={`${badgeProps.iconClass} shrink-0`} />
+                                    <span className="truncate max-w-[130px]">WO: {techUsername}</span>
+                                  </div>
+                                )}
+                                {!activeDispatch && (item.petugasAktivasi || item.petugasIkr) && (
+                                  <div className="flex items-center text-[10px] text-slate-400" title={`Petugas: ${item.petugasAktivasi || item.petugasIkr}`}>
+                                    <Icon name="user" size={10} className="mr-1 shrink-0" />
+                                    <span className="truncate max-w-[140px]">
+                                      {item.petugasAktivasi || item.petugasIkr}
+                                    </span>
                                   </div>
                                 )}
                               </div>
                             );
                           })()}
-
-                          {/* BARIS 3: PETUGAS (JIKA ADA) */}
-                          {(item.petugasIkr || item.petugasAktivasi) && (
-                            <div className="mt-0.5 flex items-center text-[10px] text-slate-400">
-                              <Icon name="user" size={10} className="mr-1 shrink-0" />
-                              <span className="truncate max-w-[140px]">
-                                {item.petugasAktivasi || item.petugasIkr}
-                              </span>
-                            </div>
-                          )}
                         </div>
                       )}
                     </td>
@@ -16633,7 +18855,14 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
                           const woProps = getWoActionProps(displayStatusStr);
                           return (
                             <button
-                              onClick={() => setActionModal({ type: 'log', data: item, initialTask: woProps.task })}
+                              onClick={() => {
+                                const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
+                                setActionModal({
+                                  type: 'log',
+                                  data: { ...item, activeWo: item.activeWo || activeDispatch },
+                                  initialTask: (activeDispatch?.tipe ? activeDispatch.tipe.toLowerCase() : woProps.task)
+                                });
+                              }}
                               className={`p-1.5 rounded transition-colors ${woProps.btnClass}`}
                               title={woProps.title}
                             >
@@ -16704,11 +18933,15 @@ function DatabaseView({ pelangganData, visitData, odpData, onRefresh, onGoToCove
             visitData={visitData}
             onGoToHistory={onGoToHistory}
 
-            // ðŸ‘‡ INI DIA KABEL PENGHUBUNG YANG KEMUNGKINAN TERLEWAT ðŸ‘‡
+            // Kabel penghubung aksi lokal
             onLocalPelangganUpdate={onLocalPelangganUpdate}
             onLocalVisitUpdate={onLocalVisitUpdate}
+            onLocalWoDispatchAdd={onLocalWoDispatchAdd}
+            onLocalWoDispatchDelete={onLocalWoDispatchDelete}
+            woDispatchData={woDispatchData}
             petugasList={petugasList}
             odpData={odpData}
+            detailPoData={poReleaseData || []}
           />
         )}
 

@@ -4,17 +4,7 @@ import { parseKmlOrKmz } from '../utils/kmlHelper';
 
 const BUCKET_NAME = "kmz-master";
 
-// Komponen Icon Vektor Lucide
-const Icon = ({ name, size = 16, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => {
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current });
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 // Helper: Format ukuran file dalam KB/MB
 function formatFileSize(bytes) {
@@ -284,7 +274,7 @@ export default function MasterKmlModal({ isOpen, onClose, onPlotToMap }) {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm animate-fade"
+        className="absolute inset-0 bg-slate-950/70 animate-fade"
         onClick={() => !uploadProgress && onClose()} 
       />
 

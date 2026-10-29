@@ -280,7 +280,7 @@ export default function OutstandingMobileView({ data }) {
       <div className="absolute top-3 left-3 right-3 z-[999] flex flex-col gap-2 pointer-events-none">
 
         {/* Station Selector – z tertinggi */}
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg pointer-events-auto border border-white/80 relative z-[1001]">
+        <div className="bg-white rounded-2xl shadow-xl pointer-events-auto border border-slate-200 relative z-[1001]">
           <div
             className="flex items-center justify-between px-4 py-3 cursor-pointer"
             onClick={() => setIsStationOpen(!isStationOpen)}
@@ -317,7 +317,7 @@ export default function OutstandingMobileView({ data }) {
 
         {/* Status Filter Chips — tampil setelah stasiun dipilih, sembunyi saat dropdown terbuka */}
         {selectedStation && !isStationOpen && (
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-lg pointer-events-auto border border-white/80 p-3 relative z-[999]">
+          <div className="bg-white rounded-2xl shadow-xl pointer-events-auto border border-slate-200 p-3 relative z-[999]">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-[11px] font-black text-slate-700">Filter Status</h3>
               <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg text-[10px] font-bold">

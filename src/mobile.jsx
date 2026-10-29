@@ -4,9 +4,12 @@ import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import BastPartnerModal from './components/BastPartnerModal';
-import { fetchPartnerBastToday, getTodayWibDateString, formatToWibTime } from './services/partnerBastService.js';
+import { supabase } from './supabaseClient';
+import { fetchPartnerBastToday, formatToWibTime } from './services/partnerBastService.js';
 import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
-import { isPercepatanCustomer } from './utils';
+import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
+import { syncDismantlingFast } from './services/partnerDismantleService.js';
+import { isPercepatanCustomer, buildOdpLookupMap, formatDateDisplay, getWoDismantleInfo } from './utils';
 import './index.css';
 
 const DetailRow = ({ label, value, isLink, href }) => value ? (
@@ -53,7 +56,6 @@ const EditableRow = ({ label, fieldKey, value, options, type = "text", onChangeO
     </div>
   );
 };
-import { createClient } from '@supabase/supabase-js';
 import OkupansiMobileView from './components/OkupansiMobileView';
 import OutstandingMobileView from './components/OutstandingMobileView';
 
@@ -61,7 +63,6 @@ import OutstandingMobileView from './components/OutstandingMobileView';
 const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0bWZlcnlza3BibmFjbHV5YWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTkxNjksImV4cCI6MjEwMjY5NTE2OX0.QCtYEUipE1wBBQ7hy1wbNu2L7T7P5v4pKqkVEu221Jw";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Helper untuk parse dokumen dari Supabase ke camelCase React
 const parseSupabaseDocument = (fields) => {
@@ -80,10 +81,11 @@ const parseSupabaseDocument = (fields) => {
     aktivasi: fields.status_aktivasi || fields.aktivasi || "Belum",
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
-    issueKendala: fields.issue_kendala || "",
-    tglAktivasi: fields.tgl_aktivasi || "",
-    tglIkr: fields.tgl_ikr || "",
-    timestampAktivasi: fields.timestamp_aktivasi || fields.tgl_aktivasi || "",
+    catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
+    issueKendala: ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? "" : (fields.issue_kendala || "")),
+    tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
+    tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
+    timestampAktivasi: fields.timestamp_aktivasi || fields.tgl_aktivasi || fields.tanggal_aktivasi || "",
     tanggalKendala: fields.tanggal_kendala || "",
     petugasAktivasi: fields.petugas_aktivasi || "",
     petugasIkr: fields.petugas_ikr || "",
@@ -95,10 +97,12 @@ const parseSupabaseDocument = (fields) => {
     tanggalBerakhir: fields.tanggal_berakhir || "",
     telatBayarHari: (fields.telat_bayar_hari !== undefined && fields.telat_bayar_hari !== null && fields.telat_bayar_hari !== "") ? Number(fields.telat_bayar_hari) : null,
     namaSales: (fields.nama_sales && fields.nama_sales.trim()) ? fields.nama_sales.trim() : (fields.sales && fields.sales.trim() ? fields.sales.trim() : ""),
+    ikrPartner: (fields.ikr_partner && String(fields.ikr_partner).trim()) ? String(fields.ikr_partner).trim() : (fields.nama_ikr_partner && String(fields.nama_ikr_partner).trim() ? String(fields.nama_ikr_partner).trim() : (fields.ikrPartner || "")),
     updatedAt: fields.updated_at || fields.updatedAt || "",
     createdAt: fields.created_at || fields.createdAt || "",
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
-    reasonDismantle: fields.reason_dismantle || "",
+    woDismantle: fields.wo_dismantle || fields.woDismantle || (String(fields.reason_dismantle || '').includes('[WO DISMANTLE]') ? fields.reason_dismantle : ""),
+    reasonDismantle: (fields.reason_dismantle || "").replace(/\[WO DISMANTLE\][^\n]*/g, "").trim(),
     fotoDismantle: fields.foto_dismantle || ""
   };
 };
@@ -215,25 +219,78 @@ const deduplicateVisitData = (items) => {
     }
   });
 
-  // Secondary consolidation by idPelanggan + timestamp
-  const secondMap = new Map();
+  // Secondary consolidation: eliminasi duplikasi double-submit (timestamp sangat dekat / OPEN di hari yang sama)
+  const parseVisitTimeMs = (ts) => {
+    if (!ts) return null;
+    const parts = String(ts).match(/(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+    if (parts) {
+      return new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5], parts[6] || 0).getTime();
+    }
+    const d = new Date(ts);
+    return !isNaN(d.getTime()) ? d.getTime() : null;
+  };
+
+  const secondList = [];
   for (const item of map.values()) {
-    const secKey = `${item.idPelanggan || item.id_pelanggan}_${item.timestamp || ''}`;
-    if (!secondMap.has(secKey)) {
-      secondMap.set(secKey, item);
+    const custId = String(item.idPelanggan || item.id_pelanggan || '').trim().toUpperCase();
+    const itemTime = parseVisitTimeMs(item.timestamp);
+    const itemDate = typeof standardizeDate === 'function' ? standardizeDate(item.timestamp) : '';
+    const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
+
+    let matchedIdx = -1;
+    if (custId) {
+      matchedIdx = secondList.findIndex(existing => {
+        const existCust = String(existing.idPelanggan || existing.id_pelanggan || '').trim().toUpperCase();
+        if (existCust !== custId) return false;
+
+        const existDate = typeof standardizeDate === 'function' ? standardizeDate(existing.timestamp) : '';
+        const existTime = parseVisitTimeMs(existing.timestamp);
+        const existIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
+
+        // 1. Jika timestamp-nya selisih sangat kecil (< 5 menit / 300.000 ms), pasti duplikat submit
+        if (itemTime && existTime && Math.abs(itemTime - existTime) < 300000) {
+          return true;
+        }
+
+        // 2. Jika pada hari yang sama keduanya berstatus OPEN, gabungkan menjadi 1 tiket
+        if (itemDate && existDate && itemDate === existDate && !itemIsDone && !existIsDone) {
+          return true;
+        }
+
+        return false;
+      });
+    }
+
+    if (matchedIdx === -1) {
+      secondList.push(item);
     } else {
-      const existing = secondMap.get(secKey);
+      const existing = secondList[matchedIdx];
       const existingIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
-      const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
-      
-      if (!existing.id && item.id) {
-        secondMap.set(secKey, { ...existing, ...item });
-      } else if (itemIsDone && !existingIsDone) {
-        secondMap.set(secKey, { ...existing, ...item });
-      }
+
+      // Merge data dan ambil field yang lebih lengkap (misal nomorHp yang tidak kosong)
+      const existingHp = existing.nomorHp || existing.nomor_hp || '';
+      const itemHp = item.nomorHp || item.nomor_hp || '';
+      const chosenHp = existingHp.length >= itemHp.length ? existingHp : itemHp;
+
+      secondList[matchedIdx] = {
+        ...existing,
+        ...item,
+        id: existing.id || item.id,
+        nomorHp: chosenHp,
+        nomor_hp: chosenHp,
+        catatan: (existing.catatan && existing.catatan !== '-') ? existing.catatan : (item.catatan || existing.catatan || ''),
+        status: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
+        status_visit: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
+        tindakan: existing.tindakan || item.tindakan || existing.perbaikan || item.perbaikan || '',
+        material: existing.material || item.material || existing.usedMaterials || item.usedMaterials || '',
+        penyebab: existing.penyebab || item.penyebab || '',
+        evidence: existing.evidence || item.evidence || '',
+        waktuClose: existing.waktuClose || item.waktuClose || ''
+      };
     }
   }
-  return Array.from(secondMap.values());
+
+  return secondList;
 };
 
 // Helper untuk menghitung durasi penanganan gangguan (Time To Resolve / TTR)
@@ -359,35 +416,16 @@ const toProperCase = (str) => {
   return String(str).split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 };
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxha3aQ0CjaVWJi0_XfCn-T67xu_RKBCAQShKPw-Ex5nykS17v9Roc42LoGPd2m2LfQ/exec";
-
-const api = {
-  run: async (actionName, payloadData = {}) => {
-    try {
-      const response = await fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: actionName, payload: payloadData })
-      });
-      if (!response.ok) return { success: false, error: `HTTP Error ${response.status}` };
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        return { success: false, error: "Respon server tidak valid." };
-      }
-      if (result.error || result.success === false) return { success: false, error: result.error || result.message || "Gagal memproses data." };
-      return result;
-    } catch (error) {
-      console.warn(`[API - ${actionName}]:`, error.message || error);
-      return { success: false, error: error.message || "Gagal menghubungi server." };
-    }
-  }
-};
-
 const TELEGRAM_BOT_TOKEN = "8789065775:AAEsOr7g1myDHyHPPuhuujNR07euM3tNmEs";
+
+// Helper sanitasi teks untuk Telegram Bot API (HTML parse_mode)
+const escapeTelegramHtml = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+};
 
 const sendTelegramVisitDM = async (payload, petugasList = []) => {
   try {
@@ -397,53 +435,70 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
 
-    let targetTeknisi = null;
-    if (Array.isArray(petugasList) && petugasList.length > 0) {
-      targetTeknisi = petugasList.find(t =>
-        String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-        String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-        String(t.id || '') === rawPetugas ||
-        String(t.chatId || '') === rawPetugas
-      );
-    }
+    const allCandidates = [
+      ...(Array.isArray(petugasList) ? petugasList : []),
+      ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
+    ];
 
-    if (!targetTeknisi) {
-      const cached = getCachedData('otas_teknisi_cache');
-      if (Array.isArray(cached) && cached.length > 0) {
-        targetTeknisi = cached.find(t =>
-          String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-          String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase()
-        );
+    const matches = allCandidates.filter(t =>
+      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
+      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
+      String(t.id || '') === rawPetugas ||
+      String(t.chatId || '') === rawPetugas
+    );
+    let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
+
+    if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
+      try {
+        const { data: dbPetugas } = await supabase
+          .from('petugas')
+          .select('id, nama, username, chat_id')
+          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .not('chat_id', 'is', null)
+          .limit(1);
+        if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
+          targetTeknisi = {
+            id: dbPetugas[0].id,
+            nama: dbPetugas[0].nama,
+            username: dbPetugas[0].username,
+            chatId: dbPetugas[0].chat_id
+          };
+        }
+      } catch (e) {
+        console.warn("Fallback query Supabase petugas visit:", e);
       }
     }
 
-    if (!targetTeknisi || !targetTeknisi.chatId) {
-      console.warn("Tidak dapat mengirim DM Telegram: chatId tidak ditemukan untuk", rawPetugas);
+    const chatId = targetTeknisi.chatId || targetTeknisi.chat_id;
+    if (!chatId || String(chatId).trim().startsWith('-')) {
+      console.warn("Batal kirim DM Telegram: chatId terdeteksi sebagai Group ID (" + chatId + ") atau tidak valid untuk", rawPetugas);
       return;
     }
-
-    const chatId = targetTeknisi.chatId;
-    const namaAsli = targetTeknisi.nama || rawPetugas;
-    const usernameDisplay = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const rawNama = targetTeknisi.nama || rawPetugas;
+    const namaAsli = escapeTelegramHtml(rawNama);
+    const rawUsername = targetTeknisi.username ? (targetTeknisi.username.startsWith('@') ? targetTeknisi.username : '@' + targetTeknisi.username) : '';
+    const usernameDisplay = escapeTelegramHtml(rawUsername);
 
     let msg = `🚨 <b>TIKET BARU (ASSIGNED)</b> 🚨\n\n`;
     msg += `Halo <b>${namaAsli} ${usernameDisplay ? `(${usernameDisplay})` : ''}</b>,\nKamu baru saja ditugaskan untuk mengecek kendala/visit berikut:\n\n`;
-    msg += `🆔 <b>ID Pelanggan:</b> ${payload.idPelanggan || '-'}\n`;
-    msg += `👤 <b>Pelanggan:</b> ${payload.namaPelanggan || '-'}\n`;
-    msg += `📍 <b>Stasiun:</b> ${payload.stasiun || '-'}\n`;
+    msg += `🆔 <b>ID Pelanggan:</b> ${escapeTelegramHtml(payload.idPelanggan || '-')}\n`;
+    msg += `👤 <b>Pelanggan:</b> ${escapeTelegramHtml(payload.namaPelanggan || '-')}\n`;
+    msg += `📍 <b>Stasiun:</b> ${escapeTelegramHtml(payload.stasiun || '-')}\n`;
     if (payload.latitude && payload.longitude && payload.latitude !== '-' && payload.longitude !== '-') {
-      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${payload.latitude},${payload.longitude}">${payload.latitude}, ${payload.longitude}</a>\n`;
+      const lat = encodeURIComponent(String(payload.latitude).trim());
+      const lng = encodeURIComponent(String(payload.longitude).trim());
+      msg += `🗺️ <b>Tikor:</b> <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}">${escapeTelegramHtml(payload.latitude)}, ${escapeTelegramHtml(payload.longitude)}</a>\n`;
     } else {
       msg += `🗺️ <b>Tikor:</b> -\n`;
     }
-    msg += `📞 <b>Kontak:</b> ${payload.nomorHp || '-'}\n`;
-    msg += `⚠️ <b>Keluhan:</b> ${payload.keluhan || '-'}\n`;
+    msg += `📞 <b>Kontak:</b> ${escapeTelegramHtml(payload.nomorHp || '-')}\n`;
+    msg += `⚠️ <b>Keluhan:</b> ${escapeTelegramHtml(payload.keluhan || '-')}\n`;
     if (payload.catatan) {
-      msg += `📝 <b>Catatan:</b> ${payload.catatan}\n`;
+      msg += `📝 <b>Catatan:</b> ${escapeTelegramHtml(payload.catatan)}\n`;
     }
     msg += `\n<i>Mohon segera berkoordinasi dan tindak lanjuti. Jangan lupa update status ke bot (Close) setelah selesai. Semangat! 🛠️</i>`;
 
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -453,85 +508,14 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
         disable_web_page_preview: false
       })
     });
-    console.log("Berhasil kirim DM Assign Tiket ke", namaAsli, chatId);
+    const resJson = await res.json().catch(() => null);
+    if (resJson && !resJson.ok) {
+      console.warn("Gagal kirim DM Telegram ke", rawNama, chatId, resJson.description);
+    } else {
+      console.log("Berhasil kirim DM Assign Tiket ke", rawNama, chatId);
+    }
   } catch (err) {
     console.warn("Gagal kirim DM Telegram:", err);
-  }
-};
-
-const GOOGLE_SHEET_VISIT_CSV_URL = "https://docs.google.com/spreadsheets/d/13jcv3tNA4ncAj7WTv4xE0_Tb63_FU5JF0hLIfasJk2M/gviz/tq?tqx=out:csv&gid=263928205";
-
-const fetchGoogleSheetVisitData = async () => {
-  try {
-    const response = await fetch(GOOGLE_SHEET_VISIT_CSV_URL);
-    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
-    const csvText = await response.text();
-
-    const rows = [];
-    let currentRow = [];
-    let currentCell = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < csvText.length; i++) {
-      const char = csvText[i];
-      const nextChar = csvText[i + 1];
-
-      if (char === '"') {
-        if (inQuotes && nextChar === '"') {
-          currentCell += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        currentRow.push(currentCell.trim());
-        currentCell = '';
-      } else if ((char === '\r' || char === '\n') && !inQuotes) {
-        if (char === '\r' && nextChar === '\n') i++;
-        currentRow.push(currentCell.trim());
-        if (currentRow.some(c => c !== '')) rows.push(currentRow);
-        currentRow = [];
-        currentCell = '';
-      } else {
-        currentCell += char;
-      }
-    }
-    if (currentCell || currentRow.length > 0) {
-      currentRow.push(currentCell.trim());
-      if (currentRow.some(c => c !== '')) rows.push(currentRow);
-    }
-
-    if (rows.length < 2) return [];
-
-    return rows.slice(1).map(cols => {
-      const getVal = (idx) => cols[idx] ? String(cols[idx]).trim() : '';
-      return {
-        timestamp: getVal(0),
-        idPelanggan: getVal(1),
-        namaPelanggan: getVal(2),
-        stasiun: getVal(3),
-        keluhan: getVal(4),
-        catatan: getVal(5),
-        status: getVal(6) || 'OPEN',
-        odpAktual: getVal(7),
-        portOdp: getVal(8),
-        snOnt: getVal(9),
-        nomorHp: getVal(10),
-        latitude: getVal(11),
-        longitude: getVal(12),
-        penyebab: getVal(13),
-        perbaikan: getVal(14),
-        tindakan: getVal(14),
-        material: getVal(15),
-        usedMaterials: getVal(15),
-        petugas: getVal(16),
-        evidence: getVal(17),
-        waktuClose: getVal(18)
-      };
-    }).filter(v => v.idPelanggan || v.namaPelanggan || v.timestamp);
-  } catch (err) {
-    console.error('Failed to fetch Visit_Log from Google Sheet:', err);
-    return [];
   }
 };
 
@@ -547,12 +531,22 @@ const Icon = ({ name, size = 20, className = "" }) => {
   return <LucideIcon size={size} className={className} />;
 };
 
-const standardizeDate = (dateStr) => {
+function standardizeDate(dateStr) {
   if (!dateStr) return '';
   let str = String(dateStr).trim();
   if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
 
-  // 1. Check ISO timestamp with timezone (T and Z or + offset)
+  // 1. Check GMT / Full Date Strings with timezone (e.g. "Wed May 20 2026 17:38:00 GMT+0700 (Western Indonesia Time)")
+  if (str.includes('GMT') || str.includes('Western Indonesia Time') || /^[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+      } catch (_e) {}
+    }
+  }
+
+  // 2. Check ISO timestamp with timezone (T and Z or + offset)
   if (str.includes('T') && (str.endsWith('Z') || str.includes('+') || str.includes('-0') || str.includes('+0'))) {
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
@@ -562,7 +556,7 @@ const standardizeDate = (dateStr) => {
     }
   }
 
-  // 2. Extract date part: split on comma, T, or space, and remove trailing punctuation
+  // 3. Extract date part: split on comma, T, or space, and remove trailing punctuation
   let datePart = str.split(',')[0].trim().split(/[T ]/)[0].trim().replace(/[,;]+$/, '');
 
   // Check YYYY-MM-DD
@@ -633,7 +627,7 @@ const getFinalPelangganStatus = (item) => {
   if (valAktivasi === 'AKTIF' || valAktivasi === 'SUDAH') globalStat = "AKTIF";
   else if (valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) globalStat = "KENDALA";
   else if (valAktivasi === 'SUSPEND') globalStat = "SUSPEND";
-  else if (valAktivasi === 'READY TO DISMANTLE') globalStat = "READY TO DISMANTLE";
+  else if (valAktivasi === 'READY TO DISMANTLE' || valAktivasi === 'DISMANTLING') globalStat = "READY TO DISMANTLE";
   else if (valAktivasi === 'DISMANTLED' || valAktivasi === 'DISMANTLE') globalStat = "DISMANTLED";
   else if (valIkr === 'BELUM' && valAktivasi === 'BELUM') globalStat = "WAITING";
   else if (item.tahapPembangunan) globalStat = String(item.tahapPembangunan).toUpperCase();
@@ -644,7 +638,7 @@ const getFinalPelangganStatus = (item) => {
   if (globalStat.includes('KENDALA')) finalStatus = 'KENDALA';
   else if (rawAktivasi === 'sudah' || rawAktivasi === 'aktif') finalStatus = 'AKTIF';
   else if (rawAktivasi === 'belum') finalStatus = 'WAITING';
-  else if (rawAktivasi === 'ready to dismantle') finalStatus = 'READY TO DISMANTLE';
+  else if (rawAktivasi === 'ready to dismantle' || rawAktivasi === 'dismantling') finalStatus = 'READY TO DISMANTLE';
   else if (rawAktivasi === 'dismantled' || rawAktivasi === 'dismantle') finalStatus = 'DISMANTLED';
   else if (rawAktivasi === 'suspend') finalStatus = 'SUSPEND';
   else if (rawAktivasi === 'kendala') finalStatus = 'KENDALA';
@@ -1002,31 +996,18 @@ const MobileApp = () => {
         const tglAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
         return isIkr && (tglIkr === todayStrLocal || tglAkt === todayStrLocal) && p.petugasIkr === petugasName;
       } else if (type === 'kendala') {
-        if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
-          return false; // Ditangani terpisah di bawah
-        }
-        const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala');
-        const reporter = p.reporterKendala || p.petugasAktivasi || 'Unknown';
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
+        const isAktifOrDone = String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('sudah') ||
+          String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('aktif') ||
+          String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('dismantle');
+        const hasActiveIssue = Boolean(p.issueKendala || p.issue_kendala) && !isAktifOrDone;
+        const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala') || hasActiveIssue;
+        const reporter = p.reporterKendala || p.reporter_kendala || p.petugasAktivasi || p.petugasIkr || 'Unknown';
+        const rawDate = p.tanggalKendala || p.tanggal_kendala || p.timestampKendala || p.waktuLapor || p.createdAt || p.created_at;
+        const tglKendala = standardizeDate(rawDate);
         return isKendala && reporter === petugasName && tglKendala === todayStrLocal;
       }
       return false;
     });
-
-    if (type === 'kendala' && data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
-      const d = new Date();
-      const todayStrLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      
-      const sheetItems = data.dataKendalaSheet.filter(p => {
-        const matched = (data.pelangganData || []).find(pl => String(pl.idPelanggan || pl.id_pelanggan || '').trim().toUpperCase() === String(p.idPelanggan || '').trim().toUpperCase());
-        if (matched && getFinalPelangganStatus(matched) !== 'KENDALA') return false;
-        if (!matched && getFinalPelangganStatus(p) !== 'KENDALA') return false;
-        const reporter = p.reporterKendala || 'Unknown';
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
-        return reporter === petugasName && tglKendala === todayStrLocal;
-      });
-      items.push(...sheetItems);
-    }
 
     if (items.length > 0) {
       openListModal({ isOpen: true, title: `Report ${type.toUpperCase()} - @${String(petugasName).replace('@', '')}`, type: type, items });
@@ -1049,19 +1030,16 @@ const MobileApp = () => {
 
   const openKendalaModal = () => {
     if (isGlobalLoading) return;
-    let items = [];
-    if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
-      items = data.dataKendalaSheet.filter(p => {
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
-        return tglKendala === todayStr;
-      });
-    } else {
-      items = (data.pelangganData || []).filter(p => {
-        const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala');
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
-        return isKendala && tglKendala === todayStr;
-      });
-    }
+    const items = (data.pelangganData || []).filter(p => {
+      const isAktifOrDone = String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('sudah') ||
+        String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('aktif') ||
+        String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('dismantle');
+      const hasActiveIssue = Boolean(p.issueKendala || p.issue_kendala) && !isAktifOrDone;
+      const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala') || hasActiveIssue;
+      const rawDate = p.tanggalKendala || p.tanggal_kendala || p.timestampKendala || p.waktuLapor || p.createdAt || p.created_at;
+      const tglKendala = standardizeDate(rawDate);
+      return isKendala && tglKendala === todayStr;
+    });
 
     if (items.length > 0) {
       openListModal({ isOpen: true, title: 'Kendala Harian', type: 'kendala', items });
@@ -1118,20 +1096,20 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
-        setCachedData('otas_pelanggan_cache_v6', null);
+        setCachedData('otas_pelanggan_cache_v7', null);
         setCachedData('otas_cache_visit', null);
-        setCachedData('otas_odp_cache_v4', null);
+        setCachedData('otas_odp_cache_v5', null);
       }
       setGlobalError(null);
 
-      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v6');
+      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v7');
       if (cachedPelanggan && cachedPelanggan.length < 5000) {
         cachedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v6', null);
+        setCachedData('otas_pelanggan_cache_v7', null);
       }
 
       const cachedVisit = getCachedData('otas_cache_visit');
-      const cachedOdp = getCachedData('otas_odp_cache_v4');
+      const cachedOdp = getCachedData('otas_odp_cache_v5');
 
       let finalPelanggan = cachedPelanggan;
       let finalVisit = cachedVisit;
@@ -1141,12 +1119,19 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
-        const pelangganCols = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
+        const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
+        const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
+        const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
+
+        const fetchPelanggan = () => fetchAllSupabaseData('data_pelanggan', pelangganColsWithIkrPartner, 'id_pelanggan')
+          .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsWithWo, 'id_pelanggan'))
+          .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsBase, 'id_pelanggan'));
+
         fetchPromises.push(
-          fetchAllSupabaseData('data_pelanggan', pelangganCols, 'id_pelanggan')
+          fetchPelanggan()
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v6', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v7', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -1228,20 +1213,59 @@ const MobileApp = () => {
         teknisiData: finalPetugas || prev.teknisiData
       }));
 
-      // Background sync nama sales dari Partner API jika force sync
+      // Background sync cepat pelanggan baru (maks 3 halaman per stasiun), nama sales, & WO Dismantle
       if (force) {
-        syncSalesFromPartnerApi({
-          pelangganList: finalPelanggan || data.pelangganData,
-          maxPages: 4
-        }).then(res => {
-          if (res && res.success && (res.updatedCount > 0 || (res.salesMap && Object.keys(res.salesMap).length > 0))) {
-            const updatedMap = new Map();
-            if (res.updatedList && res.updatedList.length > 0) {
-              res.updatedList.forEach(u => updatedMap.set(String(u.id_pelanggan).trim().toUpperCase(), u.nama_sales));
+        Promise.allSettled([
+          syncNewCustomersFast({
+            pelangganList: finalPelanggan || data.pelangganData,
+            maxPagesPerStation: 3
+          }),
+          syncSalesFromPartnerApi({
+            pelangganList: finalPelanggan || data.pelangganData,
+            maxPages: 4
+          }),
+          syncDismantlingFast({
+            pelangganList: finalPelanggan || data.pelangganData
+          })
+        ]).then(([newCustSettled, salesSettled, dismantleSettled]) => {
+          const newCustRes = newCustSettled.status === 'fulfilled' ? newCustSettled.value : null;
+          const salesRes = salesSettled.status === 'fulfilled' ? salesSettled.value : null;
+          const dismantleRes = dismantleSettled.status === 'fulfilled' ? dismantleSettled.value : null;
+
+          const totalBaru = newCustRes?.newCount || 0;
+          const newActiveCount = newCustRes?.newActiveCount || 0;
+          const updatedActiveCount = newCustRes?.updatedActiveCount || 0;
+          const dismantleUpdatedCount = dismantleRes?.updatedCount || 0;
+
+          if (totalBaru > 0 || updatedActiveCount > 0 || dismantleUpdatedCount > 0) {
+            fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
+              if (freshRows && freshRows.length > 0) {
+                const parsed = freshRows.map(parseSupabaseDocument);
+                setCachedData('otas_pelanggan_cache_v7', parsed);
+                setData(prev => ({ ...prev, pelangganData: parsed }));
+              }
+            }).catch(e => console.warn('[MOBILE SYNC PARTNER] Gagal refetch pelanggan baru/aktif/dismantle:', e));
+          }
+
+          if (salesRes && salesRes.success && (salesRes.updatedCount > 0 || (salesRes.salesMap && Object.keys(salesRes.salesMap).length > 0) || (salesRes.ikrMap && Object.keys(salesRes.ikrMap).length > 0))) {
+            const updatedSalesMap = new Map();
+            const updatedIkrMap = new Map();
+
+            if (salesRes.updatedList && salesRes.updatedList.length > 0) {
+              salesRes.updatedList.forEach(u => {
+                const uid = String(u.id_pelanggan).trim().toUpperCase();
+                if (u.nama_sales) updatedSalesMap.set(uid, u.nama_sales);
+                if (u.ikr_partner) updatedIkrMap.set(uid, u.ikr_partner);
+              });
             }
-            if (res.salesMap) {
-              Object.entries(res.salesMap).forEach(([id, s]) => {
-                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedMap.set(String(id).trim().toUpperCase(), s);
+            if (salesRes.salesMap) {
+              Object.entries(salesRes.salesMap).forEach(([id, s]) => {
+                if (s && s !== 'Daftar Mandiri' && s !== '-') updatedSalesMap.set(String(id).trim().toUpperCase(), s);
+              });
+            }
+            if (salesRes.ikrMap) {
+              Object.entries(salesRes.ikrMap).forEach(([id, ikr]) => {
+                if (ikr && ikr !== '-') updatedIkrMap.set(String(id).trim().toUpperCase(), ikr);
               });
             }
 
@@ -1249,74 +1273,66 @@ const MobileApp = () => {
               let hasChanges = false;
               const nextList = (prev.pelangganData || []).map(p => {
                 const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-                if (updatedMap.has(id)) {
-                  const s = updatedMap.get(id);
-                  const cur = String(p.namaSales || p.nama_sales || '').trim();
+                let pSales = p.namaSales || p.nama_sales || '';
+                let pIkr = p.ikrPartner || p.ikr_partner || '';
+                let itemChanged = false;
+
+                if (updatedSalesMap.has(id)) {
+                  const s = updatedSalesMap.get(id);
+                  const cur = String(pSales).trim();
                   if (!cur || cur === '-' || cur.toLowerCase() === 'daftar mandiri' || cur !== s) {
-                    hasChanges = true;
-                    return { ...p, namaSales: s, nama_sales: s, sales: s };
+                    pSales = s;
+                    itemChanged = true;
                   }
+                }
+
+                if (updatedIkrMap.has(id)) {
+                  const ikrVal = updatedIkrMap.get(id);
+                  const curIkr = String(pIkr).trim();
+                  if (!curIkr || curIkr === '-' || curIkr !== ikrVal) {
+                    pIkr = ikrVal;
+                    itemChanged = true;
+                  }
+                }
+
+                if (itemChanged) {
+                  hasChanges = true;
+                  return {
+                    ...p,
+                    namaSales: pSales,
+                    nama_sales: pSales,
+                    sales: pSales,
+                    ikrPartner: pIkr,
+                    ikr_partner: pIkr
+                  };
                 }
                 return p;
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v6', nextList);
-                if (finalPelanggan) {
-                  finalPelanggan.forEach(p => {
-                    const id = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
-                    if (updatedMap.has(id)) {
-                      const s = updatedMap.get(id);
-                      p.namaSales = s;
-                      p.nama_sales = s;
-                      p.sales = s;
-                    }
-                  });
-                }
+                setCachedData('otas_pelanggan_cache_v7', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
             });
           }
-        }).catch(err => console.warn('[MOBILE SALES SYNC FAIL]:', err));
+        }).catch(err => console.warn('[MOBILE SYNC FAIL]:', err));
       }
 
-      // 5. Auxiliary Data dari Google Apps Script (Fast Dashboard)
-      api.run('getFastDashboardData')
-        .then(fastResult => {
-          if (fastResult && !fastResult.error) {
-            if (fastResult.teknisiData && Array.isArray(fastResult.teknisiData) && fastResult.teknisiData.length > 0) {
-              setCachedData('otas_teknisi_cache', fastResult.teknisiData);
-            }
-            setData(prev => ({
-              ...prev,
-              ...fastResult,
-              pelangganData: finalPelanggan || prev.pelangganData,
-              visitData: finalVisit || prev.visitData,
-              odpData: finalOdp || prev.odpData,
-              teknisiData: (fastResult?.teknisiData?.length > 0) ? fastResult.teknisiData : prev.teknisiData,
-              dataRegistrasi: fastResult?.dataRegistrasi?.length > 0 ? fastResult.dataRegistrasi : prev.dataRegistrasi,
-              dataKendalaSheet: (fastResult?.dataKendalaSheet && fastResult.dataKendalaSheet.length > 0) ? fastResult.dataKendalaSheet : (fastResult?.pelangganData ? fastResult.pelangganData.filter(p => getFinalPelangganStatus(p) === 'KENDALA') : prev.dataKendalaSheet),
-              petugasData: fastResult?.petugasData?.length > 0 ? fastResult.petugasData : prev.petugasData,
-              stationData: fastResult?.stationData?.length > 0 ? fastResult.stationData : prev.stationData,
-              detailPoData: (finalPo && finalPo.length > 0) ? finalPo : (fastResult?.detailPoData?.length > 0 ? fastResult.detailPoData : prev.detailPoData),
-              fastKpi: fastResult?.fastKpi || prev.fastKpi
-            }));
-          }
-        })
-        .catch(err => {
-          console.warn("Fast dashboard fetch failed:", err);
-        })
-        .finally(() => {
-          setIsGlobalLoading(false);
-          setIsSyncing(false);
-        });
+      // 5. Finalisasi data murni dari Supabase
+      setData(prev => ({
+        ...prev,
+        pelangganData: finalPelanggan || prev.pelangganData,
+        visitData: finalVisit || prev.visitData,
+        odpData: finalOdp || prev.odpData,
+        detailPoData: (finalPo && finalPo.length > 0) ? finalPo : prev.detailPoData
+      }));
+      setIsGlobalLoading(false);
 
     } catch (err) {
       console.error("Mobile fetchData error:", err);
       setGlobalError(err.message || "Gagal sinkronisasi data.");
       setIsGlobalLoading(false);
-      setIsSyncing(false);
     }
   };
 
@@ -1630,37 +1646,24 @@ const MobileApp = () => {
 
     });
 
-    // 2.5 Kendala Harian: Gunakan HANYA dari sheet BI6:BN jika ada, sesuai permintaan
-    if (data.dataKendalaSheet && data.dataKendalaSheet.length > 0) {
-      data.dataKendalaSheet.forEach(p => {
-        const matched = (data.pelangganData || []).find(pl => String(pl.idPelanggan || pl.id_pelanggan || '').trim().toUpperCase() === String(p.idPelanggan || '').trim().toUpperCase());
-        if (matched && getFinalPelangganStatus(matched) !== 'KENDALA') return;
-        if (!matched && getFinalPelangganStatus(p) !== 'KENDALA') return;
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
-        if (tglKendala === todayStr) {
-          const ptgsKdl = p.reporterKendala || 'Unknown';
-          if (String(ptgsKdl).toLowerCase() !== 'unknown') {
-            kendalaHarian++;
-            if (!reporterKendalaCounts[ptgsKdl]) reporterKendalaCounts[ptgsKdl] = { user: ptgsKdl, stasiun: p.stasiun || '-', value: 0 };
-            reporterKendalaCounts[ptgsKdl].value++;
-          }
-        }
-      });
-    } else {
-      // Fallback
-      (data.pelangganData || []).forEach(p => {
-        const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala');
-        const tglKendala = standardizeDate(p.tanggalKendala || p.timestampKendala || p.tglAktivasi || p.timestampAktivasi || p.tanggal || p.timestamp || p.waktuLapor);
-        if (isKendala && tglKendala === todayStr) {
-          const ptgsKdl = p.reporterKendala || p.petugasAktivasi || 'Unknown';
-          if (String(ptgsKdl).toLowerCase() !== 'unknown') {
-            kendalaHarian++;
-            if (!reporterKendalaCounts[ptgsKdl]) reporterKendalaCounts[ptgsKdl] = { user: ptgsKdl, stasiun: p.stasiun || '-', value: 0 };
-            reporterKendalaCounts[ptgsKdl].value++;
-          }
-        }
-      });
-    }
+    // 2.5 Kendala Harian: 100% murni dari Supabase data_pelanggan
+    (data.pelangganData || []).forEach(p => {
+      const isAktifOrDone = String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('sudah') ||
+        String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('aktif') ||
+        String(p.statusAktivasi || p.aktivasi || '').toLowerCase().includes('dismantle');
+      const hasActiveIssue = Boolean(p.issueKendala || p.issue_kendala) && !isAktifOrDone;
+      const isKendala = (p.ikr || '').toLowerCase() === 'kendala' || (p.aktivasi || '').toLowerCase() === 'kendala' || String(p.statusAktivasi || '').toLowerCase().includes('kendala') || String(p.statusIkr || '').toLowerCase().includes('kendala') || hasActiveIssue;
+      if (!isKendala) return;
+
+      const rawDate = p.tanggalKendala || p.tanggal_kendala || p.timestampKendala || p.waktuLapor || p.createdAt || p.created_at;
+      const tglKendala = standardizeDate(rawDate);
+      if (tglKendala === todayStr) {
+        kendalaHarian++;
+        const ptgsKdl = p.reporterKendala || p.reporter_kendala || p.petugasAktivasi || p.petugasIkr || 'Sistem';
+        if (!reporterKendalaCounts[ptgsKdl]) reporterKendalaCounts[ptgsKdl] = { user: ptgsKdl, stasiun: p.stasiun || '-', value: 0 };
+        reporterKendalaCounts[ptgsKdl].value++;
+      }
+    });
 
     (data.visitData || []).forEach(v => {
       if (standardizeDate(v.timestamp) === todayStr) visitHarian++;
@@ -2166,41 +2169,100 @@ const MobileApp = () => {
     return [...filtered].sort((a, b) => parseMs(b.timestamp) - parseMs(a.timestamp));
   }, [data.visitData, gangguanFilter, gangguanSearch, gangguanDateFilter, gangguanDateStart, gangguanDateEnd, gangguanStationFilter]);
 
-  // STASIUN PERFORMANSI DINAMIS
+  // STASIUN PERFORMANSI DINAMIS (Single-pass grouping O(N))
   const performansiStationData = useMemo(() => {
     const rawStations = data.stationData || [];
-    const d = new Date();
-    const todayStrLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    // Hitung aktivasi selesai hari ini per stasiun
-    const stationAktifTodayMap = {};
-    (data.pelangganData || []).forEach(p => {
-      const ikrStat = String(p.statusIkr || p.status_ikr || p.ikr || '').toUpperCase();
-      const isAktif = ikrStat === 'SUDAH' || ikrStat.includes('DISMANTLE');
-      const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
-      if (isAktif && tAkt === todayStrLocal) {
-        let st = String(p.stasiun || '').toLowerCase().trim();
-        if (st === 'tawang') st = 'semarang tawang';
-        stationAktifTodayMap[st] = (stationAktifTodayMap[st] || 0) + 1;
-      }
-    });
-
     if (!rawStations || rawStations.length === 0) {
       return [];
     }
 
-    return rawStations.map(item => {
+    const d = new Date();
+    const todayStrLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const normalizeSt = (name) => {
+      let s = String(name || '').trim().toLowerCase();
+      if (s === 'tawang') return 'semarang tawang';
+      return s;
+    };
+
+    const stationLookup = rawStations.map(item => {
       const rawSt = String(item.stasiun || '').trim();
-      let stLower = rawSt.toLowerCase();
-      if (stLower === 'tawang') stLower = 'semarang tawang';
+      const stLower = normalizeSt(rawSt);
+      return { item, rawSt, stLower };
+    });
 
-      // Kapasitas HP dari PO Release Supabase
-      const poForStation = (data.detailPoData || []).filter(po => {
-        let pSt = String(po.stasiun || '').trim().toLowerCase();
-        if (pSt === 'tawang') pSt = 'semarang tawang';
-        return pSt === stLower || pSt.includes(stLower) || stLower.includes(pSt);
-      });
+    const findMatchedStKey = (rawName) => {
+      if (!rawName) return null;
+      const s = normalizeSt(rawName);
+      const exact = stationLookup.find(x => x.stLower === s);
+      if (exact) return exact.stLower;
+      const partial = stationLookup.find(x => x.stLower.includes(s) || s.includes(x.stLower));
+      return partial ? partial.stLower : null;
+    };
 
+    // 1. Group POs
+    const poByStation = {};
+    (data.detailPoData || []).forEach(po => {
+      const matchedKey = findMatchedStKey(po.stasiun);
+      if (!matchedKey) return;
+      if (!poByStation[matchedKey]) poByStation[matchedKey] = [];
+      poByStation[matchedKey].push(po);
+    });
+
+    // 2. Single-pass customer metrics aggregation
+    const odpLookupMap = buildOdpLookupMap(data.odpData);
+    const metricsByStation = {};
+
+    (data.pelangganData || []).forEach(p => {
+      const matchedKey = findMatchedStKey(p.stasiun);
+      if (!matchedKey) return;
+
+      if (!metricsByStation[matchedKey]) {
+        metricsByStation[matchedKey] = {
+          liveAktReg: 0,
+          liveAktPerc: 0,
+          liveHcAktReg: 0,
+          liveHcAktPerc: 0,
+          liveTotAkt: 0,
+          liveTotHcAkt: 0,
+          aktifToday: 0
+        };
+      }
+      const m = metricsByStation[matchedKey];
+
+      const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
+      const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
+
+      const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
+      const isSuspend = akt === 'SUSPEND';
+      const isReady = akt === 'READY TO DISMANTLE' || akt === 'DISMANTLING' || akt.includes('READY');
+      const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
+      const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
+
+      if (isAktivasi) {
+        m.liveTotAkt++;
+        if (isAktif) m.liveTotHcAkt++;
+
+        const isPerc = isPercepatanCustomer(p, odpLookupMap);
+        if (isPerc) {
+          m.liveAktPerc++;
+          if (isAktif) m.liveHcAktPerc++;
+        } else {
+          m.liveAktReg++;
+          if (isAktif) m.liveHcAktReg++;
+        }
+      }
+
+      // Hitung aktivasi selesai hari ini per stasiun
+      const isAktifToday = ikr === 'SUDAH' || ikr.includes('DISMANTLE');
+      const tAkt = standardizeDate(p.tglAktivasi || p.timestampAktivasi);
+      if (isAktifToday && tAkt === todayStrLocal) {
+        m.aktifToday++;
+      }
+    });
+
+    return stationLookup.map(({ item, rawSt, stLower }) => {
+      const poForStation = poByStation[stLower] || [];
       let poHpReg = 0;
       let poHpPerc = 0;
       if (poForStation.length > 0) {
@@ -2214,45 +2276,17 @@ const MobileApp = () => {
       }
       const hpVal = poHpReg + poHpPerc;
 
-      // Kalkulasi angka riil HC langsung dari data pelanggan aktual di Supabase
-      let liveAktReg = 0;
-      let liveAktPerc = 0;
-      let liveHcAktReg = 0;
-      let liveHcAktPerc = 0;
-      let liveTotAkt = 0;
-      let liveTotHcAkt = 0;
+      const m = metricsByStation[stLower] || {
+        liveAktReg: 0,
+        liveAktPerc: 0,
+        liveHcAktReg: 0,
+        liveHcAktPerc: 0,
+        liveTotAkt: 0,
+        liveTotHcAkt: 0,
+        aktifToday: 0
+      };
 
-      (data.pelangganData || []).forEach(p => {
-        let pSt = String(p.stasiun || '').trim().toLowerCase();
-        if (pSt === 'tawang') pSt = 'semarang tawang';
-        if (pSt !== stLower && !(stLower.includes(pSt) || pSt.includes(stLower))) return;
-
-        const akt = String(p.status_aktivasi || p.aktivasi || p.statusAktivasi || '').trim().toUpperCase();
-        const ikr = String(p.status_ikr || p.ikr || p.statusIkr || '').trim().toUpperCase();
-
-        const isAktif = akt === 'AKTIF' || akt === 'SUDAH';
-        const isSuspend = akt === 'SUSPEND';
-        const isReady = akt === 'READY TO DISMANTLE';
-        const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
-        const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
-
-        if (isAktivasi) {
-          liveTotAkt++;
-          if (isAktif) liveTotHcAkt++;
-
-          const isPerc = isPercepatanCustomer(p, data.odpData);
-          if (isPerc) {
-            liveAktPerc++;
-            if (isAktif) liveHcAktPerc++;
-          } else {
-            liveAktReg++;
-            if (isAktif) liveHcAktReg++;
-          }
-        }
-      });
-
-      const aktifToday = stationAktifTodayMap[stLower] || 0;
-      const perf = hpVal > 0 ? ((liveTotAkt / hpVal) * 100).toFixed(2) : 0;
+      const perf = hpVal > 0 ? ((m.liveTotAkt / hpVal) * 100).toFixed(2) : 0;
 
       return {
         rawStasiun: rawSt,
@@ -2261,17 +2295,17 @@ const MobileApp = () => {
         hpPercepatan: poHpPerc.toLocaleString('id-ID'),
         hp: hpVal.toLocaleString('id-ID'),
         hpRaw: hpVal,
-        aktReguler: liveAktReg.toLocaleString('id-ID'),
-        aktPercepatan: liveAktPerc.toLocaleString('id-ID'),
-        total: liveTotAkt.toLocaleString('id-ID'),
-        hcAktifReguler: liveHcAktReg.toLocaleString('id-ID'),
-        hcAktifPercepatan: liveHcAktPerc.toLocaleString('id-ID'),
-        hc: liveTotHcAkt.toLocaleString('id-ID'),
-        aktif: aktifToday > 0 ? `+${aktifToday}` : '-',
+        aktReguler: m.liveAktReg.toLocaleString('id-ID'),
+        aktPercepatan: m.liveAktPerc.toLocaleString('id-ID'),
+        total: m.liveTotAkt.toLocaleString('id-ID'),
+        hcAktifReguler: m.liveHcAktReg.toLocaleString('id-ID'),
+        hcAktifPercepatan: m.liveHcAktPerc.toLocaleString('id-ID'),
+        hc: m.liveTotHcAkt.toLocaleString('id-ID'),
+        aktif: m.aktifToday > 0 ? `+${m.aktifToday}` : '-',
         performa: Number(perf)
       };
     });
-  }, [data.stationData, data.pelangganData, data.detailPoData]);
+  }, [data.stationData, data.pelangganData, data.detailPoData, data.odpData]);
 
   // DETAIL PO DITERAPKAN PER STASIUN
   const detailPoList = useMemo(() => {
@@ -2397,17 +2431,7 @@ const MobileApp = () => {
     let coords = parseCoordsFromInput(inputStr);
 
     if (!coords && (inputStr.includes('goo.gl') || inputStr.includes('maps.app'))) {
-      setIsParsingMapsLink(true);
-      showToast('Mengekstrak lokasi dari link pendek...', 'info');
-      try {
-        const res = await api.run('expandMapsLink', { url: inputStr });
-        if (res && res.success && res.url) {
-          coords = parseCoordsFromInput(res.url);
-        }
-      } catch (err) {
-        console.error("Gagal ekspansi link:", err);
-      }
-      setIsParsingMapsLink(false);
+      coords = parseCoordsFromInput(inputStr);
     }
 
     if (coords) {
@@ -2631,10 +2655,21 @@ const MobileApp = () => {
       }
       return { ...p, _status: status, _ageDays: ageDays, _ageHours: ageHours };
     }).sort((a, b) => {
-      // Sort WAITING by age descending (oldest first), others keep original order
+      // Sort WAITING by age descending (oldest first)
       if (a._status === 'WAITING' && b._status === 'WAITING') return b._ageDays - a._ageDays;
       if (a._status === 'WAITING') return -1;
       if (b._status === 'WAITING') return 1;
+
+      // Sort AKTIF by activation date descending (newest first)
+      if (a._status === 'AKTIF' && b._status === 'AKTIF') {
+        const parseDate = (item) => {
+          const raw = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+          if (!raw) return 0;
+          const std = standardizeDate(raw);
+          return std ? (new Date(std).getTime() || 0) : (new Date(raw).getTime() || 0);
+        };
+        return parseDate(b) - parseDate(a);
+      }
       return 0;
     });
   }, [data.pelangganData, pelangganSearch, pelangganStatusFilter, pelangganStationFilter]);
@@ -2814,7 +2849,9 @@ const MobileApp = () => {
         petugas_aktivasi: updateData.petugasAktivasi,
         petugas_ikr: updateData.petugasIkr,
         catatan: updateData.catatan,
-        issue_kendala: updateData.issueKendala
+        issue_kendala: updateData.issueKendala,
+        tahap_pembangunan: updateData.tahapPembangunan || updateData.tahap_pembangunan,
+        ikr_partner: updateData.ikrPartner || updateData.ikr_partner || null
       }).eq('id_pelanggan', idPelanggan);
 
       const updated = { 
@@ -3709,7 +3746,7 @@ const MobileApp = () => {
           {/* MODAL SELISIH LAPORAN */}
           {showDiscrepancyModal && createPortal(
             <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => setShowDiscrepancyModal(false)}></div>
+              <div className="absolute inset-0 bg-slate-950/70 animate-fade" onClick={() => setShowDiscrepancyModal(false)}></div>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 animate-modal flex flex-col border border-slate-100 overflow-hidden max-h-[85vh]">
                 {/* Header */}
                 <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between shrink-0">
@@ -3773,8 +3810,7 @@ const MobileApp = () => {
                   <button onClick={() => setShowDiscrepancyModal(false)} className="px-5 py-2 text-[11px] font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all active:scale-95 w-full">Tutup</button>
                 </div>
               </div>
-            </div>,
-            document.body
+            </div>
           )}
 
           {/* OVERVIEW HARIAN MODUL */}
@@ -4269,14 +4305,39 @@ const MobileApp = () => {
                               <Icon name="map-pin" size={9} /> {p.stasiun || '-'}
                             </span>
                           </div>
-                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
-                            {st === 'READY TO DISMANTLE' ? 'READY DISM.' : st}
-                          </span>
+                          {st === 'READY TO DISMANTLE' ? (
+                            (() => {
+                              const wo = getWoDismantleInfo(p);
+                              return wo?.hasWo ? (
+                                <span className="text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 bg-amber-500 text-white shadow-2xs">
+                                  SEDANG DIAMBIL
+                                </span>
+                              ) : (
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
+                                  READY DISM.
+                                </span>
+                              );
+                            })()
+                          ) : (
+                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
+                              {st}
+                            </span>
+                          )}
                         </div>
 
                         <div className="mb-2.5 pl-1">
                           <h4 className="text-[13px] font-bold text-slate-800 truncate">{p.namaPelanggan || p.nama || '-'}</h4>
                           <p className="text-[10px] text-slate-500 leading-snug line-clamp-1 mt-0.5">{p.alamat || '-'}</p>
+                          {st === 'READY TO DISMANTLE' && (() => {
+                            const wo = getWoDismantleInfo(p);
+                            if (!wo?.hasWo) return null;
+                            return (
+                              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 mt-1.5 text-[9px] font-bold text-blue-700">
+                                <Icon name="wrench" size={10} className="text-blue-500 shrink-0" />
+                                <span className="truncate">IKR : {wo.teknisi}</span>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <div className="flex flex-col gap-2 pt-2.5 border-t border-slate-100 pl-1">
@@ -4305,8 +4366,38 @@ const MobileApp = () => {
                               )}
                               {st === 'DISMANTLED' && p.tanggalDismantle && (
                                 <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-rose-50 text-rose-600 border-rose-200">
-                                  <Icon name="calendar" size={9} className="text-rose-400" /> Dismantle: {p.tanggalDismantle.substring(0, 10)}
+                                  <Icon name="calendar" size={9} className="text-rose-400" /> Dismantle: {formatDateDisplay(p.tanggalDismantle)}
                                 </span>
+                              )}
+                              {st === 'AKTIF' && (
+                                (() => {
+                                  const rawAkt = p.tglAktivasi || p.timestampAktivasi || p.tglIkr;
+                                  const tglAkt = formatDateDisplay(rawAkt);
+                                  return tglAkt ? (
+                                    <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                      <Icon name="calendar" size={9} className="text-emerald-500" /> Aktivasi: {tglAkt}
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
+                                      <Icon name="calendar" size={9} className="text-slate-400" /> Tgl Aktivasi: -
+                                    </span>
+                                  );
+                                })()
+                              )}
+                              {st === 'WAITING' && (
+                                (() => {
+                                  const rawReg = p.tanggalRegistrasi || p.createdAt;
+                                  const tglReg = formatDateDisplay(rawReg);
+                                  return tglReg ? (
+                                    <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                                      <Icon name="calendar" size={9} className="text-amber-500" /> Registrasi: {tglReg}
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
+                                      <Icon name="calendar" size={9} className="text-slate-400" /> Tgl Registrasi: -
+                                    </span>
+                                  );
+                                })()
                               )}
                             </div>
 
@@ -4331,8 +4422,21 @@ const MobileApp = () => {
                                 </div>
                               );
                             })()
+                          ) : st === 'PENDING' ? (
+                            (() => {
+                              const notePending = p.catatanPending || (p.issueKendala && p.issueKendala !== p.alamat ? p.issueKendala : '');
+                              if (!notePending) return null;
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-start gap-1.5 text-[9px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 px-2 py-1.5 rounded-md" title={notePending}>
+                                    <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
+                                    <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-blue-800">PENDING:</span> {notePending}</span>
+                                  </div>
+                                </div>
+                              );
+                            })()
                           ) : (
-                            (p.issueKendala && p.issueKendala !== p.alamat) && (
+                            (st !== 'AKTIF' && p.issueKendala && p.issueKendala !== p.alamat) && (
                               <div className="flex flex-col gap-1.5">
                                 <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1.5 rounded-md" title={p.issueKendala}>
                                   <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
@@ -4838,7 +4942,7 @@ const MobileApp = () => {
               <div className="bg-slate-100 rounded-xl h-56 border border-slate-200 overflow-hidden relative shadow-inner">
                 {/* Overlay Info Layer (z-index tinggi) */}
                 <div className="absolute top-2 left-2 right-2 flex justify-between items-start z-[500] pointer-events-none">
-                  <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 flex items-center gap-1.5 shadow-md pointer-events-auto max-w-[65%] truncate">
+                  <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 flex items-center gap-1.5 shadow-md pointer-events-auto max-w-[65%] truncate">
                     <Icon name="map-pin" size={12} className="text-indigo-600 shrink-0" />
                     <span className="truncate">{selectedCoverageCustomer ? (selectedCoverageCustomer.namaPelanggan || selectedCoverageCustomer.idPelanggan) : 'Titik Target'}</span>
                   </div>
@@ -4854,7 +4958,7 @@ const MobileApp = () => {
 
                 {/* State Kosong Peta (jika blm ada koordinat) */}
                 {(!coverageLat || !coverageLon) && (
-                  <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-[1px] flex flex-col justify-center items-center z-10 pointer-events-none">
+                  <div className="absolute inset-0 bg-slate-100/90 flex flex-col justify-center items-center z-10 pointer-events-none">
                     <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-2 text-indigo-600 shadow-sm border border-indigo-200">
                       <Icon name="map-pin" size={20} />
                     </div>
@@ -5220,9 +5324,9 @@ const MobileApp = () => {
       </nav>
 
       {/* MODAL LIST PELANGGAN */}
-      {listModal.isOpen && (
-        <div className="absolute inset-0 z-[999] flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={closeListModal}></div>
+      {listModal.isOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+          <div className="fixed inset-0 bg-slate-950/70 animate-fade" onClick={closeListModal}></div>
           <div className="bg-white w-full max-w-sm max-h-[80vh] rounded-2xl shadow-2xl relative z-10 flex flex-col animate-modal overflow-hidden">
             <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50">
               <div>
@@ -5318,18 +5422,19 @@ const MobileApp = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL INPUT TIKET BARU */}
       {showNewTicketModal && createPortal(
         <div className="fixed inset-0 z-[999] overflow-y-auto custom-scrollbar">
           <div className="min-h-screen px-4 py-10 flex items-center justify-center relative">
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade" onClick={() => !newTicketIsSaving && setShowNewTicketModal(false)}></div>
+            <div className="fixed inset-0 bg-slate-950/70 animate-fade" onClick={() => !newTicketIsSaving && setShowNewTicketModal(false)}></div>
             <div className="bg-white rounded-2xl w-full max-w-sm flex flex-col relative z-10 animate-modal shadow-2xl">
 
               {newTicketIsSaving && (
-                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-[99] flex flex-col items-center justify-center animate-fade rounded-2xl">
+                <div className="absolute inset-0 bg-white/95 z-[99] flex flex-col items-center justify-center animate-fade rounded-2xl">
                   <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-3"></div>
                   <h3 className="text-sm font-bold text-slate-800">Menyimpan Tiket...</h3>
                 </div>
@@ -5337,7 +5442,7 @@ const MobileApp = () => {
 
               <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 flex items-center justify-between text-white shrink-0 rounded-t-2xl">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                  <div className="w-8 h-8 rounded-full bg-white/25 flex items-center justify-center">
                     <Icon name="headset" size={16} className="text-white" />
                   </div>
                   <div>
@@ -5555,6 +5660,25 @@ const MobileApp = () => {
         const phone = String(sp.nomorHp || sp.hp || '').replace(/\D/g, '');
         const ageDays = sp._ageDays;
 
+        const custStation = sp.stasiun || selectedStation;
+        const normSt = (s) => String(s || '').trim().toLowerCase().replace(/^stasiun\s+/i, '');
+        const rawPo = data.detailPoData || getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache') || [];
+        const filteredPo = custStation ? rawPo.filter(p => normSt(p.stasiun) === normSt(custStation)) : rawPo;
+        const setTahap = new Set();
+        filteredPo.forEach(p => {
+          const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
+          if (t) setTahap.add(t);
+        });
+        if (setTahap.size === 0 && data.odpData) {
+          (data.odpData || []).forEach(o => {
+            if (!custStation || normSt(o.stasiun) === normSt(custStation)) {
+              const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+              if (t) setTahap.add(t);
+            }
+          });
+        }
+        const mobileAvailableTahaps = Array.from(setTahap).sort();
+
         return (
           <div
             className="fixed inset-0 bg-slate-900/60 z-[9999] flex items-end justify-center"
@@ -5618,6 +5742,7 @@ const MobileApp = () => {
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Port ODP" fieldKey="portOdp" value={sp.portOdp || sp.port || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="SN ONT" fieldKey="snOnt" value={sp.snOnt || sp.sn || sp.serialNumber || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Kabel Precon" fieldKey="kabelPrecon" value={sp.kabelPrecon || sp.panjangKabel || '-'} />
+                <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Tahap Pembangunan" fieldKey="tahapPembangunan" value={sp.tahapPembangunan || sp.tahap || sp.tahap_pembangunan || '-'} options={mobileAvailableTahaps} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Nama Sales" fieldKey="namaSales" value={sp.namaSales || '-'} />
 
                 {/* Status Info */}
@@ -5643,10 +5768,11 @@ const MobileApp = () => {
                     setEditPelangganForm({ ...editPelangganForm, aktivasi: val, ikr: val })
                   }}
                 />
-                {!isEditingPelanggan && <DetailRow label="Tgl Registrasi" value={sp.tanggalRegistrasi || '-'} />}
-                {!isEditingPelanggan ? <DetailRow label="Tgl Aktivasi" value={sp.tglAktivasi || '-'} /> : <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Tgl Aktivasi" fieldKey="tglAktivasi" value={sp.tglAktivasi || ''} type="datetime-local" />}
-                {!isEditingPelanggan ? <DetailRow label="Tgl IKR" value={sp.tglIkr || '-'} /> : <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Tgl IKR" fieldKey="tglIkr" value={sp.tglIkr || ''} type="datetime-local" />}
+                {!isEditingPelanggan && <DetailRow label="Tgl Registrasi" value={formatDateDisplay(sp.tanggalRegistrasi) || sp.tanggalRegistrasi || '-'} />}
+                {!isEditingPelanggan ? <DetailRow label="Tgl Aktivasi" value={formatDateDisplay(sp.tglAktivasi) || sp.tglAktivasi || '-'} /> : <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Tgl Aktivasi" fieldKey="tglAktivasi" value={sp.tglAktivasi || ''} type="datetime-local" />}
+                {!isEditingPelanggan ? <DetailRow label="Tgl IKR" value={formatDateDisplay(sp.tglIkr) || sp.tglIkr || '-'} /> : <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Tgl IKR" fieldKey="tglIkr" value={sp.tglIkr || ''} type="datetime-local" />}
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Petugas IKR" fieldKey="petugasIkr" value={sp.petugasIkr || sp.teknisiIkr || sp.teknisi || '-'} />
+                <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="IKR Partner" fieldKey="ikrPartner" value={sp.ikrPartner || sp.ikr_partner || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Petugas Aktivasi" fieldKey="petugasAktivasi" value={sp.petugasAktivasi || sp.user || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Catatan / Patokan" fieldKey="catatan" value={sp.catatan || '-'} />
                 <EditableRow isEditingPelanggan={isEditingPelanggan} editPelangganForm={editPelangganForm} setEditPelangganForm={setEditPelangganForm} label="Issue / Kendala" fieldKey="issueKendala" value={sp.issueKendala || '-'} />
@@ -5755,7 +5881,8 @@ const MobileApp = () => {
                         kabelPrecon: sp.kabelPrecon || sp.panjangKabel || '',
                         tglAktivasi: sp.tglAktivasi || '',
                         tglIkr: sp.tglIkr || '',
-                        petugasIkr: sp.petugasIkr || sp.teknisiIkr || sp.teknisi || ''
+                        petugasIkr: sp.petugasIkr || sp.teknisiIkr || sp.teknisi || '',
+                        ikrPartner: sp.ikrPartner || sp.ikr_partner || ''
                       });
                       setIsEditingPelanggan(true);
                     }} className="px-3.5 py-2.5 bg-amber-500 text-white rounded-xl text-[11px] font-bold active:scale-95 transition-transform shrink-0 flex items-center justify-center">

@@ -4,7 +4,7 @@ import { Activity, Briefcase, Package, DollarSign, Users, LogOut, ChevronRight }
 const HubCard = ({ title, description, icon: Icon, colorClass, isLocked, onClick }) => (
   <div 
     onClick={isLocked ? undefined : onClick}
-    className={`relative group bg-slate-800/80 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 transition-all duration-300 ${isLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-700/80 hover:border-slate-600 hover:shadow-xl hover:-translate-y-1'}`}
+    className={`relative group bg-slate-800 border border-slate-700 rounded-2xl p-6 transition-all duration-300 ${isLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-700 hover:border-slate-600 hover:shadow-xl hover:-translate-y-1'}`}
   >
     {isLocked && (
       <div className="absolute top-4 right-4 text-xs font-semibold px-2.5 py-1 bg-slate-900/80 text-slate-400 rounded-full border border-slate-700">
@@ -31,7 +31,7 @@ const PortalHub = ({ username, onLogout, onSelectApp }) => {
   return (
     <div className="min-h-screen bg-slate-900 relative page-enter">
       {/* Header */}
-      <header className="px-6 py-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50 flex items-center justify-between">
+      <header className="px-6 py-4 border-b border-slate-800 bg-slate-900 sticky top-0 z-50 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-lg">
             D

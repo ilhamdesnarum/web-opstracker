@@ -39,6 +39,9 @@ export const getGlobalStatusStr = (item) => {
   if (valAktivasi === 'READY TO DISMANTLE' || valAktivasi === 'DISMANTLING') return "READY TO DISMANTLE";
   if (valAktivasi === 'SUSPEND') return "SUSPEND";
 
+  // Status PENDING jika aktivasi/ikr diset PENDING (Reschedule / Janji Pasang)
+  if (valAktivasi === 'PENDING' || valIkr === 'PENDING') return "PENDING";
+
   // Status KENDALA mutlak hanya jika status aktivasi/ikr diset KENDALA
   if (valAktivasi === 'KENDALA' || valIkr === 'KENDALA' || valAktivasi.includes('KENDALA') || valIkr.includes('KENDALA')) return "KENDALA";
 
@@ -53,19 +56,21 @@ export const getGlobalStatusStr = (item) => {
 export const getWoDismantleInfo = (item) => {
   if (!item) return null;
   const rawAkt = String(item.aktivasi || item.statusAktivasi || item.status_aktivasi || '').trim().toUpperCase();
+  const rawWo = String(item.woDismantle || item.wo_dismantle || '').trim();
   const r = String(item.reasonDismantle || item.reason_dismantle || '').trim();
 
-  const hasWo = rawAkt === 'DISMANTLING' || r.includes('[WO DISMANTLE]') || r.includes('WO:');
+  const hasWo = rawAkt === 'DISMANTLING' || Boolean(rawWo) || r.includes('[WO DISMANTLE]') || r.includes('WO:');
   if (!hasWo) return null;
 
+  const targetStr = rawWo || r;
   let teknisi = '';
-  const techMatch = r.match(/Teknisi:\s*([^|()]+)/i);
+  const techMatch = targetStr.match(/Teknisi:\s*([^|()]+)/i);
   if (techMatch && techMatch[1]) {
     teknisi = techMatch[1].trim();
   }
 
   let ticket = '';
-  const ticketMatch = r.match(/Tiket:\s*([^|()]+)/i);
+  const ticketMatch = targetStr.match(/Tiket:\s*([^|()]+)/i);
   if (ticketMatch && ticketMatch[1]) {
     ticket = ticketMatch[1].trim();
   }
@@ -74,7 +79,7 @@ export const getWoDismantleInfo = (item) => {
     hasWo: true,
     teknisi: teknisi || item.petugasAktivasi || item.petugasIkr || 'Teknisi IKR',
     ticket: ticket,
-    rawReason: r
+    rawReason: rawWo || r
   };
 };
 
@@ -90,31 +95,58 @@ export const isPoPercepatan = (po) => {
   return false;
 };
 
+// --- Cache global untuk ODP Lookup Map agar tidak perlu re-indexing berulang kali ---
+let _cachedOdpArrayRef = null;
+let _cachedOdpMap = null;
+
+export const buildOdpLookupMap = (odpData = []) => {
+  if (odpData instanceof Map) return odpData;
+  if (!Array.isArray(odpData) || odpData.length === 0) return new Map();
+  if (odpData === _cachedOdpArrayRef && _cachedOdpMap) return _cachedOdpMap;
+
+  const map = new Map();
+  for (let i = 0; i < odpData.length; i++) {
+    const o = odpData[i];
+    if (!o) continue;
+    const l = o.label || o.nama_odp || o.namaOdp;
+    if (l) {
+      const k1 = String(l).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      if (k1 && !map.has(k1)) map.set(k1, o);
+    }
+    const c = o.kodeOdp || o.kode_odp;
+    if (c) {
+      const k2 = String(c).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      if (k2 && !map.has(k2)) map.set(k2, o);
+    }
+  }
+  _cachedOdpArrayRef = odpData;
+  _cachedOdpMap = map;
+  return map;
+};
+
 // --- Helper Function: Tentukan apakah pelanggan masuk ke Segmen Percepatan atau Reguler ---
 export const isPercepatanCustomer = (pelanggan, odpData = []) => {
   if (!pelanggan) return false;
 
   const tahapPel = String(pelanggan.tahapPembangunan || pelanggan.tahap_pembangunan || '').toLowerCase().trim();
   if (tahapPel.includes('percepatan')) return true;
-  if (tahapPel.includes('reguler') || tahapPel.includes('tahap') || tahapPel.includes('512') || tahapPel.includes('kopin') || tahapPel.includes('cynet') || tahapPel.includes('duit') || tahapPel.includes('handover')) return false;
+  if (tahapPel.includes('reguler') || tahapPel.includes('tahap') || tahapPel.includes('512') || tahapPel.includes('kopin') || tahapPel.includes('cynet') || tahapPel.includes('duit') || tahapPel.includes('handover') || tahapPel.includes('kjn') || tahapPel.includes('kopnatel')) return false;
 
   const rawOdp = String(pelanggan.odpAktual || pelanggan.odp || pelanggan.kodeOdp || pelanggan.label || '').toUpperCase().trim();
   if (rawOdp.includes('PERCEPATAN')) return true;
-  if (rawOdp.includes('REGULER')) return false;
+  if (rawOdp.includes('REGULER') || rawOdp.includes('KJN')) return false;
 
-  // Cek ODP Data jika tersedia
-  if (odpData && odpData.length > 0) {
+  // Cek ODP Data jika tersedia via O(1) Map lookup
+  if (odpData && (odpData.length > 0 || odpData.size > 0)) {
     const cleanRaw = rawOdp.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-    const matched = odpData.find(o => {
-      const cLabel = String(o.label || o.nama_odp || o.namaOdp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-      const cKode = String(o.kodeOdp || o.kode_odp || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-      return (cLabel && cLabel === cleanRaw) || (cKode && cKode === cleanRaw);
-    });
-
-    if (matched) {
-      const tahap = String(matched.tahapPembangunan || matched.tahap_pembangunan || '').toLowerCase();
-      if (tahap.includes('percepatan')) return true;
-      if (tahap.includes('reguler') || tahap.includes('tahap') || tahap.includes('512')) return false;
+    if (cleanRaw) {
+      const odpMap = odpData instanceof Map ? odpData : buildOdpLookupMap(odpData);
+      const matched = odpMap.get(cleanRaw);
+      if (matched) {
+        const tahap = String(matched.tahapPembangunan || matched.tahap_pembangunan || '').toLowerCase();
+        if (tahap.includes('percepatan')) return true;
+        if (tahap.includes('reguler') || tahap.includes('tahap') || tahap.includes('512') || tahap.includes('kjn') || tahap.includes('kopin') || tahap.includes('duit') || tahap.includes('cynet') || tahap.includes('kopnatel')) return false;
+      }
     }
   }
 
@@ -122,8 +154,12 @@ export const isPercepatanCustomer = (pelanggan, odpData = []) => {
   const st = String(pelanggan.stasiun || '').toLowerCase().trim();
   if (st === 'alastua') return true; // Seluruh PO Alastua adalah Percepatan
   if (st === 'sulur' || st === 'weleri') return false; // Seluruh PO Sulur & Weleri adalah Reguler
+  if (st === 'kalibodri') {
+    if (rawOdp.includes('KJN') || rawOdp.startsWith('W3_KBD') || rawOdp.startsWith('W4_KBD')) return false;
+    if (rawOdp.startsWith('W5_KBD')) return true;
+  }
 
-  if (rawOdp.startsWith('W2_') || rawOdp.startsWith('W3_') || rawOdp.startsWith('W4_ATA')) return true;
+  if (rawOdp.startsWith('W2_') || (rawOdp.startsWith('W3_') && !rawOdp.includes('KBD')) || rawOdp.startsWith('W4_ATA')) return true;
   if (rawOdp.startsWith('W1_') || rawOdp.startsWith('W5_KLN')) return false;
 
   return false;
@@ -293,7 +329,7 @@ export const getWoActionProps = (itemOrStatus) => {
       btnClass: 'bg-orange-50 text-orange-600 hover:bg-orange-100 hover:text-orange-700'
     };
   }
-  if (s.includes('WAITING') || s.includes('KENDALA') || s.includes('BELUM')) {
+  if (s.includes('WAITING') || s.includes('PENDING') || s.includes('KENDALA') || s.includes('BELUM')) {
     return {
       task: 'aktivasi',
       icon: 'zap',
@@ -309,3 +345,58 @@ export const getWoActionProps = (itemOrStatus) => {
     btnClass: 'bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700'
   };
 };
+
+// --- Helper Function: Konfigurasi Badge WO Harian (Icon, Style, Label) sesuai Jenis WO ---
+export const getWoDispatchBadgeProps = (activeDispatch, itemOrStatus = '') => {
+  if (!activeDispatch) return null;
+
+  const rawTipe = String(activeDispatch.tipe || activeDispatch.tipe_wo || '').toUpperCase().trim();
+  const rawStatus = typeof itemOrStatus === 'object' && itemOrStatus !== null
+    ? getGlobalStatusStr(itemOrStatus)
+    : String(itemOrStatus || '').toUpperCase().trim();
+
+  // 1. Tipe DISMANTLE
+  if (
+    rawTipe.includes('DISMANTLE') ||
+    rawStatus.includes('READY TO DISMANTLE') ||
+    rawStatus.includes('DISMANTL') ||
+    rawStatus.includes('SUSPEND')
+  ) {
+    return {
+      tipe: 'DISMANTLE',
+      icon: 'package-minus',
+      label: 'WO Dismantle',
+      badgeClass: 'bg-orange-50 text-orange-800 border-orange-300',
+      iconClass: 'text-orange-600',
+      title: `Penugasan Harian Dismantle: ${activeDispatch.petugas || ''}`
+    };
+  }
+
+  // 2. Tipe VISIT / GANGGUAN
+  if (
+    rawTipe.includes('VISIT') ||
+    rawStatus === 'AKTIF' ||
+    rawStatus.includes('AKTIF') ||
+    rawStatus === 'DONE'
+  ) {
+    return {
+      tipe: 'VISIT',
+      icon: 'wrench',
+      label: 'WO Visit',
+      badgeClass: 'bg-rose-50 text-rose-800 border-rose-300',
+      iconClass: 'text-rose-600',
+      title: `Penugasan Harian Visit / Perbaikan: ${activeDispatch.petugas || ''}`
+    };
+  }
+
+  // 3. Tipe AKTIVASI / IKR (Default)
+  return {
+    tipe: 'AKTIVASI',
+    icon: 'zap',
+    label: 'WO Aktivasi',
+    badgeClass: 'bg-amber-50 text-amber-800 border-amber-300',
+    iconClass: 'text-amber-600',
+    title: `Penugasan Harian Aktivasi / IKR: ${activeDispatch.petugas || ''}`
+  };
+};
+

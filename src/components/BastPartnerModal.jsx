@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { standardizeDate } from '../utils.js';
 import { formatToWibTime } from '../services/partnerBastService.js';
+import Icon from './Icon';
 
 function extractJam(str) {
   return formatToWibTime(str);
@@ -171,13 +172,13 @@ export default function BastPartnerModal({
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2.5 sm:p-4 md:p-6 overflow-hidden">
       {/* Backdrop */}
-      <div 
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-fade" 
+      <div
+        className="fixed inset-0 bg-slate-950/70 transition-opacity animate-fade"
         onClick={onClose}
       />
 
       {/* Modal Card */}
-      <div 
+      <div
         className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-5xl h-[92vh] sm:h-[88vh] max-h-[820px] flex flex-col overflow-hidden relative z-10 animate-modal"
         onClick={(e) => e.stopPropagation()}
       >
@@ -215,11 +216,21 @@ export default function BastPartnerModal({
                 type="button"
                 onClick={onRefresh}
                 disabled={isLoading}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs hover:border-slate-300 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                className={`hidden sm:inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 disabled:cursor-wait ${isLoading
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
+                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:border-emerald-300 hover:text-emerald-700'
+                  }`}
                 title="Tarik data BAST terbaru dari API Web Partner"
               >
-                <span className={`${isLoading ? 'animate-spin' : ''}`}>🔄</span>
-                <span>{isLoading ? 'Menarik...' : 'Refresh API'}</span>
+                <Icon
+                  name="refresh-cw"
+                  size={13}
+                  className={`${isLoading ? 'animate-spin text-emerald-600' : 'text-slate-400'}`}
+                />
+                <span>{isLoading ? 'Menarik Data...' : 'Refresh'}</span>
+                {isLoading && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                )}
               </button>
             )}
 
@@ -237,7 +248,7 @@ export default function BastPartnerModal({
         <div className="p-3 sm:p-5 bg-slate-50/70 border-b border-slate-100 shrink-0">
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {/* Card 1: BAST Partner */}
-            <div 
+            <div
               onClick={() => setFilterStatus('ALL_BAST')}
               className="bg-white p-2.5 sm:p-4 rounded-xl border border-emerald-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/20 transition-all active:scale-[0.98]"
               title="Klik untuk memfilter seluruh data BAST Web Partner"
@@ -259,7 +270,7 @@ export default function BastPartnerModal({
             </div>
 
             {/* Card 2: Laporan Lapangan */}
-            <div 
+            <div
               onClick={() => setFilterStatus('MATCHED')}
               className="bg-white p-2.5 sm:p-4 rounded-xl border border-blue-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all active:scale-[0.98]"
               title="Klik untuk memfilter laporan petugas lapangan"
@@ -281,19 +292,18 @@ export default function BastPartnerModal({
             </div>
 
             {/* Card 3: Selisih Status Rekonsiliasi */}
-            <div 
+            <div
               onClick={() => {
                 if (comparison.unbastCount > 0) setFilterStatus('UNBAST');
                 else if (comparison.unreportedCount > 0) setFilterStatus('UNREPORTED');
                 else setFilterStatus('ALL');
               }}
-              className={`p-2.5 sm:p-4 rounded-xl border shadow-xs flex items-center justify-between cursor-pointer transition-all active:scale-[0.98] ${
-                comparison.unbastCount === 0 && comparison.unreportedCount === 0
+              className={`p-2.5 sm:p-4 rounded-xl border shadow-xs flex items-center justify-between cursor-pointer transition-all active:scale-[0.98] ${comparison.unbastCount === 0 && comparison.unreportedCount === 0
                   ? 'bg-emerald-500/10 border-emerald-200 text-emerald-900 hover:border-emerald-300'
                   : comparison.unbastCount > 0 && comparison.unreportedCount === 0
                     ? 'bg-amber-500/15 border-amber-300 text-amber-950 ring-1 ring-amber-400/40 hover:bg-amber-500/20'
                     : 'bg-rose-500/15 border-rose-300 text-rose-950 ring-1 ring-rose-400/40 hover:bg-rose-500/20'
-              }`}
+                }`}
               title="Klik untuk memfilter pelanggan dengan status selisih"
             >
               <div className="min-w-0">
@@ -393,11 +403,10 @@ export default function BastPartnerModal({
             <button
               type="button"
               onClick={() => setFilterStatus('ALL')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
-                filterStatus === 'ALL'
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${filterStatus === 'ALL'
                   ? 'bg-slate-800 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+                }`}
             >
               Semua ({comparison.totalAll})
             </button>
@@ -406,11 +415,10 @@ export default function BastPartnerModal({
             <button
               type="button"
               onClick={() => setFilterStatus('MATCHED')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
-                filterStatus === 'MATCHED'
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${filterStatus === 'MATCHED'
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60'
-              }`}
+                }`}
             >
               Sudah Sinkron ({comparison.reportedCount})
             </button>
@@ -419,13 +427,12 @@ export default function BastPartnerModal({
             <button
               type="button"
               onClick={() => setFilterStatus('UNBAST')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'UNBAST'
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${filterStatus === 'UNBAST'
                   ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-400/30'
                   : comparison.unbastCount > 0
                     ? 'bg-amber-100/90 text-amber-900 border border-amber-300 hover:bg-amber-200/70 font-black'
                     : 'bg-slate-100 text-slate-400 border border-slate-200/60'
-              }`}
+                }`}
             >
               {comparison.unbastCount > 0 && <span>⏳</span>}
               <span>Belum BAST ({comparison.unbastCount})</span>
@@ -435,13 +442,12 @@ export default function BastPartnerModal({
             <button
               type="button"
               onClick={() => setFilterStatus('UNREPORTED')}
-              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'UNREPORTED'
+              className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${filterStatus === 'UNREPORTED'
                   ? 'bg-rose-600 text-white shadow-xs ring-2 ring-rose-400/30'
                   : comparison.unreportedCount > 0
                     ? 'bg-rose-100/90 text-rose-900 border border-rose-300 hover:bg-rose-200/70 font-black'
                     : 'bg-slate-100 text-slate-400 border border-slate-200/60'
-              }`}
+                }`}
             >
               {comparison.unreportedCount > 0 && <span>⚠️</span>}
               <span>Belum Lapor ({comparison.unreportedCount})</span>
@@ -478,9 +484,45 @@ export default function BastPartnerModal({
         {/* Content Table / Card Container (Scrollable) */}
         <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 custom-scrollbar bg-slate-50/30">
           {isLoading ? (
-            <div className="py-20 flex flex-col items-center justify-center text-slate-400">
-              <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-3"></div>
-              <span className="text-xs font-semibold text-slate-500">Menghubungkan ke API Partner Starlite...</span>
+            <div className="py-24 px-4 flex flex-col items-center justify-center animate-fade">
+              {/* Multi-layered Pulsing & Rotating Glow Ring */}
+              <div className="relative flex items-center justify-center mb-6">
+                {/* Background ambient glow */}
+                <div className="absolute w-24 h-24 rounded-full bg-emerald-500/10 animate-pulse"></div>
+
+                {/* Outer dashed track */}
+                <div className="w-20 h-20 rounded-full border-2 border-emerald-100 border-dashed animate-spin [animation-duration:10s]"></div>
+
+                {/* Middle Gradient Rotating Spinner */}
+                <div className="absolute inset-0 m-auto w-16 h-16 rounded-full border-[3px] border-transparent border-t-emerald-500 border-r-teal-500 animate-spin [animation-duration:1.2s]"></div>
+
+                {/* Inner Reverse Spinner */}
+                <div className="absolute inset-0 m-auto w-11 h-11 rounded-full border-2 border-transparent border-b-cyan-500 border-l-emerald-400 animate-spin [animation-duration:2s] [animation-direction:reverse]"></div>
+
+                {/* Center Glowing Icon Orb */}
+                <div className="absolute inset-0 m-auto w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
+                  <Icon name="refresh-cw" size={15} className="animate-spin [animation-duration:3s]" />
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[11px] font-bold mb-2 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>Live Partner API Starlite</span>
+              </div>
+
+              {/* Title & Description */}
+              <h3 className="text-sm font-black text-slate-800 tracking-tight">
+                Menghubungkan ke API Partner Starlite...
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs text-center font-medium">
+                Mengambil data BAST hari ini dan merekonsiliasi dengan laporan petugas lapangan
+              </p>
+
+              {/* Sleek Gradient Shimmer Progress Bar */}
+              <div className="w-52 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-4 relative">
+                <div className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 rounded-full animate-pulse w-3/4"></div>
+              </div>
             </div>
           ) : filteredRows.length === 0 ? (
             <div className="py-20 text-center text-slate-400">
@@ -509,24 +551,22 @@ export default function BastPartnerModal({
                   const isUnreported = row.category === 'UNREPORTED';
 
                   return (
-                    <div 
-                      key={row.idPelanggan || idx} 
-                      className={`p-3 rounded-xl border shadow-xs space-y-2 ${
-                        isUnbast
+                    <div
+                      key={row.idPelanggan || idx}
+                      className={`p-3 rounded-xl border shadow-xs space-y-2 ${isUnbast
                           ? 'bg-amber-50/50 border-amber-200'
                           : isUnreported
                             ? 'bg-rose-50/40 border-rose-200'
                             : 'bg-white border-slate-200/80'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${
-                              isUnbast 
-                                ? 'bg-amber-100 border border-amber-300 text-amber-900' 
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${isUnbast
+                                ? 'bg-amber-100 border border-amber-300 text-amber-900'
                                 : 'bg-slate-100 border border-slate-200 text-slate-800'
-                            }`}>
+                              }`}>
                               {row.idPelanggan}
                             </span>
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
@@ -609,27 +649,25 @@ export default function BastPartnerModal({
                       const isUnreported = row.category === 'UNREPORTED';
 
                       return (
-                        <tr 
-                          key={row.idPelanggan || idx} 
-                          className={`transition-colors ${
-                            isUnbast 
-                              ? 'bg-amber-50/40 hover:bg-amber-50/80' 
-                              : isUnreported 
-                                ? 'bg-rose-50/30 hover:bg-rose-50/70' 
+                        <tr
+                          key={row.idPelanggan || idx}
+                          className={`transition-colors ${isUnbast
+                              ? 'bg-amber-50/40 hover:bg-amber-50/80'
+                              : isUnreported
+                                ? 'bg-rose-50/30 hover:bg-rose-50/70'
                                 : 'hover:bg-slate-50/80'
-                          }`}
+                            }`}
                         >
                           <td className="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">
                             {idx + 1}
                           </td>
                           <td className="py-2.5 px-3.5 font-bold font-mono">
-                            <span className={`px-2 py-0.5 rounded border ${
-                              isUnbast 
-                                ? 'bg-amber-100/80 border-amber-300 text-amber-950 font-bold' 
-                                : isUnreported 
-                                  ? 'bg-rose-100/70 border-rose-200 text-rose-950' 
+                            <span className={`px-2 py-0.5 rounded border ${isUnbast
+                                ? 'bg-amber-100/80 border-amber-300 text-amber-950 font-bold'
+                                : isUnreported
+                                  ? 'bg-rose-100/70 border-rose-200 text-rose-950'
                                   : 'bg-slate-100 border-slate-200/70 text-slate-800'
-                            }`}>
+                              }`}>
                               {row.idPelanggan}
                             </span>
                           </td>

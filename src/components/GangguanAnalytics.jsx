@@ -3,19 +3,9 @@ import {
   BarChart, Bar, Rectangle, LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts';
-import { toProperCase } from '../utils';
+import { toProperCase, isInitialChartAnimationActive } from '../utils';
 
-// Icon Helper
-const Icon = ({ name, size = 18, className = "" }) => {
-  const containerRef = useRef(null);
-  useEffect(() => {
-    if (window.lucide && containerRef.current) {
-      containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}" style="width: ${size}px; height: ${size}px;"></i>`;
-      window.lucide.createIcons({ root: containerRef.current });
-    }
-  }, [name, size, className]);
-  return <span ref={containerRef} style={{ display: 'contents' }} />;
-};
+import Icon from './Icon';
 
 const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
@@ -277,7 +267,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
       const d = payload[0].payload;
       if (d.isFuture || d.tiket === null) {
         return (
-          <div className="bg-slate-900/95 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+          <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 pointer-events-none animate-fade">
             <div className="border-b border-slate-700/70 pb-1 mb-1.5">
               <p className="font-bold text-slate-100">{d.fullName} {selectedYear}</p>
             </div>
@@ -288,7 +278,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
 
       const pctSelesai = d.tiket > 0 ? Math.round((d.selesai / d.tiket) * 100) : 0;
       return (
-        <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 pointer-events-none animate-fade">
           <div className="flex items-center gap-2 border-b border-slate-700/70 pb-1.5 mb-2">
             <span className={`w-2 h-2 rounded-full ${d.isCurrentMonth ? 'bg-blue-400' : 'bg-blue-300'}`}></span>
             <p className="font-bold text-slate-100">
@@ -334,7 +324,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
       const d = payload[0].payload;
       if (d && d.isFuture) {
         return (
-          <div className="bg-slate-900/95 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none animate-fade">
+          <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-xl text-xs border border-slate-700/80 pointer-events-none animate-fade">
             <div className="border-b border-slate-700/70 pb-1 mb-1.5">
               <span className="font-bold text-slate-100">{d.fullName || label} {selectedYear}</span>
             </div>
@@ -350,7 +340,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
       const totalBulanIni = validEntries.reduce((acc, curr) => acc + (curr.value || 0), 0);
 
       return (
-        <div className="bg-slate-900/95 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 backdrop-blur-md pointer-events-none min-w-[170px] max-w-[260px] animate-fade">
+        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700/80 pointer-events-none min-w-[170px] max-w-[260px] animate-fade">
           <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5 mb-2 gap-3">
             <span className="font-bold text-slate-100">{d?.fullName || label} {selectedYear}</span>
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/25 text-blue-300 border border-blue-400/30 shrink-0">
@@ -597,6 +587,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                     dataKey="tiket"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={48}
+                    isAnimationActive={isInitialChartAnimationActive()}
                     activeBar={(props) => {
                       const isCurrent = props.payload?.isCurrentMonth;
                       return (
@@ -655,6 +646,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                         activeDot={{ r: 6, stroke: '#ffffff', strokeWidth: 2 }}
                         hide={hiddenStations.has(st.name)}
                         connectNulls={false}
+                        isAnimationActive={isInitialChartAnimationActive()}
                       />
                     ))
                   ) : (
@@ -667,6 +659,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                       dot={{ r: 4, fill: '#2563eb', strokeWidth: 2, stroke: '#ffffff' }}
                       activeDot={{ r: 7, stroke: '#ffffff', strokeWidth: 2.5 }}
                       connectNulls={false}
+                      isAnimationActive={isInitialChartAnimationActive()}
                     />
                   )}
                 </LineChart>
@@ -721,6 +714,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
                       innerRadius={50}
                       outerRadius={75}
                       paddingAngle={3}
+                      isAnimationActive={isInitialChartAnimationActive()}
                     >
                       {keluhanData.map((entry, index) => (
                         <Cell key={`slice-${index}`} fill={entry.color} />
