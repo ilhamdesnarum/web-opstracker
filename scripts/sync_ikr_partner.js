@@ -139,23 +139,31 @@ async function batchUpsert(updates) {
   const CHUNK_SIZE = 50;
   for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
     const chunk = updates.slice(i, i + CHUNK_SIZE);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan`, {
-        method: 'POST',
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates'
-        },
-        body: JSON.stringify(chunk)
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error(`   ❌ Supabase Upsert Gagal (${res.status}):`, text);
+    let success = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/data_pelanggan?on_conflict=id_pelanggan`, {
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(chunk),
+          signal: AbortSignal.timeout(30000)
+        });
+        if (res.ok) {
+          success = true;
+          break;
+        } else {
+          const text = await res.text();
+          console.error(`   ❌ Supabase Upsert Gagal (attempt ${attempt}, ${res.status}):`, text);
+        }
+      } catch (err) {
+        console.error(`   ⚠️ Supabase Upsert Error (attempt ${attempt}):`, err.message);
       }
-    } catch (err) {
-      console.error(`   ❌ Supabase Error:`, err.message);
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
   return true;
