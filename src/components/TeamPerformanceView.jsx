@@ -1906,17 +1906,6 @@ export default function TeamPerformanceView({
             <span>Kelola Petugas</span>
           </button>
 
-          {/* Tombol Snapshot (Salin Gambar untuk WA) */}
-          <button
-            onClick={handleCaptureSnapshot}
-            disabled={isCapturing}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
-            title="Ambil snapshot gambar tabel untuk dikirim (Langsung Paste)"
-          >
-            <Icon name={isCapturing ? "loader-2" : "camera"} size={14} className={isCapturing ? "animate-spin" : ""} />
-            <span>{isCapturing ? "Menyalin..." : "Snapshot"}</span>
-          </button>
-
           {/* Tombol Kelola Tim */}
           <button
             onClick={handleOpenManageModal}
