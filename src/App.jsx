@@ -2817,7 +2817,7 @@ function App({ onLogout }) {
 
         {/* Teks Copyright di bawah */}
         <div className="py-2.5 px-3 text-[11px] text-blue-300/60 border-t border-[#1e3978] text-center whitespace-nowrap shrink-0">
-          {isSidebarOpen ? '\u00A9 2026 PT DESNARUM JAYA AKASHA' : 'v2.7'}
+          {isSidebarOpen ? '\u00A9 2026 Starlite by Desnarum' : 'v2.7'}
         </div>
       </aside>
 
