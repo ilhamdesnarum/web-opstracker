@@ -858,18 +858,35 @@ export default function UserManagementView() {
       </div>
 
       {/* MODAL FORM TAMBAH / EDIT USER */}
-      {showUserForm && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-[9999] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
-                <Icon name="shield-check" size={18} className="text-blue-600" />
-                <span>{editingUserId ? `Edit Pengguna: @${userForm.username}` : 'Tambah Pengguna Baru'}</span>
-              </h3>
+      {showUserForm && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          {/* Backdrop Gelap Menyeluruh Tanpa Blur */}
+          <div
+            className="fixed inset-0 bg-slate-950/75 transition-opacity"
+            onClick={() => setShowUserForm(false)}
+          />
+
+          {/* Dialog Card Modal */}
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 my-auto">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/90 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                  <Icon name="shield-check" size={18} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-sm sm:text-base leading-snug">
+                    {editingUserId ? `Edit Pengguna: @${userForm.username}` : 'Tambah Pengguna Baru'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {editingUserId ? 'Perbarui data akun dan hak akses pengguna' : 'Daftarkan akun baru ke database OpsTracker'}
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowUserForm(false)}
-                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200/60 cursor-pointer"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                aria-label="Tutup modal"
               >
                 <Icon name="x" size={16} />
               </button>
@@ -886,7 +903,7 @@ export default function UserManagementView() {
                   value={userForm.name}
                   onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
                   placeholder="Contoh: Setyo Ali"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:border-blue-500 font-medium"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 font-medium transition-all"
                   required
                 />
               </div>
@@ -902,7 +919,7 @@ export default function UserManagementView() {
                     value={userForm.username}
                     onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
                     placeholder="tl_setyo"
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all"
                     required
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Huruf kecil tanpa spasi.</p>
@@ -918,13 +935,14 @@ export default function UserManagementView() {
                       value={userForm.password}
                       onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                       placeholder={editingUserId ? "Kosongkan bila tetap" : "Password login"}
-                      className="w-full p-2.5 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500"
+                      className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all"
                       required={!editingUserId}
                     />
                     <button
                       type="button"
                       onClick={() => setShowUserPassword(!showUserPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+                      title={showUserPassword ? "Sembunyikan password" : "Tampilkan password"}
                     >
                       <Icon name={showUserPassword ? "eye-off" : "eye"} size={14} />
                     </button>
@@ -941,7 +959,7 @@ export default function UserManagementView() {
                   <select
                     value={userForm.role}
                     onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 cursor-pointer transition-all"
                   >
                     {ROLE_OPTIONS.map(r => (
                       <option key={r.value} value={r.value}>{r.label}</option>
@@ -956,7 +974,7 @@ export default function UserManagementView() {
                   <select
                     value={userForm.status}
                     onChange={(e) => setUserForm({ ...userForm, status: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 cursor-pointer transition-all"
                   >
                     <option value="active">Aktif (Dapat Login)</option>
                     <option value="inactive">Non-Aktif (Dibekukan)</option>
@@ -973,7 +991,7 @@ export default function UserManagementView() {
                   <select
                     value={userForm.sektor}
                     onChange={(e) => setUserForm({ ...userForm, sektor: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 cursor-pointer transition-all"
                   >
                     {SEKTOR_OPTIONS.map(s => (
                       <option key={s.value} value={s.value}>{s.label}</option>
@@ -988,7 +1006,7 @@ export default function UserManagementView() {
                   <select
                     value={userForm.stasiun}
                     onChange={(e) => setUserForm({ ...userForm, stasiun: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 cursor-pointer transition-all"
                   >
                     {STASIUN_LIST.map(st => (
                       <option key={st} value={st}>{st === 'Semua' ? 'Semua Stasiun' : st}</option>
@@ -1002,14 +1020,14 @@ export default function UserManagementView() {
                 <button
                   type="button"
                   onClick={() => setShowUserForm(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold text-xs cursor-pointer"
+                  className="px-4 py-2.5 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl font-bold text-xs sm:text-sm cursor-pointer transition-all"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer shadow-2xs disabled:opacity-50"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50"
                 >
                   {isSubmitting && <Icon name="refresh-cw" size={14} className="animate-spin" />}
                   <span>{editingUserId ? 'Simpan Perubahan' : 'Daftarkan Pengguna'}</span>
@@ -1017,13 +1035,21 @@ export default function UserManagementView() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* CONFIRM DELETE MODAL */}
-      {confirmModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-[9999] p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 border border-slate-200 text-center animate-in zoom-in-95 duration-150">
+      {confirmModal.isOpen && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+          {/* Backdrop Gelap Menyeluruh Tanpa Blur */}
+          <div
+            className="fixed inset-0 bg-slate-950/75 transition-opacity"
+            onClick={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
+          />
+
+          {/* Dialog Card Modal */}
+          <div className="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 border border-slate-200 text-center animate-in zoom-in-95 duration-150 my-auto">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
               <Icon name="trash-2" size={22} />
             </div>
@@ -1033,20 +1059,21 @@ export default function UserManagementView() {
               <button
                 type="button"
                 onClick={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
               >
                 Batal
               </button>
               <button
                 type="button"
                 onClick={confirmModal.onConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-2xs"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-2xs hover:shadow transition-all"
               >
                 Hapus
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
