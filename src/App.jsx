@@ -15322,19 +15322,32 @@ function DataGangguanView({
         {/* Card Body */}
         {!isPartnerCardCollapsed && (
           <div className="p-4 sm:p-5">
-            {/* Error state */}
+            {/* Error / Maintenance State */}
             {partnerError && (
-              <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-700">
-                <div className="flex items-center gap-2">
-                  <Icon name="alert-triangle" size={16} className="text-rose-600 shrink-0" />
-                  <span>{partnerError}</span>
+              <div className={`mb-4 p-3.5 rounded-xl flex items-center justify-between text-xs border ${
+                partnerError.includes('503') || partnerError.includes('pemeliharaan')
+                  ? 'bg-amber-50/80 border-amber-200 text-amber-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <Icon
+                    name={partnerError.includes('503') || partnerError.includes('pemeliharaan') ? 'alert-circle' : 'alert-triangle'}
+                    size={18}
+                    className={partnerError.includes('503') || partnerError.includes('pemeliharaan') ? 'text-amber-600 shrink-0' : 'text-rose-600 shrink-0'}
+                  />
+                  <div>
+                    <span className="font-bold">{partnerError}</span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Pencatatan dan operasional tiket di OpsTracker tetap berjalan normal.
+                    </p>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={loadPartnerVisits}
-                  className="px-2.5 py-1 bg-white border border-rose-300 rounded-lg font-bold text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
+                  className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer shrink-0 ml-3"
                 >
-                  Coba Lagi
+                  Cek Ulang
                 </button>
               </div>
             )}

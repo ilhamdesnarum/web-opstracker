@@ -284,6 +284,9 @@ async function fetchOspPage(url, token, retries = 2) {
       clearTimeout(timeoutId);
 
       if (!res.ok) {
+        if (res.status === 503) {
+          throw new Error('Server Partner sedang dalam mode pemeliharaan (Maintenance / 503).');
+        }
         if (res.status >= 500 && attempt < retries) {
           continue;
         }
@@ -294,27 +297,12 @@ async function fetchOspPage(url, token, retries = 2) {
       return json;
     } catch (err) {
       lastError = err;
+      if (err.message && err.message.includes('503')) {
+        break; // Jika 503 maintenance, jangan spam retry
+      }
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 500));
       }
-    }
-  }
-
-  // Jika proxy gagal atau tidak tersedia, coba direct URL sebagai fallback terakhir
-  if (url.startsWith('/api-mitra')) {
-    const fallbackDirect = url.replace('/api-mitra', 'https://api-mitra.starliteindonesia.com');
-    try {
-      const res = await fetch(fallbackDirect, {
-        headers: {
-          'Authorization': token,
-          'Accept': 'application/json'
-        }
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (_e) {
-      // Abaikan dan gunakan lastError
     }
   }
 

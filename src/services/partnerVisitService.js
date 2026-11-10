@@ -175,6 +175,9 @@ export async function fetchPartnerVisits(targetDate = null, daysBack = 2) {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
+      if (res.status === 503) {
+        throw new Error('Server Partner sedang dalam tahap pemeliharaan (Maintenance Mode / 503). Sinkronisasi otomatis akan berlanjut setelah server aktif kembali.');
+      }
       throw new Error(`API Partner returned status ${res.status}: ${res.statusText}`);
     }
 
@@ -307,6 +310,9 @@ export async function fetchOpenPartnerVisits() {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
+      if (res.status === 503) {
+        throw new Error('Server Partner sedang dalam tahap pemeliharaan (Maintenance Mode / 503). Sinkronisasi otomatis akan berlanjut setelah server aktif kembali.');
+      }
       throw new Error(`API Partner returned status ${res.status}: ${res.statusText}`);
     }
 
