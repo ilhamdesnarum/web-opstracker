@@ -70,10 +70,10 @@ export function cleanStationName(raw) {
 
 export function getPartnerBaseUrl() {
   if (typeof window !== 'undefined') {
-    const isLocalhost = window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1' ||
-      window.location.hostname.startsWith('192.168.') ||
-      window.location.hostname.startsWith('10.');
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' || 
+                        window.location.hostname.startsWith('192.168.') ||
+                        window.location.hostname.startsWith('10.');
     if (isLocalhost || (typeof import.meta !== 'undefined' && import.meta.env?.DEV)) {
       return '/api-mitra/mitra/work-order';
     }
@@ -265,7 +265,7 @@ export async function fetchPartnerVisits(targetDate = null, daysBack = 2) {
       openCount: normalizedList.filter(t => t.isOpen).length,
       doneCount: normalizedList.filter(t => t.isDone).length,
       data: normalizedList,
-      targetDate: date,
+      targetDate: dateEnd,
       lastSync: new Date()
     };
   } catch (err) {
@@ -273,7 +273,7 @@ export async function fetchPartnerVisits(targetDate = null, daysBack = 2) {
       success: false,
       error: err.message,
       data: [],
-      targetDate: date,
+      targetDate: dateEnd,
       lastSync: new Date()
     };
   }
