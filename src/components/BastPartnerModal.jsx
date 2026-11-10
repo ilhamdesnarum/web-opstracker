@@ -196,7 +196,7 @@ export default function BastPartnerModal({
                 {isLive ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Live Partner API
+                    Portal Mitra Real-Time
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
@@ -220,7 +220,7 @@ export default function BastPartnerModal({
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
                     : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:border-emerald-300 hover:text-emerald-700'
                   }`}
-                title="Tarik data BAST terbaru dari API Web Partner"
+                title="Perbarui data BAST terbaru"
               >
                 <Icon
                   name="refresh-cw"
@@ -508,12 +508,12 @@ export default function BastPartnerModal({
               {/* Status Badge */}
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[11px] font-bold mb-2 shadow-2xs">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                <span>Live Partner API Starlite</span>
+                <span>Sinkronisasi BAST Mitra</span>
               </div>
 
               {/* Title & Description */}
               <h3 className="text-sm font-black text-slate-800 tracking-tight">
-                Menghubungkan ke API Partner Starlite...
+                Sinkronisasi Data BAST Mitra...
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xs text-center font-medium">
                 Mengambil data BAST hari ini dan merekonsiliasi dengan laporan petugas lapangan

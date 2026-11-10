@@ -2817,7 +2817,7 @@ function App({ onLogout }) {
 
         {/* Teks Copyright di bawah */}
         <div className="py-2.5 px-3 text-[11px] text-blue-300/60 border-t border-[#1e3978] text-center whitespace-nowrap shrink-0">
-          {isSidebarOpen ? '\u00A9 2026 Starlite by Desnarum' : 'v2.7'}
+          {isSidebarOpen ? '\u00A9 2026 PT DESNARUM JAYA AKASHA' : 'v2.7'}
         </div>
       </aside>
 
@@ -2842,7 +2842,7 @@ function App({ onLogout }) {
                 {activeTab === 'team' && 'Monitoring Performansi Tim Lapangan'}
                 {activeTab === 'coverage' && 'Cek Coverage ODP'}
                 {activeTab === 'aidece' && 'Customer Lookup'}
-                {activeTab === 'pre-register' && 'Portal Pre-Register & Lead Starlite'}
+                {activeTab === 'pre-register' && 'Portal Pre-Register & Lead Pelanggan'}
                 {activeTab === 'user-management' && 'Manajemen User & Hak Akses'}
               </h1>
             </div>
@@ -11093,14 +11093,14 @@ function WhatsNewModal({ onClose, onTryFeature }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Coverage Area Realtime dari API Partner
+                    Coverage Area Realtime Terpusat
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
                     Menu ODP Coverage
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Peta jangkauan dan coverage area ODP yang tersinkronisasi langsung secara real-time dari API Partner Starlite.
+                  Peta jangkauan dan coverage area ODP yang tersinkronisasi langsung secara real-time.
                 </p>
               </div>
             </div>
@@ -15191,11 +15191,11 @@ function DataGangguanView({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-                  Tiket Visit Partner Hari Ini
+                  Tiket Kunjungan Gangguan Hari Ini
                 </h2>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Live Web Mitra
+                  Portal Mitra
                 </span>
                 {partnerStats.needInputCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
@@ -15205,7 +15205,7 @@ function DataGangguanView({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Sinkronisasi tiket visit dari portal Partner Starlite untuk input cepat ke OpsTracker
+                Sinkronisasi tiket kunjungan mitra untuk input dan penanganan cepat teknisi
                 {partnerLastSync && (
                   <span className="text-slate-400 ml-1.5 font-medium">
                     • Terakhir dicek {partnerLastSync.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
@@ -19709,7 +19709,7 @@ function CoverageGISView({ data, targetCoords }) {
               type="button"
               onClick={handleRefreshCoverage}
               disabled={isSyncingCoverage}
-              title="Sinkronisasi ulang boundary coverage langsung dari API Partner Starlite"
+              title="Sinkronisasi ulang data boundary area coverage"
               className={`p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer ${isSyncingCoverage ? 'animate-spin text-blue-600' : ''}`}
             >
               <Icon name="refresh-cw" size={12} />
@@ -19820,7 +19820,7 @@ function CoverageGISView({ data, targetCoords }) {
                   <div>
                     <strong className="text-[11px] text-sky-900 block font-bold leading-tight">Tampilkan Boundary Polygon ({boundaries.length} Area)</strong>
                     <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                      Batas wilayah cakupan operasional aktual tersinkronisasi langsung dari API Partner Starlite Indonesia.
+                      Batas wilayah cakupan operasional aktual tersinkronisasi secara terpusat.
                     </p>
                     {lastCoverageSync && (
                       <span className="text-[9px] text-slate-400 mt-1 block">

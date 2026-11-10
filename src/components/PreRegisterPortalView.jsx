@@ -993,10 +993,10 @@ function getOpsTrackerStatusInfo(customer) {
 
 function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverage }) {
   const SUB_TABS = [
-    { id: 'pre', label: 'Pre-Register IRA', shortLabel: 'Pre-Register', icon: 'user-plus', desc: 'Data pre-register pelanggan potensial IRA ke Starlite dalam boundary PT DESNARUM JAYA AKASHA' },
-    { id: 'wo', label: 'Data WO Starlite', shortLabel: 'Data WO', icon: 'clipboard-list', desc: 'Work Order pemasangan Starlite beserta tindak lanjut kunjungan dan kendala mitra' },
-    { id: 'mgm', label: 'Data MGM', shortLabel: 'Data MGM', icon: 'users', desc: 'Program referral Member Get Member pelanggan IRA ke jaringan Starlite' },
-    { id: 'pot', label: 'Data Potensial', shortLabel: 'Potensial', icon: 'sparkles', desc: 'Daftar calon pelanggan potensial Starlite untuk difollow-up oleh tim mitra' }
+    { id: 'pre', label: 'Pre-Register IRA', shortLabel: 'Pre-Register', icon: 'user-plus', desc: 'Data pre-register pelanggan potensial IRA dalam boundary operasional PT DESNARUM JAYA AKASHA' },
+    { id: 'wo', label: 'Data Work Order', shortLabel: 'Data WO', icon: 'clipboard-list', desc: 'Work Order pemasangan beserta tindak lanjut kunjungan dan kendala mitra' },
+    { id: 'mgm', label: 'Data MGM', shortLabel: 'Data MGM', icon: 'users', desc: 'Program referral Member Get Member pelanggan ke jaringan mitra' },
+    { id: 'pot', label: 'Data Potensial', shortLabel: 'Potensial', icon: 'sparkles', desc: 'Daftar calon pelanggan potensial untuk difollow-up oleh tim operasional' }
   ];
 
   const [activeSubTab, setActiveSubTab] = useState('pre');
@@ -2809,10 +2809,10 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
               onClick={() => loadSubTabData(activeSubTab, true)}
               disabled={currentTabData.loading}
               className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[40px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50"
-              title="Baca ulang data terbaru langsung dari Google Sheet Portal Starlite"
+              title="Perbarui data terbaru langsung dari portal"
             >
               <Icon name="refresh-cw" size={14} className={currentTabData.loading ? 'animate-spin text-blue-600' : 'text-slate-600'} />
-              <span>Muat Ulang Sheet</span>
+              <span>Muat Ulang Data</span>
             </button>
 
             <button
@@ -3126,7 +3126,7 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
               </div>
               {kpiStats.matchedOpsNeedSync > 0 && (
                 <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/80 border border-amber-300 px-2.5 py-0.5 rounded-full">
-                  Ada {kpiStats.matchedOpsNeedSync} pelanggan yang sudah AKTIF di OpsTracker namun belum diupdate Aktif di Portal Starlite
+                  Ada {kpiStats.matchedOpsNeedSync} pelanggan yang sudah AKTIF di OpsTracker namun belum diupdate Aktif di Portal
                 </span>
               )}
             </div>
@@ -3554,7 +3554,7 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <div className="flex flex-col items-end gap-1">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Status di Portal Starlite
+                        Status di Portal
                       </span>
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${badge.bg}`}>
                         <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
@@ -4016,7 +4016,7 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
                 </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-bold">Update Status {currentTabInfo.shortLabel}</h3>
-                  <p className="text-[11px] text-blue-200">Tersimpan langsung ke database pusat Starlite</p>
+                  <p className="text-[11px] text-blue-200">Tersimpan langsung ke database pusat</p>
                 </div>
               </div>
               <button
@@ -4170,7 +4170,7 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
                       type="text"
                       value={editForm.idPelanggan}
                       onChange={(e) => setEditForm(prev => ({ ...prev, idPelanggan: e.target.value }))}
-                      placeholder="Masukkan ID Pelanggan Starlite..."
+                      placeholder="Masukkan ID Pelanggan..."
                       className="w-full px-3.5 py-2.5 min-h-[42px] bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-mono text-slate-800 focus:bg-white focus:border-blue-600 focus:outline-none"
                     />
                   </div>
@@ -4335,7 +4335,7 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
                   {bulkModal.running && (
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-xs font-bold text-blue-700">
-                        <span>Mengirim pembaruan ke server Starlite...</span>
+                        <span>Mengirim pembaruan ke server...</span>
                         <span>{bulkModal.progress}%</span>
                       </div>
                       <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">

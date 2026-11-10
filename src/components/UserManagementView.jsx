@@ -390,7 +390,7 @@ export default function UserManagementView() {
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                <span>Database Supabase: users ({usersData.length} akun)</span>
+                <span>Sistem Terpusat: {usersData.length} Pengguna Terdaftar</span>
               </span>
             </div>
             <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 tracking-tight">
@@ -408,7 +408,7 @@ export default function UserManagementView() {
               onClick={fetchUsers}
               disabled={isLoading}
               className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[40px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50"
-              title="Baca ulang data terbaru dari tabel users Supabase"
+              title="Perbarui daftar pengguna terbaru"
             >
               <Icon name="refresh-cw" size={14} className={isLoading ? 'animate-spin text-blue-600' : 'text-slate-600'} />
               <span>Muat Ulang</span>
@@ -693,7 +693,7 @@ export default function UserManagementView() {
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
                     <Icon name="refresh-cw" size={24} className="animate-spin mx-auto mb-2 text-blue-600" />
-                    <span>Memuat data pengguna dari Supabase...</span>
+                    <span>Memuat data pengguna...</span>
                   </td>
                 </tr>
               ) : paginatedUsers.length === 0 ? (
@@ -878,7 +878,7 @@ export default function UserManagementView() {
                     {editingUserId ? `Edit Pengguna: @${userForm.username}` : 'Tambah Pengguna Baru'}
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    {editingUserId ? 'Perbarui data akun dan hak akses pengguna' : 'Daftarkan akun baru ke database OpsTracker'}
+                    {editingUserId ? 'Perbarui data akun dan hak akses pengguna' : 'Daftarkan akun baru ke dalam sistem'}
                   </p>
                 </div>
               </div>

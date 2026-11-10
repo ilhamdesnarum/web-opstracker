@@ -241,7 +241,7 @@ export const ManagePoFormModal = ({
                 {isEdit ? 'Edit Data PO Release' : 'Tambah PO Release Baru'}
               </h2>
               <p className="text-[11px] text-slate-500">
-                {isEdit ? `Memperbarui rincian PO untuk stasiun ${formData.stasiun}` : 'Data akan tersimpan langsung di Supabase dan terintegrasi otomatis.'}
+                {isEdit ? `Memperbarui rincian PO untuk stasiun ${formData.stasiun}` : 'Data akan tersimpan langsung dan terintegrasi otomatis.'}
               </p>
             </div>
           </div>
@@ -413,7 +413,7 @@ export const ManagePoFormModal = ({
           {showConfirmDelete && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-rose-800">
-                Yakin ingin menghapus PO ini dari Supabase? Tindakan ini tidak dapat dibatalkan.
+                Yakin ingin menghapus PO ini? Tindakan ini tidak dapat dibatalkan.
               </span>
               <div className="flex items-center gap-2 shrink-0">
                 <button

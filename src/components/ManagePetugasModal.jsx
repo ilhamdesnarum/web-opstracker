@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import Icon from './Icon';
 import { supabase } from '../supabaseClient';
 
@@ -221,11 +222,14 @@ export default function ManagePetugasModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-50 p-3 sm:p-5">
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+      {/* Backdrop Gelap Menyeluruh Tanpa Blur */}
+      <div className="fixed inset-0 bg-slate-950/75 transition-opacity" onClick={onClose} />
+
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-60 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top duration-200 ${
+        <div className={`fixed top-5 right-5 z-[10001] px-4 py-2.5 rounded-xl shadow-lg border text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top duration-200 ${
           toast.type === 'error'
             ? 'bg-rose-50 text-rose-700 border-rose-200 shadow-rose-100'
             : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-emerald-100'
@@ -235,7 +239,7 @@ export default function ManagePetugasModal({
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 my-auto">
         {/* MODAL HEADER */}
         <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -576,14 +580,15 @@ export default function ManagePetugasModal({
 
       {/* CONFIRM DELETE MODAL */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-60 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 border border-slate-200 text-center animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[10002] flex justify-center items-center p-4">
+          <div className="fixed inset-0 bg-slate-950/75 transition-opacity" onClick={() => setDeleteTarget(null)} />
+          <div className="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 border border-slate-200 text-center animate-in zoom-in-95 duration-150 my-auto">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
               <Icon name="trash-2" size={22} />
             </div>
             <h3 className="font-bold text-slate-800 text-base mb-1">Hapus Data Petugas</h3>
             <p className="text-xs text-slate-500 mb-5">
-              Apakah Anda yakin ingin menghapus petugas <b>{deleteTarget.nama}</b> dari database?
+              Apakah Anda yakin ingin menghapus petugas <b>{deleteTarget.nama}</b> dari daftar?
             </p>
             <div className="flex gap-2 justify-center">
               <button
@@ -604,6 +609,7 @@ export default function ManagePetugasModal({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

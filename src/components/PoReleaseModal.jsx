@@ -358,7 +358,7 @@ export const PoReleaseModal = ({
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">
-                Data real-time Supabase. Klik pada angka status untuk melihat daftar pelanggan.
+                Data real-time sistem operasional. Klik pada angka status untuk melihat daftar pelanggan.
               </p>
             </div>
           </div>
