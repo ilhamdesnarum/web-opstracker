@@ -186,7 +186,7 @@ export const ManagePoFormModal = ({
       onClose();
     } catch (err) {
       console.error('Error saving PO:', err);
-      setErrorMessage(err.message || 'Gagal menyimpan data ke Supabase.');
+      setErrorMessage(err.message || 'Gagal menyimpan data.');
     } finally {
       setIsSaving(false);
     }
@@ -210,7 +210,7 @@ export const ManagePoFormModal = ({
       onClose();
     } catch (err) {
       console.error('Error deleting PO:', err);
-      setErrorMessage(err.message || 'Gagal menghapus data dari Supabase.');
+      setErrorMessage(err.message || 'Gagal menghapus data.');
     } finally {
       setIsDeleting(false);
       setShowConfirmDelete(false);

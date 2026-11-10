@@ -12183,7 +12183,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           } catch (err) {
             console.error("Add customer error:", err);
             setIsSaving(false);
-            setMessage({ type: 'error', text: err.message || 'Gagal menyimpan data pelanggan ke Supabase' });
+            setMessage({ type: 'error', text: err.message || 'Gagal menyimpan data pelanggan ke sistem.' });
           }
         };
 
@@ -16189,7 +16189,7 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     } catch (err) {
       console.error('Supabase mass update error:', err);
       setIsSaving(false);
-      setMessage({ type: 'error', text: err.message || 'Gagal memproses data massal di Supabase.' });
+      setMessage({ type: 'error', text: err.message || 'Gagal memproses perubahan data massal.' });
     }
   };
 
@@ -16421,7 +16421,7 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
     } catch (err) {
       console.error("Gagal menghapus data massal di Supabase:", err);
       setIsDeleting(false);
-      setMessage({ type: 'error', text: err.message || 'Gagal menghapus data dari Supabase.' });
+      setMessage({ type: 'error', text: err.message || 'Gagal menghapus data dari sistem.' });
     }
   };
 

@@ -403,7 +403,7 @@ export default function MasterKmlModal({ isOpen, onClose, onPlotToMap }) {
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3 animate-fade">
               <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
               <div className="text-xs text-blue-900 font-semibold truncate flex-1">
-                Sedang mengupload & memperbarui <strong>{uploadProgress.fileName}</strong> ke Supabase...
+                Sedang mengupload & memperbarui <strong>{uploadProgress.fileName}</strong> ke server...
               </div>
             </div>
           )}

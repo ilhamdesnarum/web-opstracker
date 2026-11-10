@@ -507,9 +507,9 @@ export default function TeamPerformanceView({
     }
 
     if (isCloudSuccess) {
-      showToast('Konfigurasi Tim & Stasiun berhasil disimpan ke Supabase Cloud!', 'success');
+      showToast('Konfigurasi Tim & Stasiun berhasil disimpan!', 'success');
     } else {
-      showToast('Tersimpan di perangkat lokal. (Tabel Supabase belum di-setup)', 'info');
+      showToast('Konfigurasi Tim & Stasiun tersimpan di penyimpanan lokal.', 'info');
     }
     setIsManageModalOpen(false);
   };
