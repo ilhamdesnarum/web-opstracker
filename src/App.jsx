@@ -15226,7 +15226,7 @@ function DataGangguanView({
                 </h2>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Live Lapangan
+                  Portal Mitra
                 </span>
                 {partnerStats.needInputCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
@@ -15236,7 +15236,7 @@ function DataGangguanView({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Monitoring tiket visit gangguan terbuka (hari ini & 2 hari kebelakang) serta WO selesai hari ini
+                Sinkronisasi tiket kunjungan mitra untuk input dan penanganan cepat teknisi
                 {partnerLastSync && (
                   <span className="text-slate-400 ml-1.5 font-medium">
                     • Terakhir dicek {partnerLastSync.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
