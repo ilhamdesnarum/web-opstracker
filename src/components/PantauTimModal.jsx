@@ -886,7 +886,7 @@ export default function PantauTimModal({
 
               {/* Footer Sidebar Ringkasan */}
               <div className="p-3 bg-white border-t border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-                <span>Total: <strong className="text-slate-800">{filteredTeknisi.length}</strong> Teknisi</span>
+                <span>Total: <strong className="text-slate-800">{filteredLocations.length}</strong> Teknisi</span>
                 <span className="text-[11px] text-slate-400">Peta Realtime</span>
               </div>
             </div>
