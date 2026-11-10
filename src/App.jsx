@@ -161,12 +161,17 @@ const parseSupabasePetugasDocument = (fields) => {
   return {
     id: fields.id,
     chatId: fields.chat_id || '',
-    username: fields.username || '',
-    nama: fields.nama || '',
-    stasiun: fields.stasiun || '',
-    jabatan: fields.jabatan || 'Teknisi',
-    status: fields.status || 'Active',
-    akunIkr: fields.akun_ikr || ''
+    username: fields.username || fields.nick_name || '',
+    nama: fields.nama || fields.full_name || '',
+    stasiun: fields.stasiun || fields.area_kerja || '',
+    jabatan: fields.jabatan || fields.role || 'Teknisi',
+    status: fields.status || 'Aktif',
+    akunIkr: fields.akun_ikr || '',
+    fullName: fields.full_name || fields.nama || '',
+    nickName: fields.nick_name || '',
+    sektor: fields.sektor || '',
+    kontakHp: fields.kontak_hp || '',
+    email: fields.email || ''
   };
 };
 
@@ -2031,7 +2036,7 @@ function App({ onLogout }) {
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
           fetchAllSupabaseData('log_visit', '*', 'id').catch(() => null),
           cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
-          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => null),
+          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('list_petugas', '*', 'full_name').catch(() => fetchAllSupabaseData('petugas', '*', 'nama')).catch(() => null),
           cachedStation ? Promise.resolve(null) : fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').catch(() => null),
           fetchAllSupabaseData('log_wo_dispatch', '*', 'id').catch(() => null)
         ]);
@@ -2327,16 +2332,18 @@ function App({ onLogout }) {
         }
       }).catch(err => console.warn('Silent Supabase PO fail:', err));
 
-      fetchAllSupabaseData('petugas', '*', 'nama').then(supabasePetugas => {
-        if (supabasePetugas && supabasePetugas.length > 0) {
-          const updatedPetugas = supabasePetugas.map(parseSupabasePetugasDocument);
-          setCachedData('otas_teknisi_cache', updatedPetugas);
-          setData(prev => ({
-            ...prev,
-            teknisiData: updatedPetugas
-          }));
-        }
-      }).catch(err => console.warn('Silent Supabase Petugas fail:', err));
+      fetchAllSupabaseData('list_petugas', '*', 'full_name')
+        .catch(() => fetchAllSupabaseData('petugas', '*', 'nama'))
+        .then(supabasePetugas => {
+          if (supabasePetugas && supabasePetugas.length > 0) {
+            const updatedPetugas = supabasePetugas.map(parseSupabasePetugasDocument);
+            setCachedData('otas_teknisi_cache', updatedPetugas);
+            setData(prev => ({
+              ...prev,
+              teknisiData: updatedPetugas
+            }));
+          }
+        }).catch(err => console.warn('Silent Supabase Petugas fail:', err));
 
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
