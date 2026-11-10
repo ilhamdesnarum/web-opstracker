@@ -18,6 +18,29 @@ export function getTodayWibDateString() {
   }
 }
 
+export function getWibDateStringMinusDays(days = 0) {
+  try {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+  } catch (_e) {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+}
+
+export function formatWibDate(dateInput) {
+  if (!dateInput) return '';
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return String(dateInput).slice(0, 10);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+  } catch (_e) {
+    return String(dateInput).slice(0, 10);
+  }
+}
+
 export function formatWibTime(dateInput) {
   if (!dateInput) return '-';
   try {
@@ -122,11 +145,13 @@ export function mapPartnerStatus(statusRaw, visitObj = null) {
 }
 
 /**
- * Fetch semua tiket visit dari API Partner untuk tanggal tertentu
+ * Fetch semua tiket visit dari API Partner untuk rentang tanggal (default: hari ini dan 2 hari kebelakang)
  * @param {string} targetDate - Format YYYY-MM-DD (default hari ini)
+ * @param {number} daysBack - Jumlah hari kebelakang (default 2 hari)
  */
-export async function fetchPartnerVisits(targetDate = null) {
-  const date = targetDate || getTodayWibDateString();
+export async function fetchPartnerVisits(targetDate = null, daysBack = 2) {
+  const dateEnd = targetDate || getTodayWibDateString();
+  const dateStart = getWibDateStringMinusDays(daysBack);
   const baseUrl = getPartnerBaseUrl();
   const token = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STARLITE_PARTNER_TOKEN)
     ? import.meta.env.VITE_STARLITE_PARTNER_TOKEN
@@ -134,7 +159,7 @@ export async function fetchPartnerVisits(targetDate = null) {
 
   const authHeader = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
 
-  const url = `${baseUrl}?page=1&page_size=50&sort_order=DESC&task=visit&date_start=${date}&date_end=${date}`;
+  const url = `${baseUrl}?page=1&page_size=100&sort_order=DESC&task=visit&date_start=${dateStart}&date_end=${dateEnd}`;
 
   try {
     const controller = new AbortController();
@@ -192,6 +217,11 @@ export async function fetchPartnerVisits(targetDate = null) {
       const teknisiName = item.ikr_id?.name || '';
       const teknisiPhone = item.ikr_id?.phone_number || '';
 
+      const dateFormatted = formatWibDate(item.created_at);
+      const doneDateFormatted = visit?.done_at
+        ? formatWibDate(visit.done_at)
+        : (visit?.visit_date || dateFormatted);
+
       return {
         id: item.id,
         ticketNumber: item.ticket_number || item.id,
@@ -221,6 +251,8 @@ export async function fetchPartnerVisits(targetDate = null) {
         teknisiName,
         teknisiPhone,
         createdAt: item.created_at,
+        dateFormatted,
+        doneDateFormatted,
         timeFormatted: formatWibTime(item.created_at),
         doneAt: visit?.done_at || null,
         raw: item

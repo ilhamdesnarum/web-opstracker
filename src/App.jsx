@@ -14118,14 +14118,16 @@ function DataGangguanView({
   const isTicketAlreadyInOpsTracker = (partnerTicket) => {
     const custId = String(partnerTicket.customerId || '').trim().toLowerCase();
     if (!custId) return false;
+    const ticketDate = partnerTicket.dateFormatted || '';
     const todayStr = getTodayWibDateString();
 
     return (visitData || []).some(v => {
       const vCustId = String(v.idPelanggan || '').trim().toLowerCase();
       if (vCustId !== custId) return false;
 
-      // Cek tanggal tiket apakah hari ini
+      // Cek apakah tanggal visit di OpsTracker cocok dengan tanggal tiket partner
       const vDate = v.timestamp ? standardizeDate(v.timestamp) : '';
+      if (ticketDate && vDate === ticketDate) return true;
       if (vDate === todayStr) return true;
 
       // Jika tiket berstatus OPEN / aktif di OpsTracker
@@ -14228,26 +14230,48 @@ function DataGangguanView({
     setShowNewTicketModal(true);
   };
 
-  const partnerStats = useMemo(() => {
+  const todayWib = useMemo(() => getTodayWibDateString(), []);
+
+  // Filter list yang memenuhi kriteria tampilan WO Visit Open:
+  // 1. Tiket OPEN dari rentang H-2 s/d Hari Ini (tetap dimonitor jika belum selesai)
+  // 2. Tiket SELESAI HANYA yang selesai pada Hari Ini saja
+  const validPartnerVisits = useMemo(() => {
     const list = partnerVisits || [];
-    const total = list.length;
+    return list.filter(t => {
+      if (t.isOpen) {
+        // Tiket open dari H-2, H-1, maupun Hari Ini semuanya ditampilkan
+        return true;
+      }
+      if (t.isDone) {
+        // Tiket selesai HANYA jika selesai pada hari ini
+        const doneDate = t.doneDateFormatted || t.dateFormatted || '';
+        return doneDate === todayWib;
+      }
+      return false;
+    });
+  }, [partnerVisits, todayWib]);
+
+  const partnerStats = useMemo(() => {
+    const list = validPartnerVisits || [];
     const openTickets = list.filter(t => t.isOpen);
     const needInputCount = openTickets.filter(t => !isTicketAlreadyInOpsTracker(t)).length;
-    const recordedCount = list.filter(t => isTicketAlreadyInOpsTracker(t)).length;
-    const doneCount = list.filter(t => t.isDone).length;
-    return { total, openTickets, needInputCount, recordedCount, doneCount };
-  }, [partnerVisits, visitData]);
+    const doneTodayCount = list.filter(t => t.isDone).length;
+    const recordedCount = openTickets.filter(t => isTicketAlreadyInOpsTracker(t)).length;
+    const total = list.length; // Total tiket valid (Open H-2 s/d hari ini + Selesai hari ini)
+    return { total, openTickets, needInputCount, recordedCount, doneTodayCount };
+  }, [validPartnerVisits, visitData]);
 
   const displayedPartnerVisits = useMemo(() => {
-    const list = partnerVisits || [];
+    const list = validPartnerVisits || [];
     if (partnerFilterMode === 'need_input') {
       return list.filter(t => t.isOpen && !isTicketAlreadyInOpsTracker(t));
     }
     if (partnerFilterMode === 'open') {
       return list.filter(t => t.isOpen);
     }
+    // Tab 'all' -> menampilkan seluruh list valid (semua tiket open H-2 s/d hari ini + selesai hari ini saja)
     return list;
-  }, [partnerVisits, partnerFilterMode, visitData]);
+  }, [validPartnerVisits, partnerFilterMode, visitData]);
 
   // Pagination State for Data Gangguan
   const [currentPageVisit, setCurrentPageVisit] = useState(1);
@@ -15198,11 +15222,11 @@ function DataGangguanView({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-                  Tiket Kunjungan Gangguan Hari Ini
+                  WO Visit Open
                 </h2>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Portal Mitra
+                  Live Lapangan
                 </span>
                 {partnerStats.needInputCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
@@ -15212,7 +15236,7 @@ function DataGangguanView({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Sinkronisasi tiket kunjungan mitra untuk input dan penanganan cepat teknisi
+                Monitoring tiket visit gangguan terbuka (hari ini & 2 hari kebelakang) serta WO selesai hari ini
                 {partnerLastSync && (
                   <span className="text-slate-400 ml-1.5 font-medium">
                     • Terakhir dicek {partnerLastSync.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
@@ -15251,7 +15275,7 @@ function DataGangguanView({
                   : 'text-slate-600 hover:text-slate-800'
                   }`}
               >
-                <span>Open di Partner</span>
+                <span>WO Open</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-600">
                   {partnerStats.openTickets.length}
                 </span>
@@ -15328,13 +15352,15 @@ function DataGangguanView({
                 </div>
                 <p className="text-sm font-bold text-slate-700">
                   {partnerFilterMode === 'need_input'
-                    ? 'Semua tiket visit partner hari ini sudah tercatat di OpsTracker!'
-                    : 'Tidak ada tiket visit partner pada kategori filter ini.'}
+                    ? 'Semua tiket visit yang open sudah tercatat di OpsTracker!'
+                    : partnerFilterMode === 'open'
+                      ? 'Tidak ada tiket WO visit yang masih open saat ini.'
+                      : 'Tidak ada tiket visit pada kategori filter ini.'}
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
                   {partnerFilterMode === 'need_input' && partnerStats.total > 0
-                    ? `Total ${partnerStats.total} tiket hari ini sudah diproses (${partnerStats.recordedCount} tercatat di OpsTracker).`
-                    : 'Data visit partner hari ini bersih atau belum ada tiket baru.'}
+                    ? `Total ${partnerStats.total} tiket aktif/selesai hari ini terpantau (${partnerStats.recordedCount} tercatat di OpsTracker).`
+                    : 'Seluruh tiket kunjungan gangguan termonitor dengan baik.'}
                 </p>
                 {partnerFilterMode === 'need_input' && partnerStats.total > 0 && (
                   <button
@@ -15381,12 +15407,20 @@ function DataGangguanView({
                           <h3 className="text-sm font-black text-slate-800 tracking-tight leading-snug">
                             {item.customerName || 'Pelanggan Tanpa Nama'}
                           </h3>
-                          <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                          <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                             <span>WO: {item.ticketNumber}</span>
+                            {item.dateFormatted && (
+                              <>
+                                <span>•</span>
+                                <span className={item.dateFormatted !== todayWib ? 'font-bold text-amber-600' : ''}>
+                                  {item.dateFormatted === todayWib ? 'Hari Ini' : item.dateFormatted}
+                                </span>
+                              </>
+                            )}
                             {item.timeFormatted && (
                               <>
                                 <span>•</span>
-                                <span>{item.timeFormatted} WIB</span>
+                                <span>{item.timeFormatted}</span>
                               </>
                             )}
                           </div>
