@@ -1,6 +1,36 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import Icon from './Icon';
 import { supabase } from '../supabaseClient';
+
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin (Akses Penuh)', shortLabel: 'Admin', color: 'purple' },
+  { value: 'supervisor', label: 'Supervisor (Pengawas Sektor)', shortLabel: 'Supervisor', color: 'indigo' },
+  { value: 'team_leader', label: 'Team Leader (Stasiun)', shortLabel: 'Team Leader', color: 'blue' },
+  { value: 'helpdesk', label: 'Helpdesk (Tiket & Dispatch)', shortLabel: 'Helpdesk', color: 'amber' }
+];
+
+const SEKTOR_OPTIONS = [
+  { value: 'Semua', label: 'Semua Sektor' },
+  { value: 'Barat', label: 'Wilayah Barat' },
+  { value: 'Tengah', label: 'Wilayah Tengah' },
+  { value: 'Timur', label: 'Wilayah Timur' }
+];
+
+const STASIUN_LIST = [
+  'Semua',
+  'Alastua',
+  'Brumbung',
+  'Kalibodri',
+  'Kaliwungu',
+  'Kradenan',
+  'Krengseng',
+  'Randublatung',
+  'Semarang Tawang',
+  'Sulur',
+  'Wadu',
+  'Weleri'
+];
 
 export default function UserManagementView() {
   const [usersData, setUsersData] = useState([]);
@@ -8,9 +38,11 @@ export default function UserManagementView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Filters & Pagination
+  // Filters & Search
   const [userSearch, setUserSearch] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userSektorFilter, setUserSektorFilter] = useState('all');
+  const [userStasiunFilter, setUserStasiunFilter] = useState('all');
   const [userStatusFilter, setUserStatusFilter] = useState('all');
   const [userPage, setUserPage] = useState(1);
   const userItemsPerPage = 10;
@@ -33,9 +65,10 @@ export default function UserManagementView() {
   const [userForm, setUserForm] = useState({
     username: '',
     password: '',
-    full_name: '',
-    role: 'Teknisi',
-    phone: '',
+    name: '',
+    role: 'team_leader',
+    sektor: 'Semua',
+    stasiun: 'Semua',
     status: 'active'
   });
 
@@ -55,7 +88,6 @@ export default function UserManagementView() {
 
       if (error) {
         console.warn('Gagal fetch users:', error);
-        // Fallback jika tabel users kosong atau query gagal
         showToast('Gagal memuat data users: ' + error.message, 'error');
       } else {
         setUsersData(data || []);
@@ -88,28 +120,44 @@ export default function UserManagementView() {
     }));
   };
 
+  const handleOpenCreateModal = () => {
+    setUserForm({
+      username: '',
+      password: '',
+      name: '',
+      role: 'team_leader',
+      sektor: 'Semua',
+      stasiun: 'Semua',
+      status: 'active'
+    });
+    setEditingUserId(null);
+    setShowUserPassword(false);
+    setShowUserForm(true);
+  };
+
   const handleEditUser = (user) => {
     setUserForm({
       username: user.username || '',
       password: user.password || '',
-      full_name: user.full_name || '',
-      role: user.role || 'Teknisi',
-      phone: user.phone || '',
+      name: user.name || '',
+      role: user.role || 'team_leader',
+      sektor: user.sektor || 'Semua',
+      stasiun: user.stasiun || 'Semua',
       status: user.status || 'active'
     });
     setShowUserPassword(false);
-    setEditingUserId(user.id || user.username);
+    setEditingUserId(user.id);
     setShowUserForm(true);
   };
 
   const handleSaveUser = async () => {
-    if (!userForm.username || !userForm.full_name) {
+    if (!userForm.username || !userForm.name) {
       showToast('Mohon lengkapi Username dan Nama Lengkap!', 'error');
       return;
     }
 
     if (!editingUserId && !userForm.password) {
-      showToast('Password wajib diisi untuk user baru!', 'error');
+      showToast('Password wajib diisi untuk pengguna baru!', 'error');
       return;
     }
 
@@ -119,46 +167,48 @@ export default function UserManagementView() {
         // Update user
         const updatePayload = {
           username: userForm.username.toLowerCase().trim(),
-          full_name: userForm.full_name.trim(),
+          name: userForm.name.trim(),
           role: userForm.role,
-          phone: userForm.phone ? userForm.phone.trim() : null,
+          sektor: userForm.sektor,
+          stasiun: userForm.stasiun,
           status: userForm.status || 'active'
         };
         if (userForm.password && userForm.password.trim()) {
           updatePayload.password = userForm.password.trim();
         }
 
-        const isUuid = typeof editingUserId === 'string' && editingUserId.includes('-');
-        let query = supabase.from('users').update(updatePayload);
-        if (isUuid) {
-          query = query.eq('id', editingUserId);
-        } else {
-          query = query.eq('username', userForm.username.toLowerCase().trim());
-        }
+        const { error } = await supabase
+          .from('users')
+          .update(updatePayload)
+          .eq('id', editingUserId);
 
-        const { error } = await query;
         if (error) throw error;
 
         setUsersData(prev => prev.map(u => {
-          if (u.id === editingUserId || u.username === editingUserId || u.username === userForm.username) {
+          if (u.id === editingUserId) {
             return { ...u, ...updatePayload };
           }
           return u;
         }));
 
-        showToast(`Data user @${userForm.username} berhasil diperbarui!`, 'success');
+        showToast(`Data pengguna @${userForm.username} berhasil diperbarui!`, 'success');
       } else {
         // Create user
         const insertPayload = {
           username: userForm.username.toLowerCase().trim(),
           password: userForm.password.trim(),
-          full_name: userForm.full_name.trim(),
+          name: userForm.name.trim(),
           role: userForm.role,
-          phone: userForm.phone ? userForm.phone.trim() : null,
+          sektor: userForm.sektor,
+          stasiun: userForm.stasiun,
           status: userForm.status || 'active'
         };
 
-        const { data, error } = await supabase.from('users').insert([insertPayload]).select();
+        const { data, error } = await supabase
+          .from('users')
+          .insert([insertPayload])
+          .select();
+
         if (error) throw error;
 
         const newUser = data && data[0]
@@ -166,15 +216,14 @@ export default function UserManagementView() {
           : { id: `USER-${Date.now()}`, ...insertPayload, created_at: new Date().toISOString() };
 
         setUsersData(prev => [newUser, ...prev]);
-        showToast(`User baru @${userForm.username} berhasil didaftarkan!`, 'success');
+        showToast(`Pengguna baru @${userForm.username} berhasil didaftarkan!`, 'success');
       }
 
       setShowUserForm(false);
       setEditingUserId(null);
-      setUserForm({ username: '', password: '', full_name: '', role: 'Teknisi', phone: '', status: 'active' });
     } catch (err) {
       console.error("Save user error:", err);
-      showToast('Gagal menyimpan user: ' + err.message, 'error');
+      showToast('Gagal menyimpan pengguna: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -183,19 +232,15 @@ export default function UserManagementView() {
   const handleToggleUserStatus = async (user) => {
     const newStatus = user.status === 'active' ? 'inactive' : 'active';
     try {
-      const isUuid = typeof user.id === 'string' && user.id.includes('-');
-      let query = supabase.from('users').update({ status: newStatus });
-      if (isUuid) {
-        query = query.eq('id', user.id);
-      } else {
-        query = query.eq('username', user.username);
-      }
+      const { error } = await supabase
+        .from('users')
+        .update({ status: newStatus })
+        .eq('id', user.id);
 
-      const { error } = await query;
       if (error) throw error;
 
-      setUsersData(prev => prev.map(u => (u.username === user.username || u.id === user.id) ? { ...u, status: newStatus } : u));
-      showToast(`Status user @${user.username} diubah menjadi ${newStatus === 'active' ? 'AKTIF' : 'NON-AKTIF'}!`, 'success');
+      setUsersData(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
+      showToast(`Status @${user.username} diubah menjadi ${newStatus === 'active' ? 'AKTIF' : 'NON-AKTIF'}!`, 'success');
     } catch (err) {
       console.error("Toggle user status error:", err);
       showToast('Gagal mengubah status: ' + err.message, 'error');
@@ -205,26 +250,22 @@ export default function UserManagementView() {
   const handleDeleteUser = (user) => {
     setConfirmModal({
       isOpen: true,
-      title: 'Hapus User Pengguna',
-      message: `Apakah Anda yakin ingin menghapus akun user @${user.username} (${user.full_name}) secara permanen?`,
+      title: 'Hapus Pengguna',
+      message: `Apakah Anda yakin ingin menghapus akun @${user.username} (${user.name}) secara permanen dari sistem OpsTracker?`,
       onConfirm: async () => {
         try {
-          const isUuid = typeof user.id === 'string' && user.id.includes('-');
-          let query = supabase.from('users').delete();
-          if (isUuid) {
-            query = query.eq('id', user.id);
-          } else {
-            query = query.eq('username', user.username);
-          }
+          const { error } = await supabase
+            .from('users')
+            .delete()
+            .eq('id', user.id);
 
-          const { error } = await query;
           if (error) throw error;
 
-          setUsersData(prev => prev.filter(u => u.username !== user.username && u.id !== user.id));
+          setUsersData(prev => prev.filter(u => u.id !== user.id));
           showToast(`Akun user @${user.username} berhasil dihapus!`, 'success');
         } catch (err) {
           console.error("Delete user error:", err);
-          showToast('Gagal menghapus user: ' + err.message, 'error');
+          showToast('Gagal menghapus pengguna: ' + err.message, 'error');
         } finally {
           setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
         }
@@ -232,25 +273,51 @@ export default function UserManagementView() {
     });
   };
 
+  const resetAllFilters = () => {
+    setUserSearch('');
+    setUserRoleFilter('all');
+    setUserSektorFilter('all');
+    setUserStasiunFilter('all');
+    setUserStatusFilter('all');
+    setUserPage(1);
+  };
+
+  const hasActiveFilters = Boolean(
+    userSearch ||
+    userRoleFilter !== 'all' ||
+    userSektorFilter !== 'all' ||
+    userStasiunFilter !== 'all' ||
+    userStatusFilter !== 'all'
+  );
+
   // Filter Data
   const filteredUsers = useMemo(() => {
     return usersData.filter(u => {
-      const matchSearch = !userSearch ||
-        (u.username && u.username.toLowerCase().includes(userSearch.toLowerCase())) ||
-        (u.full_name && u.full_name.toLowerCase().includes(userSearch.toLowerCase())) ||
-        (u.role && u.role.toLowerCase().includes(userSearch.toLowerCase())) ||
-        (u.phone && u.phone.includes(userSearch));
+      const q = userSearch.toLowerCase().trim();
+      const matchSearch = !q ||
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.role && u.role.toLowerCase().includes(q)) ||
+        (u.sektor && u.sektor.toLowerCase().includes(q)) ||
+        (u.stasiun && u.stasiun.toLowerCase().includes(q));
+
       const matchRole = userRoleFilter === 'all' || u.role === userRoleFilter;
+      const matchSektor = userSektorFilter === 'all' || (u.sektor || 'Semua') === userSektorFilter;
+      const matchStasiun = userStasiunFilter === 'all' || (u.stasiun || 'Semua') === userStasiunFilter;
       const matchStatus = userStatusFilter === 'all' || (u.status || 'active') === userStatusFilter;
-      return matchSearch && matchRole && matchStatus;
+
+      return matchSearch && matchRole && matchSektor && matchStasiun && matchStatus;
     });
-  }, [usersData, userSearch, userRoleFilter, userStatusFilter]);
+  }, [usersData, userSearch, userRoleFilter, userSektorFilter, userStasiunFilter, userStatusFilter]);
 
   // KPIs
   const totalUsersCount = usersData.length;
   const activeUsersCount = usersData.filter(u => (u.status || 'active') === 'active').length;
   const inactiveUsersCount = usersData.filter(u => u.status === 'inactive').length;
-  const uniqueRolesCount = new Set(usersData.map(u => u.role)).size;
+  const tlUsersCount = usersData.filter(u => u.role === 'team_leader').length;
+  const spvUsersCount = usersData.filter(u => u.role === 'supervisor').length;
+  const helpdeskUsersCount = usersData.filter(u => u.role === 'helpdesk').length;
+  const adminUsersCount = usersData.filter(u => u.role === 'admin').length;
 
   // Pagination
   const totalPages = Math.ceil(filteredUsers.length / userItemsPerPage) || 1;
@@ -258,195 +325,364 @@ export default function UserManagementView() {
   const startIndex = (safePage - 1) * userItemsPerPage;
   const paginatedUsers = filteredUsers.slice(startIndex, startIndex + userItemsPerPage);
 
-  const getRoleBadgeClass = (role) => {
+  const getRoleBadge = (role) => {
     switch (role) {
-      case 'Admin':
-        return 'bg-purple-50 text-purple-700 border-purple-200';
-      case 'Team Leader':
-      case 'TL':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'Helpdesk':
-      case 'Dispatcher':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'Teknisi':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'Manajemen':
-      case 'Eksekutif':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'admin':
+        return { label: 'Admin', className: 'bg-purple-50 text-purple-700 border-purple-200' };
+      case 'supervisor':
+        return { label: 'Supervisor', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+      case 'team_leader':
+        return { label: 'Team Leader', className: 'bg-blue-50 text-blue-700 border-blue-200' };
+      case 'helpdesk':
+        return { label: 'Helpdesk', className: 'bg-amber-50 text-amber-700 border-amber-200' };
       default:
-        return 'bg-slate-50 text-slate-700 border-slate-200';
+        return { label: role || '-', className: 'bg-slate-50 text-slate-700 border-slate-200' };
+    }
+  };
+
+  const getSektorBadge = (sektor) => {
+    switch (sektor) {
+      case 'Barat':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'Tengah':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'Timur':
+        return 'bg-orange-50 text-orange-700 border-orange-200';
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top duration-200 ${toast.type === 'error'
-          ? 'bg-rose-50 text-rose-700 border-rose-200 shadow-rose-100'
-          : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-emerald-100'
+    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5 animate-fade">
+      {/* Toast Notification (Portal ke Body) */}
+      {toast && ReactDOM.createPortal(
+        <div className={`fixed top-5 right-5 z-[10001] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs sm:text-sm font-semibold transition-all ${toast.type === 'error'
+          ? 'bg-rose-50 text-rose-800 border-rose-200'
+          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
           }`}>
-          <Icon name={toast.type === 'error' ? 'alert-triangle' : 'check-circle-2'} size={18} />
+          <Icon
+            name={toast.type === 'error' ? 'alert-circle' : 'check-circle-2'}
+            size={17}
+            className={toast.type === 'error' ? 'text-rose-600 shrink-0' : 'text-emerald-600 shrink-0'}
+          />
           <span>{toast.message}</span>
-        </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="ml-2 p-1 rounded-lg hover:bg-black/5 text-current"
+            aria-label="Tutup notifikasi"
+          >
+            <Icon name="x" size={14} />
+          </button>
+        </div>,
+        document.body
       )}
 
-      {/* Header View */}
-      <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-200/80">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
-              <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-                <Icon name="shield-check" size={24} />
-              </div>
-              Manajemen User & Hak Akses
+      {/* HEADER BANNER */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-4 sm:p-5 space-y-3 sm:space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                <span>PT DESNARUM JAYA AKASHA</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span>Database Supabase: users ({usersData.length} akun)</span>
+              </span>
+            </div>
+            <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 tracking-tight">
+              Management User & Hak Akses
             </h2>
-            <p className="text-slate-500 text-xs sm:text-sm mt-1">
-              Kelola akun login sistem OpsTracker, hak akses (Role), nomor WhatsApp, dan status aktif akun pengguna.
+            <p className="text-xs sm:text-sm text-slate-500">
+              Kelola data akun pengguna, kredensial password login, hak akses role, pembagian sektor kerja, dan penugasan stasiun.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          {/* TOMBOL AKSI UTAMA */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={fetchUsers}
               disabled={isLoading}
-              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer font-medium text-xs flex items-center gap-1.5"
-              title="Refresh Data"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[40px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50"
+              title="Baca ulang data terbaru dari tabel users Supabase"
             >
-              <Icon name="refresh-cw" size={15} className={isLoading ? "animate-spin" : ""} />
-              <span className="hidden sm:inline">Refresh</span>
+              <Icon name="refresh-cw" size={14} className={isLoading ? 'animate-spin text-blue-600' : 'text-slate-600'} />
+              <span>Muat Ulang</span>
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setUserForm({ username: '', password: '', full_name: '', role: 'Teknisi', phone: '', status: 'active' });
-                setEditingUserId(null);
-                setShowUserForm(true);
-              }}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
+              onClick={handleOpenCreateModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[40px] rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition-all cursor-pointer active:scale-95"
             >
-              <Icon name="plus" size={16} />
-              <span>Tambah User Baru</span>
+              <Icon name="user-plus" size={15} />
+              <span>Tambah Pengguna</span>
             </button>
-          </div>
-        </div>
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-6">
-          <div className="bg-slate-50/70 border border-slate-200/80 p-4 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total User</span>
-              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-                <Icon name="users" size={16} />
-              </div>
-            </div>
-            <div className="mt-2">
-              <span className="text-2xl font-black text-slate-800">{totalUsersCount}</span>
-              <span className="text-[11px] text-slate-500 ml-1.5 font-medium">Akun</span>
-            </div>
-          </div>
-
-          <div className="bg-emerald-50/50 border border-emerald-200/80 p-4 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">User Aktif</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                <Icon name="check-circle" size={16} />
-              </div>
-            </div>
-            <div className="mt-2">
-              <span className="text-2xl font-black text-emerald-700">{activeUsersCount}</span>
-              <span className="text-[11px] text-emerald-600 ml-1.5 font-medium">Dapat Login</span>
-            </div>
-          </div>
-
-          <div className="bg-slate-50/70 border border-slate-200/80 p-4 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Non-Aktif</span>
-              <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center">
-                <Icon name="x-circle" size={16} />
-              </div>
-            </div>
-            <div className="mt-2">
-              <span className="text-2xl font-black text-slate-700">{inactiveUsersCount}</span>
-              <span className="text-[11px] text-slate-400 ml-1.5 font-medium">Suspended</span>
-            </div>
-          </div>
-
-          <div className="bg-purple-50/50 border border-purple-200/80 p-4 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">Variasi Role</span>
-              <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center">
-                <Icon name="key" size={16} />
-              </div>
-            </div>
-            <div className="mt-2">
-              <span className="text-2xl font-black text-purple-700">{uniqueRolesCount}</span>
-              <span className="text-[11px] text-purple-600 ml-1.5 font-medium">Hak Akses</span>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* FILTER & SEARCH BAR */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[240px]">
-          <Icon name="search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={userSearch}
-            onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
-            placeholder="Cari username, nama lengkap, atau no HP..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium focus:bg-white focus:border-blue-500 outline-none transition-all"
-          />
-          {userSearch && (
-            <button
-              onClick={() => setUserSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+      {/* KARTU KPI INTERAKTIF (KLIK UNTUK FILTER) */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Total Pengguna */}
+        <button
+          type="button"
+          onClick={() => { setUserRoleFilter('all'); setUserStatusFilter('all'); setUserSektorFilter('all'); setUserStasiunFilter('all'); }}
+          className={`text-left bg-white p-4 rounded-2xl border transition-all cursor-pointer ${userRoleFilter === 'all' && userStatusFilter === 'all' && userSektorFilter === 'all' && userStasiunFilter === 'all'
+            ? 'border-blue-500 ring-2 ring-blue-500/15 shadow-sm'
+            : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
+            }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Pengguna</p>
+              <p className="text-2xl font-extrabold text-slate-800 mt-1">
+                {totalUsersCount}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+              <Icon name="users" size={20} />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2 font-medium">
+            Seluruh akun terdaftar di sistem
+          </p>
+        </button>
+
+        {/* 2. Team Leader */}
+        <button
+          type="button"
+          onClick={() => {
+            setUserRoleFilter(userRoleFilter === 'team_leader' ? 'all' : 'team_leader');
+            setUserPage(1);
+          }}
+          className={`text-left bg-white p-4 rounded-2xl border transition-all cursor-pointer ${userRoleFilter === 'team_leader'
+            ? 'border-blue-500 ring-2 ring-blue-500/15 shadow-sm'
+            : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
+            }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Team Leader</p>
+              <p className="text-2xl font-extrabold text-blue-600 mt-1">
+                {tlUsersCount}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+              <Icon name="user-check" size={20} />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2 font-medium">
+            {spvUsersCount} SPV • {tlUsersCount} TL Stasiun
+          </p>
+        </button>
+
+        {/* 3. Helpdesk & Dispatcher */}
+        <button
+          type="button"
+          onClick={() => {
+            setUserRoleFilter(userRoleFilter === 'helpdesk' ? 'all' : 'helpdesk');
+            setUserPage(1);
+          }}
+          className={`text-left bg-white p-4 rounded-2xl border transition-all cursor-pointer ${userRoleFilter === 'helpdesk'
+            ? 'border-amber-500 ring-2 ring-amber-500/15 shadow-sm'
+            : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
+            }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Helpdesk</p>
+              <p className="text-2xl font-extrabold text-amber-600 mt-1">
+                {helpdeskUsersCount}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+              <Icon name="headphones" size={20} />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2 font-medium">
+            {helpdeskUsersCount} Helpdesk • {adminUsersCount} Super Admin
+          </p>
+        </button>
+
+        {/* 4. Pengguna Aktif */}
+        <button
+          type="button"
+          onClick={() => {
+            setUserStatusFilter(userStatusFilter === 'active' ? 'all' : 'active');
+            setUserPage(1);
+          }}
+          className={`text-left bg-white p-4 rounded-2xl border transition-all cursor-pointer ${userStatusFilter === 'active'
+            ? 'border-emerald-500 ring-2 ring-emerald-500/15 shadow-sm'
+            : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
+            }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Pengguna Aktif</p>
+              <p className="text-2xl font-extrabold text-emerald-600 mt-1">
+                {activeUsersCount}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+              <Icon name="check-circle-2" size={20} />
+            </div>
+          </div>
+          <p className="text-[11px] text-emerald-700 mt-2 font-bold">
+            {inactiveUsersCount > 0 ? `${inactiveUsersCount} user non-aktif` : '100% akun aktif dapat login'}
+          </p>
+        </button>
+      </div>
+
+      {/* FILTER & PENCARIAN TOOLBAR */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-3.5 sm:p-4 space-y-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+          {/* Input Pencarian */}
+          <div className="relative flex-1 min-w-[200px] w-full xl:w-auto">
+            <Icon name="search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+              placeholder="Cari nama, username, stasiun, atau sektor..."
+              className="w-full pl-9 pr-8 py-2.5 min-h-[42px] bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-blue-500 focus:outline-none transition-all"
+            />
+            {userSearch && (
+              <button
+                type="button"
+                onClick={() => setUserSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                aria-label="Bersihkan pencarian"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Dropdown Filters */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full xl:w-auto">
+            {/* Filter Role */}
+            <select
+              value={userRoleFilter}
+              onChange={(e) => { setUserRoleFilter(e.target.value); setUserPage(1); }}
+              aria-label="Filter berdasarkan Role"
+              className="w-full sm:w-auto px-3 py-2.5 min-h-[42px] bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:outline-none cursor-pointer max-w-full sm:max-w-[170px]"
             >
-              <Icon name="x" size={14} />
-            </button>
-          )}
+              <option value="all">Semua Role</option>
+              <option value="admin">Admin</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="team_leader">Team Leader</option>
+              <option value="helpdesk">Helpdesk</option>
+            </select>
+
+            {/* Filter Sektor */}
+            <select
+              value={userSektorFilter}
+              onChange={(e) => { setUserSektorFilter(e.target.value); setUserPage(1); }}
+              aria-label="Filter berdasarkan Sektor"
+              className="w-full sm:w-auto px-3 py-2.5 min-h-[42px] bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:outline-none cursor-pointer max-w-full sm:max-w-[160px]"
+            >
+              <option value="all">Semua Sektor</option>
+              {SEKTOR_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+
+            {/* Filter Stasiun */}
+            <select
+              value={userStasiunFilter}
+              onChange={(e) => { setUserStasiunFilter(e.target.value); setUserPage(1); }}
+              aria-label="Filter berdasarkan Stasiun"
+              className="w-full sm:w-auto px-3 py-2.5 min-h-[42px] bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:outline-none cursor-pointer max-w-full sm:max-w-[190px]"
+            >
+              <option value="all">Semua Stasiun</option>
+              {STASIUN_LIST.map(st => (
+                <option key={st} value={st}>{st === 'Semua' ? 'Stasiun: Semua' : st}</option>
+              ))}
+            </select>
+
+            {/* Filter Status */}
+            <select
+              value={userStatusFilter}
+              onChange={(e) => { setUserStatusFilter(e.target.value); setUserPage(1); }}
+              aria-label="Filter berdasarkan Status"
+              className="w-full sm:w-auto px-3 py-2.5 min-h-[42px] bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:bg-white focus:border-blue-500 focus:outline-none cursor-pointer max-w-full sm:max-w-[150px]"
+            >
+              <option value="all">Semua Status</option>
+              <option value="active">Aktif</option>
+              <option value="inactive">Non-Aktif</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Filter Role */}
-          <select
-            value={userRoleFilter}
-            onChange={(e) => { setUserRoleFilter(e.target.value); setUserPage(1); }}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:bg-slate-100 transition-colors"
-          >
-            <option value="all">Semua Role</option>
-            <option value="Admin">Admin</option>
-            <option value="Team Leader">Team Leader</option>
-            <option value="Helpdesk">Helpdesk</option>
-            <option value="Teknisi">Teknisi</option>
-            <option value="Manajemen">Manajemen</option>
-          </select>
+        {/* Info Filter & Reset */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-slate-500 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>
+              Menampilkan <strong className="text-slate-800">{filteredUsers.length}</strong> dari{' '}
+              <strong className="text-slate-800">{usersData.length}</strong> pengguna
+            </span>
+            {userRoleFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                <span>Role: {getRoleBadge(userRoleFilter).label}</span>
+                <button type="button" onClick={() => setUserRoleFilter('all')} className="hover:text-blue-900" aria-label="Hapus filter role">
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            )}
+            {userSektorFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span>Sektor: {userSektorFilter}</span>
+                <button type="button" onClick={() => setUserSektorFilter('all')} className="hover:text-emerald-900" aria-label="Hapus filter sektor">
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            )}
+            {userStasiunFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                <span>Stasiun: {userStasiunFilter}</span>
+                <button type="button" onClick={() => setUserStasiunFilter('all')} className="hover:text-purple-900" aria-label="Hapus filter stasiun">
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            )}
+            {userStatusFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                <span>Status: {userStatusFilter === 'active' ? 'Aktif' : 'Non-Aktif'}</span>
+                <button type="button" onClick={() => setUserStatusFilter('all')} className="hover:text-slate-900" aria-label="Hapus filter status">
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            )}
+          </div>
 
-          {/* Filter Status */}
-          <select
-            value={userStatusFilter}
-            onChange={(e) => { setUserStatusFilter(e.target.value); setUserPage(1); }}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:bg-slate-100 transition-colors"
-          >
-            <option value="all">Semua Status</option>
-            <option value="active">Aktif</option>
-            <option value="inactive">Non-Aktif</option>
-          </select>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
+            >
+              <Icon name="rotate-ccw" size={13} />
+              <span>Reset Semua Filter</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* TABLE VIEW */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">User</th>
-                <th className="py-3.5 px-4">Role</th>
-                <th className="py-3.5 px-4">No. WhatsApp</th>
+                <th className="py-3.5 px-4">Pengguna</th>
+                <th className="py-3.5 px-4">Role & Hak Akses</th>
+                <th className="py-3.5 px-4">Sektor</th>
+                <th className="py-3.5 px-4">Penugasan Stasiun</th>
                 <th className="py-3.5 px-4">Password</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
                 <th className="py-3.5 px-4 text-right">Aksi</th>
@@ -455,59 +691,72 @@ export default function UserManagementView() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Icon name="loader-2" size={24} className="animate-spin mx-auto mb-2 text-blue-600" />
-                    <span>Memuat data user...</span>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <Icon name="refresh-cw" size={24} className="animate-spin mx-auto mb-2 text-blue-600" />
+                    <span>Memuat data pengguna dari Supabase...</span>
                   </td>
                 </tr>
               ) : paginatedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <Icon name="users" size={28} className="mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-600">Tidak ada user ditemukan</p>
+                    <p className="font-semibold text-slate-600">Tidak ada pengguna ditemukan</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">Coba ubah kata kunci pencarian atau filter.</p>
                   </td>
                 </tr>
               ) : (
                 paginatedUsers.map((user) => {
-                  const uid = user.id || user.username;
+                  const uid = user.id;
                   const isPasswordRevealed = revealedPasswords[uid];
                   const isActive = (user.status || 'active') === 'active';
+                  const roleBadge = getRoleBadge(user.role);
 
                   return (
                     <tr key={uid} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
-                            {(user.full_name || user.username || '?').charAt(0).toUpperCase()}
+                      {/* 1. Pengguna */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 font-extrabold text-sm flex items-center justify-center shrink-0 border border-blue-200">
+                            {(user.name || user.username || '?').charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-800">{user.full_name || '-'}</div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 leading-snug truncate" title={user.name}>
+                              {user.name || '-'}
+                            </div>
                             <div className="text-[11px] text-slate-400 font-mono">@{user.username}</div>
                           </div>
                         </div>
                       </td>
 
-                      <td className="py-3 px-4">
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${getRoleBadgeClass(user.role)}`}>
-                          {user.role || 'Teknisi'}
+                      {/* 2. Role & Hak Akses */}
+                      <td className="py-3.5 px-4">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${roleBadge.className}`}>
+                          <Icon name={user.role === 'admin' ? 'shield-check' : user.role === 'supervisor' ? 'shield' : user.role === 'helpdesk' ? 'headphones' : 'user'} size={12} />
+                          <span>{roleBadge.label}</span>
                         </span>
                       </td>
 
-                      <td className="py-3 px-4 font-mono text-slate-600">
-                        {user.phone ? (
-                          <span className="flex items-center gap-1">
-                            <Icon name="phone" size={12} className="text-emerald-600" />
-                            {user.phone}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )}
+                      {/* 3. Sektor */}
+                      <td className="py-3.5 px-4">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${getSektorBadge(user.sektor)}`}>
+                          {user.sektor || 'Semua'}
+                        </span>
                       </td>
 
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5 font-mono text-slate-600">
-                          <span>{isPasswordRevealed ? (user.password || '-') : '••••••••'}</span>
+                      {/* 4. Stasiun */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5 text-slate-700 font-medium">
+                          <Icon name="map-pin" size={13} className="text-slate-400 shrink-0" />
+                          <span>{user.stasiun || 'Semua'}</span>
+                        </div>
+                      </td>
+
+                      {/* 5. Password */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5 font-mono text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200 w-fit">
+                          <span className="font-semibold text-xs tracking-wider">
+                            {isPasswordRevealed ? (user.password || '-') : '••••••••'}
+                          </span>
                           {user.password && (
                             <>
                               <button
@@ -531,27 +780,30 @@ export default function UserManagementView() {
                         </div>
                       </td>
 
-                      <td className="py-3 px-4 text-center">
+                      {/* 6. Status Toggle */}
+                      <td className="py-3.5 px-4 text-center">
                         <button
                           type="button"
                           onClick={() => handleToggleUserStatus(user)}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${isActive
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${isActive
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                             : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                             }`}
-                          title="Klik untuk ubah status aktif / non-aktif"
+                          title="Klik untuk mengubah status aktif / non-aktif"
                         >
-                          {isActive ? 'Aktif' : 'Non-Aktif'}
+                          <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                          <span>{isActive ? 'Aktif' : 'Non-Aktif'}</span>
                         </button>
                       </td>
 
-                      <td className="py-3 px-4 text-right">
+                      {/* 7. Aksi */}
+                      <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleEditUser(user)}
                             className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                            title="Edit User"
+                            title="Edit Data Pengguna"
                           >
                             <Icon name="edit" size={14} />
                           </button>
@@ -559,7 +811,7 @@ export default function UserManagementView() {
                             type="button"
                             onClick={() => handleDeleteUser(user)}
                             className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Hapus User"
+                            title="Hapus Pengguna"
                           >
                             <Icon name="trash-2" size={14} />
                           </button>
@@ -573,23 +825,30 @@ export default function UserManagementView() {
           </table>
         </div>
 
-        {/* Pagination Footer */}
+        {/* PAGINATION FOOTER */}
         {totalPages > 1 && (
           <div className="p-3.5 bg-slate-50/80 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
-            <span>Menampilkan {paginatedUsers.length} dari {filteredUsers.length} pengguna</span>
+            <span>
+              Menampilkan <strong className="text-slate-700">{paginatedUsers.length}</strong> dari{' '}
+              <strong className="text-slate-700">{filteredUsers.length}</strong> pengguna
+            </span>
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 disabled={safePage <= 1}
                 onClick={() => setUserPage(p => Math.max(1, p - 1))}
                 className="p-1.5 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-40 cursor-pointer"
+                aria-label="Halaman sebelumnya"
               >
                 <Icon name="chevron-left" size={14} />
               </button>
-              <span className="font-bold px-2">Halaman {safePage} / {totalPages}</span>
+              <span className="font-bold px-2 text-slate-700">Halaman {safePage} dari {totalPages}</span>
               <button
+                type="button"
                 disabled={safePage >= totalPages}
                 onClick={() => setUserPage(p => Math.min(totalPages, p + 1))}
                 className="p-1.5 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-40 cursor-pointer"
+                aria-label="Halaman berikutnya"
               >
                 <Icon name="chevron-right" size={14} />
               </button>
@@ -600,12 +859,12 @@ export default function UserManagementView() {
 
       {/* MODAL FORM TAMBAH / EDIT USER */}
       {showUserForm && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-[9999] p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
               <h3 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
                 <Icon name="shield-check" size={18} className="text-blue-600" />
-                {editingUserId ? `Edit User: @${userForm.username}` : 'Tambah User Pengguna Baru'}
+                <span>{editingUserId ? `Edit Pengguna: @${userForm.username}` : 'Tambah Pengguna Baru'}</span>
               </h3>
               <button
                 type="button"
@@ -617,20 +876,22 @@ export default function UserManagementView() {
             </div>
 
             <form onSubmit={(e) => { e.preventDefault(); handleSaveUser(); }} className="p-5 space-y-4">
+              {/* Nama Lengkap */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nama Lengkap <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={userForm.full_name}
-                  onChange={(e) => setUserForm({ ...userForm, full_name: e.target.value })}
-                  placeholder="Contoh: Budi Santoso"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:border-blue-500"
+                  value={userForm.name}
+                  onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+                  placeholder="Contoh: Setyo Ali"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:border-blue-500 font-medium"
                   required
                 />
               </div>
 
+              {/* Username & Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -640,7 +901,7 @@ export default function UserManagementView() {
                     type="text"
                     value={userForm.username}
                     onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
-                    placeholder="budi_ops"
+                    placeholder="tl_setyo"
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500"
                     required
                   />
@@ -648,24 +909,22 @@ export default function UserManagementView() {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-slate-700">
-                      Password {!editingUserId && <span className="text-rose-500">*</span>}
-                    </label>
-                  </div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Password {!editingUserId && <span className="text-rose-500">*</span>}
+                  </label>
                   <div className="relative">
                     <input
                       type={showUserPassword ? "text" : "password"}
                       value={userForm.password}
                       onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                      placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Password login"}
+                      placeholder={editingUserId ? "Kosongkan bila tetap" : "Password login"}
                       className="w-full p-2.5 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500"
                       required={!editingUserId}
                     />
                     <button
                       type="button"
                       onClick={() => setShowUserPassword(!showUserPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                     >
                       <Icon name={showUserPassword ? "eye-off" : "eye"} size={14} />
                     </button>
@@ -673,21 +932,20 @@ export default function UserManagementView() {
                 </div>
               </div>
 
+              {/* Role & Status */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Role / Hak Akses <span className="text-rose-500">*</span>
+                    Role & Hak Akses <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={userForm.role}
                     onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
                   >
-                    <option value="Admin">Admin (Akses Penuh)</option>
-                    <option value="Team Leader">Team Leader (TL)</option>
-                    <option value="Helpdesk">Helpdesk (Tiket & Dispatch)</option>
-                    <option value="Teknisi">Teknisi (Petugas Lapangan)</option>
-                    <option value="Manajemen">Manajemen (Eksekutif)</option>
+                    {ROLE_OPTIONS.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -706,19 +964,40 @@ export default function UserManagementView() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nomor WhatsApp / HP
-                </label>
-                <input
-                  type="text"
-                  value={userForm.phone}
-                  onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
-                  placeholder="081234567890"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono outline-none focus:bg-white focus:border-blue-500"
-                />
+              {/* Sektor & Stasiun */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Wilayah Sektor <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={userForm.sektor}
+                    onChange={(e) => setUserForm({ ...userForm, sektor: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                  >
+                    {SEKTOR_OPTIONS.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Penugasan Stasiun <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={userForm.stasiun}
+                    onChange={(e) => setUserForm({ ...userForm, stasiun: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 cursor-pointer"
+                  >
+                    {STASIUN_LIST.map(st => (
+                      <option key={st} value={st}>{st === 'Semua' ? 'Semua Stasiun' : st}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
+              {/* Action Buttons */}
               <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button
                   type="button"
@@ -730,10 +1009,10 @@ export default function UserManagementView() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer shadow-2xs disabled:opacity-50"
                 >
-                  {isSubmitting && <Icon name="loader-2" size={14} className="animate-spin" />}
-                  <span>{editingUserId ? 'Simpan Perubahan' : 'Daftarkan User'}</span>
+                  {isSubmitting && <Icon name="refresh-cw" size={14} className="animate-spin" />}
+                  <span>{editingUserId ? 'Simpan Perubahan' : 'Daftarkan Pengguna'}</span>
                 </button>
               </div>
             </form>
@@ -741,9 +1020,9 @@ export default function UserManagementView() {
         </div>
       )}
 
-      {/* CONFIRM MODAL */}
+      {/* CONFIRM DELETE MODAL */}
       {confirmModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex justify-center items-center z-[9999] p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 border border-slate-200 text-center animate-in zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
               <Icon name="trash-2" size={22} />
@@ -761,7 +1040,7 @@ export default function UserManagementView() {
               <button
                 type="button"
                 onClick={confirmModal.onConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-2xs"
               >
                 Hapus
               </button>
