@@ -2160,7 +2160,7 @@ export default function TeamPerformanceView({
       {/* MODAL RINCIAN TIKET / TUGAS HARI INI */}
       {detailModal.isOpen && detailModal.teamData && ReactDOM.createPortal(
         <div
-          className="fixed inset-0 z-[999] flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 animate-in fade-in"
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 animate-in fade-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setDetailModal({ isOpen: false, teamData: null, activeTab: 'semua' });
@@ -2368,7 +2368,7 @@ export default function TeamPerformanceView({
       {/* MODAL KELOLA PLOTTING TIM & TEAM LEADER */}
       {isManageModalOpen && ReactDOM.createPortal(
         <div
-          className="fixed inset-0 z-[999] flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 animate-in fade-in"
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 animate-in fade-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setIsManageModalOpen(false);

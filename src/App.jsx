@@ -13258,7 +13258,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       )}
       {/* MODAL KONFIRMASI HAPUS PENUGASAN WO (CUSTOM ELEGAN DI DEPAN MODAL PENUGASAN) */}
       {showConfirmDeleteWo && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-[2px] animate-fade">
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-slate-950/75 animate-fade">
           <div className="absolute inset-0" onClick={() => !isSaving && setShowConfirmDeleteWo(false)}></div>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-modal border border-slate-100 relative z-10">
             <div className="p-5 flex flex-col items-center text-center">
