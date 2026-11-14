@@ -221,59 +221,96 @@ const deduplicateVisitData = (items) => {
   const secondList = [];
   for (const item of map.values()) {
     const custId = String(item.idPelanggan || item.id_pelanggan || '').trim().toUpperCase();
+    const itemNoWo = String(item.noWo || item.no_wo || '').trim().toUpperCase();
+    const itemEv = String(item.evidence || '').trim();
     const itemTime = parseVisitTimeMs(item.timestamp);
-    const itemDate = typeof standardizeDate === 'function' ? standardizeDate(item.timestamp) : '';
+    const itemDate = typeof standardizeDate === 'function' ? standardizeDate(item.timestamp) : String(item.timestamp || '').slice(0, 10);
     const itemIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(item.status || item.status_visit || '').toUpperCase());
 
     let matchedIdx = -1;
-    if (custId) {
-      matchedIdx = secondList.findIndex(existing => {
-        const existCust = String(existing.idPelanggan || existing.id_pelanggan || '').trim().toUpperCase();
-        if (existCust !== custId) return false;
+    matchedIdx = secondList.findIndex(existing => {
+      const existCust = String(existing.idPelanggan || existing.id_pelanggan || '').trim().toUpperCase();
+      const existNoWo = String(existing.noWo || existing.no_wo || '').trim().toUpperCase();
+      const existEv = String(existing.evidence || '').trim();
+      const existTime = parseVisitTimeMs(existing.timestamp);
+      const existDate = typeof standardizeDate === 'function' ? standardizeDate(existing.timestamp) : String(existing.timestamp || '').slice(0, 10);
+      const existIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
 
-        const existDate = typeof standardizeDate === 'function' ? standardizeDate(existing.timestamp) : '';
-        const existTime = parseVisitTimeMs(existing.timestamp);
-        const existIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
+      // PROTEKTOR 1: Nomor WO yang sama (100% tiket dari WO partner yang sama)
+      if (itemNoWo && existNoWo && itemNoWo === existNoWo) {
+        return true;
+      }
 
-        // 1. Jika timestamp-nya selisih sangat kecil (< 5 menit / 300.000 ms), pasti duplikat submit
-        if (itemTime && existTime && Math.abs(itemTime - existTime) < 300000) {
+      // Jika ID pelanggan tidak cocok, jangan gabung
+      if (!custId || custId !== existCust) return false;
+
+      // PROTEKTOR 2: Evidence foto Drive yang persis sama (100% submit ulang laporan lapangan)
+      if (itemEv && existEv && itemEv === existEv) {
+        return true;
+      }
+
+      // PROTEKTOR 3: Timestamp selisih sangat kecil (< 15 menit / 900.000 ms), duplikasi submit form
+      if (itemTime && existTime && Math.abs(itemTime - existTime) < 900000) {
+        return true;
+      }
+
+      // PROTEKTOR 4: Pada hari yang sama keduanya berstatus OPEN, gabungkan menjadi 1 tiket aktif
+      if (itemDate && existDate && itemDate === existDate && !itemIsDone && !existIsDone) {
+        return true;
+      }
+
+      // PROTEKTOR 5: Pada hari yang sama untuk pelanggan yang sama, teknisi dan tindakan perbaikannya identik
+      if (itemDate && existDate && itemDate === existDate) {
+        const itemP = String(item.petugas || '').trim().toLowerCase();
+        const existP = String(existing.petugas || '').trim().toLowerCase();
+        const itemT = String(item.tindakan || item.perbaikan || '').trim().toLowerCase();
+        const existT = String(existing.tindakan || existing.perbaikan || '').trim().toLowerCase();
+        if (itemP && existP && itemP === existP && itemT && existT && itemT === existT) {
           return true;
         }
+      }
 
-        // 2. Jika pada hari yang sama keduanya berstatus OPEN, gabungkan menjadi 1 tiket
-        if (itemDate && existDate && itemDate === existDate && !itemIsDone && !existIsDone) {
-          return true;
-        }
-
-        return false;
-      });
-    }
+      return false;
+    });
 
     if (matchedIdx === -1) {
       secondList.push(item);
     } else {
       const existing = secondList[matchedIdx];
       const existingIsDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(existing.status || existing.status_visit || '').toUpperCase());
+      const existTime = parseVisitTimeMs(existing.timestamp);
 
       // Merge data dan ambil field yang lebih lengkap (misal nomorHp yang tidak kosong)
       const existingHp = existing.nomorHp || existing.nomor_hp || '';
       const itemHp = item.nomorHp || item.nomor_hp || '';
       const chosenHp = existingHp.length >= itemHp.length ? existingHp : itemHp;
 
+      // Utamakan yang lebih baru untuk status dan perbaikan
+      const isItemNewer = Boolean(itemTime && existTime && itemTime >= existTime);
+      const primary = isItemNewer ? item : existing;
+      const secondary = isItemNewer ? existing : item;
+
       secondList[matchedIdx] = {
-        ...existing,
-        ...item,
-        id: existing.id || item.id,
+        ...secondary,
+        ...primary,
+        id: primary.id || secondary.id,
         nomorHp: chosenHp,
         nomor_hp: chosenHp,
-        catatan: (existing.catatan && existing.catatan !== '-') ? existing.catatan : (item.catatan || existing.catatan || ''),
+        noWo: primary.noWo || primary.no_wo || secondary.noWo || secondary.no_wo || '',
+        no_wo: primary.noWo || primary.no_wo || secondary.noWo || secondary.no_wo || '',
+        tipeVisit: primary.tipeVisit || primary.tipe_visit || secondary.tipeVisit || secondary.tipe_visit || 'PROAKTIF',
+        tipe_visit: primary.tipeVisit || primary.tipe_visit || secondary.tipeVisit || secondary.tipe_visit || 'PROAKTIF',
+        catatan: (primary.catatan && primary.catatan !== '-') ? primary.catatan : (secondary.catatan || ''),
         status: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
         status_visit: (existingIsDone || itemIsDone) ? 'DONE' : 'OPEN',
-        tindakan: existing.tindakan || item.tindakan || existing.perbaikan || item.perbaikan || '',
-        material: existing.material || item.material || existing.usedMaterials || item.usedMaterials || '',
-        penyebab: existing.penyebab || item.penyebab || '',
-        evidence: existing.evidence || item.evidence || '',
-        waktuClose: existing.waktuClose || item.waktuClose || ''
+        tindakan: primary.tindakan || primary.perbaikan || secondary.tindakan || secondary.perbaikan || '',
+        perbaikan: primary.perbaikan || primary.tindakan || secondary.perbaikan || secondary.tindakan || '',
+        material: primary.material || secondary.material || primary.usedMaterials || secondary.usedMaterials || '',
+        usedMaterials: primary.material || secondary.material || primary.usedMaterials || secondary.usedMaterials || '',
+        penyebab: primary.penyebab || secondary.penyebab || '',
+        petugas: primary.petugas || secondary.petugas || '',
+        evidence: primary.evidence || secondary.evidence || '',
+        waktuClose: primary.waktuClose || secondary.waktuClose || ''
       };
     }
   }
@@ -1973,7 +2010,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         };
       }
 
-      setCachedData('otas_visit_cache_v4', newVisitData);
+      setCachedData('otas_visit_cache_v5', newVisitData);
       return { ...prevData, visitData: newVisitData };
     });
 
@@ -2090,6 +2127,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         setCachedData('otas_station_cache', null);
         setCachedData('otas_po_release_cache', null);
         setCachedData('otas_detail_po_cache', null);
+        setCachedData('otas_visit_cache_v5', null);
         setCachedData('otas_visit_cache_v4', null);
         setCachedData('otas_visit_cache', null);
         setCachedData('otas_visit_cache_v3', null);
@@ -2112,11 +2150,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       let parsedOdp = getCachedData('otas_odp_cache_v5');
       let cachedStation = isForce ? null : getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
-      let cachedVisit = getCachedData('otas_visit_cache_v4');
+      let cachedVisit = getCachedData('otas_visit_cache_v5');
       // Invalidate stale cache jika data visit lama belum menyertakan informasi noWo
       if (cachedVisit && cachedVisit.length > 0 && !cachedVisit.some(v => v.noWo || v.no_wo)) {
         cachedVisit = null;
-        setCachedData('otas_visit_cache_v4', null);
+        setCachedData('otas_visit_cache_v5', null);
       }
       let cachedTeknisi = getCachedData('otas_teknisi_cache');
       let cachedWoDispatch = isForce ? null : getCachedData('otas_wo_dispatch_cache');
@@ -2195,7 +2233,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         }
         if (supabaseVisit && supabaseVisit.length > 0) {
           cachedVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache_v4', cachedVisit);
+          setCachedData('otas_visit_cache_v5', cachedVisit);
         }
         if (supabasePo && supabasePo.length > 0) {
           cachedDetailPo = supabasePo.map(parseSupabasePoRelease);
@@ -2418,7 +2456,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
           const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache_v4', freshVisit);
+          setCachedData('otas_visit_cache_v5', freshVisit);
           setData(prev => ({
             ...prev,
             visitData: freshVisit
@@ -2507,7 +2545,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
           const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache_v4', freshVisit);
+          setCachedData('otas_visit_cache_v5', freshVisit);
           setData(prev => ({
             ...prev,
             visitData: freshVisit
@@ -2627,7 +2665,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             }
 
             const cleanVisitData = deduplicateVisitData(newVisitData);
-            setCachedData('otas_visit_cache_v4', cleanVisitData);
+            setCachedData('otas_visit_cache_v5', cleanVisitData);
             return {
               ...prev,
               visitData: cleanVisitData
@@ -15108,9 +15146,33 @@ function DataGangguanView({
   };
 
   const handleNewTicketSubmit = async () => {
+    if (newTicketIsSaving) return;
     if (!newTicketSelectedPelanggan) { setNewTicketError('Pilih pelanggan terlebih dahulu!'); return; }
     if (!newTicketKeluhan) { setNewTicketError('Keluhan pelanggan wajib dipilih!'); return; }
     if (!newTicketCatatan.trim()) { setNewTicketError('Deskripsi / catatan wajib diisi!'); return; }
+
+    const cleanNoWo = String(newTicketNoWo || '').trim();
+    const cleanTipeVisit = newTicketTipeVisit || (cleanNoWo ? 'WO_VISIT' : 'PROAKTIF');
+    const p = newTicketSelectedPelanggan;
+
+    // PROTEKTOR 1: Cek apakah nomor WO sudah terdaftar sebelumnya
+    if (cleanNoWo) {
+      const isWoExist = (visitData || []).some(v => (v.noWo === cleanNoWo || v.no_wo === cleanNoWo));
+      if (isWoExist) {
+        setNewTicketError(`Nomor WO "${cleanNoWo}" sudah pernah tercatat di OpsTracker!`);
+        return;
+      }
+    }
+
+    // PROTEKTOR 2: Cek apakah pelanggan masih memiliki tiket visit OPEN yang belum selesai
+    const activeOpenTicket = (visitData || []).find(v =>
+      String(v.idPelanggan).trim().toUpperCase() === String(p.idPelanggan).trim().toUpperCase() &&
+      !['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase())
+    );
+    if (activeOpenTicket) {
+      setNewTicketError(`Pelanggan ${p.idPelanggan} (${p.namaPelanggan}) masih memiliki tiket visit aktif (OPEN) yang belum selesai!`);
+      return;
+    }
 
     setNewTicketIsSaving(true);
     setNewTicketError('');
@@ -15124,7 +15186,6 @@ function DataGangguanView({
       }
     }
 
-    const p = newTicketSelectedPelanggan;
     const now = new Date();
     const localTimestamp = now.getFullYear() + '-' +
       String(now.getMonth() + 1).padStart(2, '0') + '-' +
@@ -15132,9 +15193,6 @@ function DataGangguanView({
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0') + ':' +
       String(now.getSeconds()).padStart(2, '0');
-
-    const cleanNoWo = String(newTicketNoWo || '').trim();
-    const cleanTipeVisit = newTicketTipeVisit || (cleanNoWo ? 'WO_VISIT' : 'PROAKTIF');
 
     const payload = {
       idPelanggan: p.idPelanggan || '',
