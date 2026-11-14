@@ -1973,7 +1973,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         };
       }
 
-      setCachedData('otas_visit_cache', newVisitData);
+      setCachedData('otas_visit_cache_v4', newVisitData);
       return { ...prevData, visitData: newVisitData };
     });
 
@@ -2090,7 +2090,9 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         setCachedData('otas_station_cache', null);
         setCachedData('otas_po_release_cache', null);
         setCachedData('otas_detail_po_cache', null);
+        setCachedData('otas_visit_cache_v4', null);
         setCachedData('otas_visit_cache', null);
+        setCachedData('otas_visit_cache_v3', null);
         setCachedData('otas_teknisi_cache', null);
         setCachedData('otas_wo_dispatch_cache', null);
       }
@@ -2110,11 +2112,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       let parsedOdp = getCachedData('otas_odp_cache_v5');
       let cachedStation = isForce ? null : getCachedData('otas_station_cache');
       let cachedDetailPo = getCachedData('otas_po_release_cache') || getCachedData('otas_detail_po_cache');
-      let cachedVisit = getCachedData('otas_visit_cache');
-      // Invalidate stale cache jika data visit lama belum menyertakan informasi noWo / tipeVisit
-      if (cachedVisit && cachedVisit.length > 0 && !cachedVisit.some(v => v.tipeVisit || v.noWo)) {
+      let cachedVisit = getCachedData('otas_visit_cache_v4');
+      // Invalidate stale cache jika data visit lama belum menyertakan informasi noWo
+      if (cachedVisit && cachedVisit.length > 0 && !cachedVisit.some(v => v.noWo || v.no_wo)) {
         cachedVisit = null;
-        setCachedData('otas_visit_cache', null);
+        setCachedData('otas_visit_cache_v4', null);
       }
       let cachedTeknisi = getCachedData('otas_teknisi_cache');
       let cachedWoDispatch = isForce ? null : getCachedData('otas_wo_dispatch_cache');
@@ -2193,7 +2195,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         }
         if (supabaseVisit && supabaseVisit.length > 0) {
           cachedVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache', cachedVisit);
+          setCachedData('otas_visit_cache_v4', cachedVisit);
         }
         if (supabasePo && supabasePo.length > 0) {
           cachedDetailPo = supabasePo.map(parseSupabasePoRelease);
@@ -2416,7 +2418,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
           const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache', freshVisit);
+          setCachedData('otas_visit_cache_v4', freshVisit);
           setData(prev => ({
             ...prev,
             visitData: freshVisit
@@ -2505,7 +2507,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       fetchAllSupabaseData('log_visit', '*', 'id').then(supabaseVisit => {
         if (supabaseVisit && supabaseVisit.length > 0) {
           const freshVisit = deduplicateVisitData(supabaseVisit.map(parseSupabaseVisitDocument));
-          setCachedData('otas_visit_cache', freshVisit);
+          setCachedData('otas_visit_cache_v4', freshVisit);
           setData(prev => ({
             ...prev,
             visitData: freshVisit
@@ -2625,7 +2627,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             }
 
             const cleanVisitData = deduplicateVisitData(newVisitData);
-            setCachedData('otas_visit_cache', cleanVisitData);
+            setCachedData('otas_visit_cache_v4', cleanVisitData);
             return {
               ...prev,
               visitData: cleanVisitData
@@ -9524,29 +9526,30 @@ function DashboardView({
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-start gap-1.5 mb-1">
                               <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <h4 className="text-xs font-bold text-slate-800 truncate">{ticket.namaPelanggan || 'Tanpa Nama'}</h4>
+                                <h4 className="text-xs font-bold text-slate-800 truncate">{ticket.namaPelanggan || 'Tanpa Nama'}</h4>
+                                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                  {ticket.idPelanggan || '-'} | {toProperCase(ticket.stasiun)}
+                                </div>
+                                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                                   {(() => {
-                                    const isWo = Boolean(ticket.noWo || ticket.no_wo) || String(ticket.tipeVisit || ticket.tipe_visit || '').toUpperCase().includes('WO');
+                                    const rawNoWo = ticket.noWo || ticket.no_wo || '';
+                                    const rawTipe = ticket.tipeVisit || ticket.tipe_visit || '';
+                                    const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
                                     return isWo ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                                         <Icon name="ticket" size={9} className="text-blue-500" />
                                         <span>WO Partner</span>
+                                        {rawNoWo && (
+                                          <span className="font-mono font-medium opacity-90">• {rawNoWo}</span>
+                                        )}
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
                                         <Icon name="zap" size={9} className="text-purple-500" />
                                         <span>WO Proaktif</span>
                                       </span>
                                     );
                                   })()}
-                                </div>
-                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                  <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{ticket.idPelanggan || '-'}</span>
-                                  <span className="text-[8.5px] uppercase font-bold text-slate-400">{toProperCase(ticket.stasiun)}</span>
-                                  {(ticket.noWo || ticket.no_wo) && (
-                                    <span className="text-[8.5px] text-blue-600 font-mono font-semibold">WO: {ticket.noWo || ticket.no_wo}</span>
-                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -9617,28 +9620,30 @@ function DashboardView({
                               })() : '-'}
                             </td>
                             <td className="px-6 py-3 align-top">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-bold text-slate-800">{ticket.namaPelanggan || 'Tanpa Nama'}</span>
+                              <div className="font-bold text-slate-800">{ticket.namaPelanggan || 'Tanpa Nama'}</div>
+                              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                {ticket.idPelanggan || '-'} | {toProperCase(ticket.stasiun)}
+                              </div>
+                              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                                 {(() => {
-                                  const isWo = Boolean(ticket.noWo || ticket.no_wo) || String(ticket.tipeVisit || ticket.tipe_visit || '').toUpperCase().includes('WO');
+                                  const rawNoWo = ticket.noWo || ticket.no_wo || '';
+                                  const rawTipe = ticket.tipeVisit || ticket.tipe_visit || '';
+                                  const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
                                   return isWo ? (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0 shadow-2xs">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0 shadow-2xs">
                                       <Icon name="ticket" size={9} className="text-blue-500" />
                                       <span>WO Partner</span>
+                                      {rawNoWo && (
+                                        <span className="font-mono font-medium opacity-90">• {rawNoWo}</span>
+                                      )}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
                                       <Icon name="zap" size={9} className="text-purple-500" />
                                       <span>WO Proaktif</span>
                                     </span>
                                   );
                                 })()}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                <span>{ticket.idPelanggan} | {toProperCase(ticket.stasiun)}</span>
-                                {(ticket.noWo || ticket.no_wo) && (
-                                  <span className="text-blue-600 font-sans font-semibold">• WO: {ticket.noWo || ticket.no_wo}</span>
-                                )}
                               </div>
                             </td>
                             <td className="px-6 py-3 align-top">
@@ -14832,9 +14837,39 @@ function DataGangguanView({
     try {
       const res = await fetchPartnerVisits();
       if (res && res.success) {
-        setPartnerVisits(res.data || []);
+        const partnerList = res.data || [];
+        setPartnerVisits(partnerList);
         setPartnerLastSync(res.lastSync || new Date());
         if (typeof onPartnerVisitRefresh === 'function') onPartnerVisitRefresh();
+
+        // REKONSILIASI OTOMATIS: Update no_wo dan tipe_visit di Supabase jika ada tiket pelanggan yang terbit WO di Web Partner
+        if (partnerList.length > 0 && Array.isArray(visitData)) {
+          partnerList.forEach(async (pt) => {
+            const pId = String(pt.customerId || '').trim().toUpperCase();
+            const normPId = pId.replace(/O/g, '0');
+            const pName = String(pt.customerName || '').trim().toLowerCase();
+            if ((!pId && !pName) || !pt.ticketNumber) return;
+
+            const targetVisits = visitData.filter(v => {
+              const vId = String(v.idPelanggan || '').trim().toUpperCase();
+              const vNormId = vId.replace(/O/g, '0');
+              const vName = String(v.namaPelanggan || '').trim().toLowerCase();
+              const isMatch = (pId && (vId === pId || vNormId === normPId)) || (pName && pName !== 'tanpa nama' && vName === pName);
+              const needsUpdate = (!v.noWo || !v.no_wo || v.tipeVisit === 'PROAKTIF');
+              return isMatch && needsUpdate;
+            });
+
+            for (const targetVisit of targetVisits) {
+              if (targetVisit && targetVisit.id) {
+                try {
+                  await supabase.from('log_visit')
+                    .update({ no_wo: pt.ticketNumber, tipe_visit: 'WO_VISIT' })
+                    .eq('id', targetVisit.id);
+                } catch (_e) {}
+              }
+            }
+          });
+        }
       } else {
         setPartnerError(res?.error || 'Gagal memuat data dari Partner API');
       }
@@ -15237,18 +15272,49 @@ function DataGangguanView({
 
   const enrichedVisitData = useMemo(() => {
     if (!visitData || !Array.isArray(visitData)) return [];
-    if (!pelangganData || !Array.isArray(pelangganData)) return visitData;
     const customerMap = {};
-    pelangganData.forEach(p => {
+    (pelangganData || []).forEach(p => {
       if (p.idPelanggan) customerMap[String(p.idPelanggan).trim().toUpperCase()] = p;
     });
+
+    const partnerMap = new Map();
+    const partnerNameMap = new Map();
+    (partnerVisits || []).forEach(pv => {
+      const pId = String(pv.customerId || '').trim().toUpperCase();
+      if (pId) {
+        partnerMap.set(pId, pv);
+        const normId = pId.replace(/O/g, '0');
+        partnerMap.set(normId, pv);
+      }
+      const pName = String(pv.customerName || '').trim().toLowerCase();
+      if (pName && pName !== 'tanpa nama') {
+        partnerNameMap.set(pName, pv);
+      }
+    });
+
     const cleanVisits = deduplicateVisitData(visitData);
     return cleanVisits.map(item => {
       const custId = String(item.idPelanggan || '').trim().toUpperCase();
-      const customer = customerMap[custId];
+      const normCustId = custId.replace(/O/g, '0');
+      const custName = String(item.namaPelanggan || '').trim().toLowerCase();
+      const customer = customerMap[custId] || customerMap[normCustId];
+      const partnerTicket = partnerMap.get(custId) || partnerMap.get(normCustId) || partnerNameMap.get(custName);
+
+      const resolvedNoWo = item.noWo || item.no_wo || (partnerTicket ? partnerTicket.ticketNumber : '');
+      const rawTipe = item.tipeVisit || item.tipe_visit || '';
+      const resolvedTipeVisit = (resolvedNoWo || String(rawTipe).toUpperCase().includes('WO')) ? 'WO_VISIT' : (rawTipe || 'PROAKTIF');
+
+      let res = {
+        ...item,
+        noWo: resolvedNoWo,
+        no_wo: resolvedNoWo,
+        tipeVisit: resolvedTipeVisit,
+        tipe_visit: resolvedTipeVisit
+      };
+
       if (customer) {
-        return {
-          ...item,
+        res = {
+          ...res,
           nomorHp: item.nomorHp || customer.nomorHp || '',
           latitude: item.latitude || customer.latitude || '',
           longitude: item.longitude || customer.longitude || '',
@@ -15258,9 +15324,9 @@ function DataGangguanView({
           alamat: item.alamat || customer.alamat || ''
         };
       }
-      return item;
+      return res;
     });
-  }, [visitData, pelangganData]);
+  }, [visitData, pelangganData, partnerVisits]);
 
   const parseTimestampMs = (tStr) => {
     if (!tStr) return 0;
@@ -16499,29 +16565,29 @@ function DataGangguanView({
               <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm space-y-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h4 className="text-xs font-bold text-slate-800 truncate">{item.namaPelanggan || 'Tanpa Nama'}</h4>
+                    <h4 className="text-xs font-bold text-slate-800 truncate">{item.namaPelanggan || 'Tanpa Nama'}</h4>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{item.idPelanggan || '-'}</span>
+                      <span className="text-[8.5px] uppercase font-bold text-slate-400">{toProperCase(item.stasiun)}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                       {(() => {
                         const isWo = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
                         return isWo ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                             <Icon name="ticket" size={9} className="text-blue-500" />
                             <span>WO Partner</span>
+                            {(item.noWo || item.no_wo) && (
+                              <span className="font-mono font-medium opacity-90">• {item.noWo || item.no_wo}</span>
+                            )}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
                             <Icon name="zap" size={9} className="text-purple-500" />
                             <span>WO Proaktif</span>
                           </span>
                         );
                       })()}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{item.idPelanggan || '-'}</span>
-                      <span className="text-[8.5px] uppercase font-bold text-slate-400">{toProperCase(item.stasiun)}</span>
-                      {(item.noWo || item.no_wo) && (
-                        <span className="text-[8.5px] text-blue-600 font-mono font-semibold">WO: {item.noWo || item.no_wo}</span>
-                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -16680,30 +16746,28 @@ function DataGangguanView({
                       )}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-slate-800 text-[13px]">{item.namaPelanggan || 'Tanpa Nama'}</span>
+                      <div className="font-bold text-slate-800 text-[13px]">{item.namaPelanggan || 'Tanpa Nama'}</div>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {item.idPelanggan || '-'} | {toProperCase(item.stasiun)}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                         {(() => {
                           const isWo = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
                           return isWo ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200/90 shrink-0 shadow-2xs">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200/90 shadow-2xs">
                               <Icon name="ticket" size={10} className="text-blue-500" />
                               <span>WO Partner</span>
+                              {(item.noWo || item.no_wo) && (
+                                <span className="font-mono font-medium ml-0.5 opacity-90">• {item.noWo || item.no_wo}</span>
+                              )}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200/90 shrink-0 shadow-2xs">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200/90 shadow-2xs">
                               <Icon name="zap" size={10} className="text-purple-500" />
                               <span>WO Proaktif</span>
                             </span>
                           );
                         })()}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
-                        <span>{item.idPelanggan || '-'} | {toProperCase(item.stasiun)}</span>
-                        {(item.noWo || item.no_wo) && (
-                          <span className="text-blue-600 font-sans font-semibold">
-                            • WO: {item.noWo || item.no_wo}
-                          </span>
-                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top">

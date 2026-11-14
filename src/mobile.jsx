@@ -4899,30 +4899,31 @@ const MobileApp = () => {
                       </div>
 
                       <div className="pl-1 mb-3">
-                        <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-                          <h4 className="text-[13px] font-black text-slate-800 leading-tight">{ticket.name}</h4>
+                        <h4 className="text-[13px] font-black text-slate-800 leading-tight">{ticket.name}</h4>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          {ticket.id} | {toProperCase(ticket.stasiun)}
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                           {(() => {
                             const rawNoWo = v.noWo || v.no_wo || '';
                             const rawTipe = v.tipeVisit || v.tipe_visit || '';
                             const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
                             return isWo ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                                 <Icon name="ticket" size={9} className="text-blue-500" />
                                 <span>WO Partner</span>
+                                {rawNoWo && (
+                                  <span className="font-mono font-medium opacity-90">• {rawNoWo}</span>
+                                )}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
                                 <Icon name="zap" size={9} className="text-purple-500" />
                                 <span>WO Proaktif</span>
                               </span>
                             );
                           })()}
                         </div>
-                        {(v.noWo || v.no_wo) && (
-                          <div className="text-[9px] text-blue-600 font-mono font-semibold mb-2">
-                            WO: {v.noWo || v.no_wo}
-                          </div>
-                        )}
 
                         <div className="space-y-1.5 w-full">
                           <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex flex-col">
