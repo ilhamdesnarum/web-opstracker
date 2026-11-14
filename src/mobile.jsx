@@ -4889,7 +4889,7 @@ const MobileApp = () => {
                       <div className={`absolute top-0 left-0 w-1 h-full ${['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(ticket.status) ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
 
                       <div className="flex justify-between items-start mb-2.5 pl-1">
-                        <div className="flex gap-2 items-center">
+                        <div className="flex gap-2 items-center flex-wrap">
                           <span className="text-[10px] font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">{ticket.id}</span>
                           <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><Icon name="clock" size={10} /> {ticket.time}</span>
                         </div>
@@ -4899,7 +4899,30 @@ const MobileApp = () => {
                       </div>
 
                       <div className="pl-1 mb-3">
-                        <h4 className="text-[13px] font-black text-slate-800 leading-tight mb-2">{ticket.name}</h4>
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                          <h4 className="text-[13px] font-black text-slate-800 leading-tight">{ticket.name}</h4>
+                          {(() => {
+                            const rawNoWo = v.noWo || v.no_wo || '';
+                            const rawTipe = v.tipeVisit || v.tipe_visit || '';
+                            const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
+                            return isWo ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                <Icon name="ticket" size={9} className="text-blue-500" />
+                                <span>WO Partner</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                <Icon name="zap" size={9} className="text-purple-500" />
+                                <span>WO Proaktif</span>
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        {(v.noWo || v.no_wo) && (
+                          <div className="text-[9px] text-blue-600 font-mono font-semibold mb-2">
+                            WO: {v.noWo || v.no_wo}
+                          </div>
+                        )}
 
                         <div className="space-y-1.5 w-full">
                           <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex flex-col">
