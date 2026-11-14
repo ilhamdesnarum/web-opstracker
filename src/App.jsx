@@ -1545,7 +1545,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   // Ekstrak data profil untuk header
   const userDisplayName = currentUser?.nama_lengkap || currentUser?.name || currentUser?.username || 'Superuser';
   const userUsername = currentUser?.username || 'admin';
-  const userRole = currentUser?.role || 'admin';
+  const userRole = currentUser?.role || 'user';
   const userSektor = currentUser?.sektor || 'Semua';
   const userStasiun = currentUser?.stasiun || 'Semua';
 
@@ -1623,16 +1623,24 @@ function App({ currentUser: propCurrentUser, onLogout }) {
     '/management-user': 'user-management'
   };
 
-  // Mengambil tab awal dari URL browser saat refresh
+  // Mengambil tab awal dari URL browser saat refresh (dengan proteksi akses admin)
   const getInitialTab = () => {
     const path = window.location.pathname;
-    return pathToTab[path] || 'dashboard';
+    const initial = pathToTab[path] || 'dashboard';
+    if (initial === 'user-management' && userRole !== 'admin') {
+      return 'dashboard';
+    }
+    return initial;
   };
 
   const [activeTab, setActiveTabState] = useState(getInitialTab());
 
   // Setter kustom untuk mengubah State dan URL sekaligus
   const setActiveTab = (tab) => {
+    // Proteksi: Hanya role admin yang boleh membuka tab user-management
+    if (tab === 'user-management' && userRole !== 'admin') {
+      tab = 'dashboard';
+    }
     setActiveTabState(tab);
     const newPath = tabToPath[tab] || '/dashboard';
     if (window.location.pathname !== newPath) {
@@ -1644,7 +1652,12 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname;
-      setActiveTabState(pathToTab[path] || 'dashboard');
+      let targetTab = pathToTab[path] || 'dashboard';
+      if (targetTab === 'user-management' && userRole !== 'admin') {
+        targetTab = 'dashboard';
+        window.history.replaceState({ tab: 'dashboard' }, '', '/dashboard');
+      }
+      setActiveTabState(targetTab);
     };
     window.addEventListener('popstate', handlePopState);
 
@@ -1654,7 +1667,14 @@ function App({ currentUser: propCurrentUser, onLogout }) {
     }
 
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeTab]);
+  }, [activeTab, userRole]);
+
+  // Proteksi aktif tab user-management: redirect otomatis jika role bukan admin
+  useEffect(() => {
+    if (activeTab === 'user-management' && userRole !== 'admin') {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, userRole]);
 
   // KEEP-ALIVE TAB CACHE: Menjaga tab yang telah dikunjungi tetap tersimpan di memori (anti-lag & preserve scroll/filters)
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([getInitialTab()]));
@@ -2915,7 +2935,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             { id: 'coverage', icon: 'map', label: 'ODP Coverage' },
             { id: 'aidece', icon: 'globe', label: 'AI.DECE Portal' },
             { id: 'pre-register', icon: 'user-plus', label: 'Pre-Register' },
-            { id: 'user-management', icon: 'shield-check', label: 'Management User' },
+            ...(userRole === 'admin' ? [{ id: 'user-management', icon: 'shield-check', label: 'Management User' }] : []),
           ].map(item => {
             const isActive = activeTab === item.id;
             return (
@@ -3176,8 +3196,8 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                         </span>
                       </div>
 
-                      {/* Quick link ke Management User jika admin / supervisor */}
-                      {['admin', 'supervisor'].includes(userRole) && (
+                      {/* Quick link ke Management User HANYA jika role admin */}
+                      {userRole === 'admin' && (
                         <button
                           type="button"
                           onClick={() => {
@@ -3399,9 +3419,28 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                 <PreRegisterPortalView />
               </div>
             )}
-            {visitedTabs.has('user-management') && (
+            {visitedTabs.has('user-management') && userRole === 'admin' && (
               <div className={activeTab === 'user-management' ? 'w-full' : 'hidden'}>
                 <UserManagementView currentUser={currentUser} />
+              </div>
+            )}
+            {activeTab === 'user-management' && userRole !== 'admin' && (
+              <div className="w-full min-h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-3xl border border-slate-200/80 shadow-sm mt-4">
+                <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-500 mb-4 shadow-sm">
+                  <Icon name="shield-alert" size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-1">Akses Ditolak</h3>
+                <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+                  Halaman Manajemen User & Hak Akses hanya dapat diakses oleh akun dengan peran <strong className="text-slate-700">Administrator</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dashboard')}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Icon name="arrow-left" size={14} />
+                  Kembali ke Dashboard
+                </button>
               </div>
             )}
           </div>

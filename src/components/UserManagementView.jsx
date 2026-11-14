@@ -33,7 +33,10 @@ const STASIUN_LIST = [
   'Weleri'
 ];
 
-export default function UserManagementView() {
+export default function UserManagementView({ currentUser }) {
+  // Guard proteksi hak akses: Hanya Administrator yang berhak mengakses
+  const isSuperAdmin = currentUser?.role === 'admin';
+
   // Main Tab State: 'users' (Daftar Pengguna) | 'logs' (Log Activity)
   const [activeMainTab, setActiveMainTab] = useState('users');
 
@@ -136,9 +139,10 @@ export default function UserManagementView() {
   };
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     fetchUsers();
     fetchActivityLogs();
-  }, []);
+  }, [isSuperAdmin]);
 
   // Helper Mencatat Log Aktivitas ke Supabase
   const logActivity = async (action, description, metadata = null) => {
@@ -596,6 +600,24 @@ export default function UserManagementView() {
   const safeLogPage = Math.min(Math.max(1, logPage), totalLogPages);
   const startLogIndex = (safeLogPage - 1) * logItemsPerPage;
   const paginatedLogs = activityLogs.slice(startLogIndex, startLogIndex + logItemsPerPage);
+
+  // Jika bukan role admin, blokir tampilan dengan pesan Akses Ditolak
+  if (!isSuperAdmin) {
+    return (
+      <div className="max-w-7xl mx-auto w-full min-h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-3xl border border-slate-200/80 shadow-sm mt-4">
+        <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-500 mb-4 shadow-sm">
+          <Icon name="shield-alert" size={32} />
+        </div>
+        <h3 className="text-xl font-bold text-slate-800 mb-1">Akses Ditolak</h3>
+        <p className="text-sm text-slate-500 max-w-md mb-2 leading-relaxed">
+          Halaman Manajemen Pengguna Sistem hanya dapat diakses oleh akun dengan peran <strong className="text-slate-700">Administrator</strong>.
+        </p>
+        <span className="text-xs text-slate-400">
+          Peran akun Anda saat ini: <span className="font-semibold text-slate-600 capitalize">{currentUser?.role || 'Bukan Admin'}</span>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5 animate-fade">
