@@ -1764,6 +1764,39 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
   const [salesSyncToast, setSalesSyncToast] = useState({ show: false, message: '', type: 'success' });
 
+  // --- LIVE BAST PARTNER STARLITE (STATE GLOBAL APP UNTUK AUTO-SYNC) ---
+  const [partnerBastData, setPartnerBastData] = useState([]);
+  const [isBastLoading, setIsBastLoading] = useState(false);
+  const [bastLastSync, setBastLastSync] = useState(null);
+
+  const loadPartnerBast = useCallback(async (force = false) => {
+    setIsBastLoading(true);
+    try {
+      const todayWib = getTodayWibDateString();
+      const res = await fetchPartnerBastToday(todayWib, force);
+      if (res && res.success && res.data) {
+        setPartnerBastData(res.data);
+        setBastLastSync(res.lastSync || new Date());
+        return res;
+      }
+    } catch (err) {
+      console.warn("Gagal load BAST partner:", err);
+    } finally {
+      setIsBastLoading(false);
+    }
+  }, []);
+
+  // Auto-sync BAST setiap 60 detik di level global aplikasi
+  useEffect(() => {
+    loadPartnerBast(false);
+
+    const intervalBast = setInterval(() => {
+      loadPartnerBast(true);
+    }, 60000);
+
+    return () => clearInterval(intervalBast);
+  }, [loadPartnerBast]);
+
   const [coverageTarget, setCoverageTarget] = useState(null);
 
   const handleGoToCoverage = (lat, lng) => {
@@ -2179,16 +2212,16 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         }));
       }
 
-      // ── TRIGGER SINKRONISASI PARTNER (TARIK CEPAT PELANGGAN BARU & UPDATE NAMA SALES) ──
+      // ── TRIGGER SINKRONISASI PARTNER (TARIK CEPAT PELANGGAN BARU, UPDATE NAMA SALES, WO DISMANTLE, & BAST) ──
       if (isForce) {
         setIsBackgroundSyncing(true);
         setSalesSyncToast({
           show: true,
           type: 'syncing',
-          message: 'Menyinkronkan data: memeriksa pelanggan baru, nama sales, & WO Dismantle...'
+          message: 'Menyinkronkan data: memeriksa pelanggan baru, nama sales, WO Dismantle, & BAST Web Partner...'
         });
 
-        // Jalankan Sinkronisasi Cepat Pelanggan Baru, nama sales, dan WO Dismantle secara paralel
+        // Jalankan Sinkronisasi Cepat Pelanggan Baru, nama sales, WO Dismantle, dan BAST secara paralel
         Promise.allSettled([
           syncNewCustomersFast({
             pelangganList: parsedPelanggan || data.pelangganData,
@@ -2200,17 +2233,20 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           }),
           syncDismantlingFast({
             pelangganList: parsedPelanggan || data.pelangganData
-          })
-        ]).then(([newCustSettled, salesSettled, dismantleSettled]) => {
+          }),
+          loadPartnerBast(true)
+        ]).then(([newCustSettled, salesSettled, dismantleSettled, bastSettled]) => {
           const newCustRes = newCustSettled.status === 'fulfilled' ? newCustSettled.value : null;
           const salesRes = salesSettled.status === 'fulfilled' ? salesSettled.value : null;
           const dismantleRes = dismantleSettled.status === 'fulfilled' ? dismantleSettled.value : null;
+          const bastRes = bastSettled.status === 'fulfilled' ? bastSettled.value : null;
 
           const totalBaru = newCustRes?.newCount || 0;
           const newActiveCount = newCustRes?.newActiveCount || 0;
           const updatedActiveCount = newCustRes?.updatedActiveCount || 0;
           const salesUpdatedCount = salesRes?.updatedCount || 0;
           const dismantleUpdatedCount = dismantleRes?.updatedCount || 0;
+          const bastCount = bastRes?.count || bastRes?.data?.length || 0;
 
           // 1. Jika ada pelanggan baru yang ditarik, status aktif diperbarui, atau WO dismantle diperbarui, ambil ulang data_pelanggan dari Supabase
           if (totalBaru > 0 || updatedActiveCount > 0 || dismantleUpdatedCount > 0) {
@@ -2327,12 +2363,15 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           if (dismantleUpdatedCount > 0) {
             messageParts.push(`${dismantleUpdatedCount} WO Dismantle (Sedang Diambil) diperbarui`);
           }
+          if (bastCount > 0) {
+            messageParts.push(`${bastCount} BAST Aktivasi`);
+          }
 
           let finalMsg = '';
           if (messageParts.length > 0) {
             finalMsg = `Sinkronisasi Selesai! ${messageParts.join(' & ')} dari Web Partner.`;
           } else {
-            finalMsg = 'Sinkronisasi selesai! Seluruh data pelanggan, nama sales, & WO Dismantle sudah up-to-date.';
+            finalMsg = 'Sinkronisasi selesai! Seluruh data pelanggan, nama sales, WO Dismantle, & BAST Web Partner sudah up-to-date.';
           }
 
           setSalesSyncToast({
@@ -2464,6 +2503,14 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           }));
         }
       }).catch(err => console.warn('Silent Supabase WO fail:', err));
+
+      // Auto-sync BAST Partner di latar belakang secara periodik
+      fetchPartnerBastToday(getTodayWibDateString(), false).then(res => {
+        if (res && res.success && res.data) {
+          setPartnerBastData(res.data);
+          setBastLastSync(res.lastSync || new Date());
+        }
+      }).catch(err => console.warn('Silent BAST sync fail:', err));
 
       setLastSyncedTime(new Date());
     } catch (err) {
@@ -3190,6 +3237,10 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                   onRefresh={() => fetchData(true)}
                   onRefreshSilent={fetchDataSilent}
                   viewMode={activeTab}
+                  partnerBastData={partnerBastData}
+                  isBastLoading={isBastLoading}
+                  bastLastSync={bastLastSync}
+                  onRefreshBast={loadPartnerBast}
                 />
               </div>
             )}
@@ -7622,7 +7673,17 @@ function DashboardSkeleton() {
 // ==========================================
 // HALAMAN 1: DASHBOARD OVERVIEW
 // ==========================================
-function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode = 'dashboard' }) {
+function DashboardView({
+  data,
+  isSyncing,
+  onRefresh,
+  onRefreshSilent,
+  viewMode = 'dashboard',
+  partnerBastData: parentBastData = [],
+  isBastLoading: parentBastLoading = false,
+  bastLastSync: parentBastLastSync = null,
+  onRefreshBast
+}) {
   const safeStationData = data.stationData || [];
 
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -7637,23 +7698,45 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   }, [selectedDate]);
 
   // --- LIVE BAST PARTNER STARLITE (AKTIVASI WEB PARTNER) ---
-  const [partnerBastData, setPartnerBastData] = useState([]);
+  const [partnerBastData, setPartnerBastData] = useState(parentBastData || []);
   const [isBastLoading, setIsBastLoading] = useState(false);
-  const [bastLastSync, setBastLastSync] = useState(null);
+  const [bastLastSync, setBastLastSync] = useState(parentBastLastSync);
   const [showBastModal, setShowBastModal] = useState(false);
   const [bastInitialFilter, setBastInitialFilter] = useState('ALL');
 
   const todayWib = useMemo(() => getTodayWibDateString(), []);
   const isSelectedToday = selectedDate === todayWib;
 
+  // Sinkronisasi data saat parentBastData berubah dari auto-sync App
+  useEffect(() => {
+    if (parentBastData && parentBastData.length > 0) {
+      setPartnerBastData(parentBastData);
+    }
+  }, [parentBastData]);
+
+  useEffect(() => {
+    if (parentBastLastSync) {
+      setBastLastSync(parentBastLastSync);
+    }
+  }, [parentBastLastSync]);
+
   const loadPartnerBast = async (force = false) => {
     if (!isSelectedToday) return;
+    if (onRefreshBast) {
+      const res = await onRefreshBast(force);
+      if (res && res.data) {
+        setPartnerBastData(res.data);
+        setBastLastSync(res.lastSync || new Date());
+      }
+      return res;
+    }
     setIsBastLoading(true);
     try {
       const res = await fetchPartnerBastToday(todayWib, force);
       if (res && res.success && res.data) {
         setPartnerBastData(res.data);
         setBastLastSync(res.lastSync || new Date());
+        return res;
       }
     } catch (err) {
       console.warn("Gagal load BAST partner:", err);
@@ -7665,6 +7748,13 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
   useEffect(() => {
     if (isSelectedToday) {
       loadPartnerBast(false);
+
+      // Auto-sync BAST setiap 60 detik di level Dashboard
+      const bastInterval = setInterval(() => {
+        loadPartnerBast(true);
+      }, 60000);
+
+      return () => clearInterval(bastInterval);
     }
   }, [selectedDate, isSelectedToday]);
 
@@ -9894,9 +9984,9 @@ function DashboardView({ data, isSyncing, onRefresh, onRefreshSilent, viewMode =
         pelangganData={data.pelangganData}
         selectedDate={selectedDate}
         formattedDate={formattedDate}
-        isLoading={isBastLoading}
+        isLoading={parentBastLoading || isBastLoading}
         isLive={isSelectedToday && partnerBastData.length > 0}
-        lastSync={bastLastSync}
+        lastSync={bastLastSync || parentBastLastSync}
         onRefresh={() => loadPartnerBast(true)}
         initialFilterStatus={bastInitialFilter}
       />

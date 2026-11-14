@@ -194,9 +194,14 @@ export default function BastPartnerModal({
                   BAST Aktivasi Web Partner
                 </h2>
                 {isLive ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Portal Mitra Real-Time
+                    {lastSync && (
+                      <span className="text-emerald-700 font-medium">
+                        • {new Date(lastSync).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
@@ -216,7 +221,7 @@ export default function BastPartnerModal({
                 type="button"
                 onClick={onRefresh}
                 disabled={isLoading}
-                className={`hidden sm:inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 disabled:cursor-wait ${isLoading
+                className={`inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 disabled:cursor-wait ${isLoading
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
                     : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:border-emerald-300 hover:text-emerald-700'
                   }`}

@@ -688,15 +688,28 @@ const MobileApp = () => {
 
   useEffect(() => {
     let isMounted = true;
-    setIsBastLoading(true);
-    fetchPartnerBastToday().then(res => {
-      if (isMounted && res && res.success && res.data) {
-        setBastPartnerData(res.data);
-      }
-    }).catch(e => console.warn(e)).finally(() => {
-      if (isMounted) setIsBastLoading(false);
-    });
-    return () => { isMounted = false; };
+    const fetchBast = (force = false) => {
+      setIsBastLoading(true);
+      fetchPartnerBastToday(null, force).then(res => {
+        if (isMounted && res && res.success && res.data) {
+          setBastPartnerData(res.data);
+        }
+      }).catch(e => console.warn(e)).finally(() => {
+        if (isMounted) setIsBastLoading(false);
+      });
+    };
+
+    fetchBast(false);
+
+    // Auto-sync BAST setiap 60 detik di mobile
+    const interval = setInterval(() => {
+      fetchBast(true);
+    }, 60000);
+
+    return () => { 
+      isMounted = false; 
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -1317,6 +1330,13 @@ const MobileApp = () => {
           }
         }).catch(err => console.warn('[MOBILE SYNC FAIL]:', err));
       }
+
+      // Auto-sync BAST hari ini di mobile
+      fetchPartnerBastToday(null, true).then(res => {
+        if (res && res.success && res.data) {
+          setBastPartnerData(res.data);
+        }
+      }).catch(e => console.warn('[MOBILE BAST SYNC ERROR]:', e));
 
       // 5. Finalisasi data murni dari Supabase
       setData(prev => ({
