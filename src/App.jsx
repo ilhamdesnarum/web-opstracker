@@ -9532,21 +9532,15 @@ function DashboardView({
                                 </div>
                                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                                   {(() => {
-                                    const rawNoWo = ticket.noWo || ticket.no_wo || '';
-                                    const rawTipe = ticket.tipeVisit || ticket.tipe_visit || '';
-                                    const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
+                                    const woNum = ticket.noWo || ticket.no_wo || '';
+                                    const isWo = Boolean(woNum) || String(ticket.tipeVisit || ticket.tipe_visit || '').toUpperCase().includes('WO');
                                     return isWo ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-                                        <Icon name="ticket" size={9} className="text-blue-500" />
-                                        <span>WO Partner</span>
-                                        {rawNoWo && (
-                                          <span className="font-mono font-medium opacity-90">• {rawNoWo}</span>
-                                        )}
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                        {woNum ? `WO: ${woNum}` : 'WO'}
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
-                                        <Icon name="zap" size={9} className="text-purple-500" />
-                                        <span>WO Proaktif</span>
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono uppercase bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                        PROAKTIF
                                       </span>
                                     );
                                   })()}
@@ -9626,21 +9620,15 @@ function DashboardView({
                               </div>
                               <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                                 {(() => {
-                                  const rawNoWo = ticket.noWo || ticket.no_wo || '';
-                                  const rawTipe = ticket.tipeVisit || ticket.tipe_visit || '';
-                                  const isWo = Boolean(rawNoWo) || String(rawTipe).toUpperCase().includes('WO');
+                                  const woNum = ticket.noWo || ticket.no_wo || '';
+                                  const isWo = Boolean(woNum) || String(ticket.tipeVisit || ticket.tipe_visit || '').toUpperCase().includes('WO');
                                   return isWo ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0 shadow-2xs">
-                                      <Icon name="ticket" size={9} className="text-blue-500" />
-                                      <span>WO Partner</span>
-                                      {rawNoWo && (
-                                        <span className="font-mono font-medium opacity-90">• {rawNoWo}</span>
-                                      )}
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200 shrink-0 shadow-2xs">
+                                      {woNum ? `WO: ${woNum}` : 'WO'}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
-                                      <Icon name="zap" size={9} className="text-purple-500" />
-                                      <span>WO Proaktif</span>
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
+                                      PROAKTIF
                                     </span>
                                   );
                                 })()}
@@ -15355,7 +15343,7 @@ function DataGangguanView({
     return isNaN(parsed) ? 0 : parsed;
   };
 
-  const filteredData = useMemo(() => {
+  const baseFilteredData = useMemo(() => {
     if (!enrichedVisitData || !Array.isArray(enrichedVisitData)) return [];
     const today = new Date();
     const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
@@ -15367,7 +15355,7 @@ function DataGangguanView({
     const startOfWeekStr = startOfWeek.getFullYear() + '-' + String(startOfWeek.getMonth() + 1).padStart(2, '0') + '-' + String(startOfWeek.getDate()).padStart(2, '0');
     const startOfMonthStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
 
-    const result = enrichedVisitData.filter(item => {
+    return enrichedVisitData.filter(item => {
       const matchSearch = String(item.namaPelanggan || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(item.idPelanggan || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(item.keluhan || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -15385,10 +15373,25 @@ function DataGangguanView({
       else if (timeFilter === 'minggu_ini') matchTime = itemDateStr >= startOfWeekStr && itemDateStr <= todayStr;
       else if (timeFilter === 'bulan_ini') matchTime = itemDateStr >= startOfMonthStr && itemDateStr <= todayStr;
 
-      const isWoPartner = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
-      const matchTipe = tipeVisitFilter === '' ? true : (tipeVisitFilter === 'PARTNER' ? isWoPartner : !isWoPartner);
+      return matchSearch && matchStatus && matchStation && matchTime;
+    });
+  }, [enrichedVisitData, searchTerm, statusFilter, stationFilter, timeFilter]);
 
-      return matchSearch && matchStatus && matchStation && matchTime && matchTipe;
+  const { totalWoPartnerCount, totalProaktifCount } = useMemo(() => {
+    let wo = 0;
+    let proaktif = 0;
+    (baseFilteredData || []).forEach(item => {
+      const isWo = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
+      if (isWo) wo++;
+      else proaktif++;
+    });
+    return { totalWoPartnerCount: wo, totalProaktifCount: proaktif };
+  }, [baseFilteredData]);
+
+  const filteredData = useMemo(() => {
+    const result = baseFilteredData.filter(item => {
+      const isWoPartner = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
+      return tipeVisitFilter === '' ? true : (tipeVisitFilter === 'PARTNER' ? isWoPartner : !isWoPartner);
     });
 
     // Urutkan dari yang paling baru (Newest timestamp first)
@@ -15397,7 +15400,7 @@ function DataGangguanView({
       const tA = parseTimestampMs(a.timestamp);
       return tB - tA;
     });
-  }, [enrichedVisitData, searchTerm, statusFilter, stationFilter, timeFilter, tipeVisitFilter]);
+  }, [baseFilteredData, tipeVisitFilter]);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -16385,6 +16388,36 @@ function DataGangguanView({
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/70">
                   {filteredData.length} Tiket
                 </span>
+                {totalProaktifCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTipeVisitFilter(prev => prev === 'PROAKTIF' ? '' : 'PROAKTIF')}
+                    title="Klik untuk filter tiket Proaktif"
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
+                      tipeVisitFilter === 'PROAKTIF'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-purple-50 text-purple-700 border border-purple-200/80 hover:bg-purple-100/80'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${tipeVisitFilter === 'PROAKTIF' ? 'bg-white' : 'bg-purple-500'}`}></span>
+                    <span>{totalProaktifCount} Proaktif</span>
+                  </button>
+                )}
+                {totalWoPartnerCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTipeVisitFilter(prev => prev === 'PARTNER' ? '' : 'PARTNER')}
+                    title="Klik untuk filter tiket WO Partner"
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
+                      tipeVisitFilter === 'PARTNER'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100/80'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${tipeVisitFilter === 'PARTNER' ? 'bg-white' : 'bg-blue-500'}`}></span>
+                    <span>{totalWoPartnerCount} WO Partner</span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 Monitoring dan kelola penanganan tiket perbaikan gangguan teknisi
@@ -16572,19 +16605,15 @@ function DataGangguanView({
                     </div>
                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                       {(() => {
-                        const isWo = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
+                        const woNum = item.noWo || item.no_wo || '';
+                        const isWo = Boolean(woNum) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
                         return isWo ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-                            <Icon name="ticket" size={9} className="text-blue-500" />
-                            <span>WO Partner</span>
-                            {(item.noWo || item.no_wo) && (
-                              <span className="font-mono font-medium opacity-90">• {item.noWo || item.no_wo}</span>
-                            )}
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                            {woNum ? `WO: ${woNum}` : 'WO'}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
-                            <Icon name="zap" size={9} className="text-purple-500" />
-                            <span>WO Proaktif</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono uppercase bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                            PROAKTIF
                           </span>
                         );
                       })()}
@@ -16752,19 +16781,15 @@ function DataGangguanView({
                       </div>
                       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                         {(() => {
-                          const isWo = Boolean(item.noWo || item.no_wo) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
+                          const woNum = item.noWo || item.no_wo || '';
+                          const isWo = Boolean(woNum) || String(item.tipeVisit || item.tipe_visit || '').toUpperCase().includes('WO');
                           return isWo ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200/90 shadow-2xs">
-                              <Icon name="ticket" size={10} className="text-blue-500" />
-                              <span>WO Partner</span>
-                              {(item.noWo || item.no_wo) && (
-                                <span className="font-mono font-medium ml-0.5 opacity-90">• {item.noWo || item.no_wo}</span>
-                              )}
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200/90 shadow-2xs">
+                              {woNum ? `WO: ${woNum}` : 'WO'}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200/90 shadow-2xs">
-                              <Icon name="zap" size={10} className="text-purple-500" />
-                              <span>WO Proaktif</span>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold font-mono uppercase bg-purple-50 text-purple-700 border border-purple-200/90 shadow-2xs">
+                              PROAKTIF
                             </span>
                           );
                         })()}
