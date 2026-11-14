@@ -10,6 +10,8 @@
 //   stop paging stasiun tersebut.
 // =========================================================================
 
+import { logActivity } from './activityLogService.js';
+
 const DEFAULT_PARTNER_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
 
 const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
@@ -128,13 +130,32 @@ function extractOdpInfo(c) {
 }
 
 function extractRegDate(c) {
-  if (c.registration_date) return formatKeWIB(c.registration_date);
-  if (c.request_ikr_id && c.request_ikr_id.registration_date) return formatKeWIB(c.request_ikr_id.registration_date);
-  if (c.visit_date) return formatKeWIB(c.visit_date);
-  if (c.sales_visit_id && c.sales_visit_id.visit_date) return formatKeWIB(c.sales_visit_id.visit_date);
-  if (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.registration_date) return formatKeWIB(c.customer_id.registration_date);
-  if (c.created_ats) return formatKeWIB(c.created_ats);
-  if (c.created_at) return formatKeWIB(c.created_at);
+  // 1. Prioritaskan created_ats / created_at akun pelanggan di Web Partner (Timestamp resmi UTC -> dikonversi +7 jam ke WIB)
+  const createdAtUtc = c.created_ats || c.created_at || (c.customer_id && typeof c.customer_id === 'object' && (c.customer_id.created_ats || c.customer_id.created_at));
+  if (createdAtUtc) return formatKeWIB(createdAtUtc);
+
+  // 2. Field registration_date dari Web Partner Starlite
+  // CATATAN: Backend Starlite menyimpan registration_date dengan double-subtraction timezone (-14 jam dari waktu nyata WIB).
+  // Menambahkan +14 jam mengembalikan waktu registrasi ke jam WIB yang sebenarnya.
+  const rawReg = c.registration_date || (c.customer_id && typeof c.customer_id === 'object' && c.customer_id.registration_date) || (c.request_ikr_id && c.request_ikr_id.registration_date);
+  if (rawReg) {
+    try {
+      const str = String(rawReg).trim();
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const wibTime = new Date(d.getTime() + 14 * 60 * 60 * 1000);
+        const y = wibTime.getUTCFullYear();
+        const m = String(wibTime.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(wibTime.getUTCDate()).padStart(2, "0");
+        const h = String(wibTime.getUTCHours()).padStart(2, "0");
+        const min = String(wibTime.getUTCMinutes()).padStart(2, "0");
+        const s = String(wibTime.getUTCSeconds()).padStart(2, "0");
+        return `${y}-${m}-${day} ${h}:${min}:${s}`;
+      }
+    } catch (_e) {}
+    return formatKeWIB(rawReg);
+  }
+
   return "";
 }
 
@@ -500,6 +521,30 @@ export async function syncNewCustomersFast({
       }
     }
 
+    // Audit Trail Log untuk pelanggan baru
+    if (newCustomersToInsert.length > 0) {
+      try {
+        logActivity({
+          module: 'Data Pelanggan',
+          action: 'SYNC_PARTNER_NEW',
+          description: `Sinkronisasi Web Partner: Menambahkan ${newCustomersToInsert.length} pelanggan baru${newActiveCount > 0 ? ` (${newActiveCount} sudah aktif)` : ''}`,
+          metadata: {
+            totalBaru: newCustomersToInsert.length,
+            sudahAktif: newActiveCount,
+            sampelPelanggan: newCustomersToInsert.slice(0, 20).map(c => ({
+              id: c.id_pelanggan,
+              nama: c.nama_pelanggan,
+              stasiun: c.stasiun,
+              statusAktivasi: c.status_aktivasi
+            })),
+            sumber: 'API Partner Starlite (/mitra/customer/new)'
+          }
+        });
+      } catch (logErr) {
+        console.warn('Gagal mencatat log sync new customers:', logErr);
+      }
+    }
+
     // 2. Perbarui pelanggan lama yang statusnya berubah menjadi aktif
     if (customersToUpdateStatus.length > 0) {
       if (onProgress) onProgress(`Memperbarui status ${customersToUpdateStatus.length} pelanggan yang baru aktif...`);
@@ -532,6 +577,28 @@ export async function syncNewCustomersFast({
         } catch (patchErr) {
           console.warn('[FAST SYNC] Gagal patch status aktif:', u.id_pelanggan, patchErr);
         }
+      }
+
+      // Audit Trail Log untuk pelanggan yang statusnya berubah menjadi aktif
+      try {
+        logActivity({
+          module: 'Data Pelanggan',
+          action: 'SYNC_PARTNER_AKTIF',
+          description: `Sinkronisasi Web Partner: Memperbarui status ${customersToUpdateStatus.length} pelanggan menjadi AKTIF`,
+          metadata: {
+            totalDiupdate: customersToUpdateStatus.length,
+            daftarPelanggan: customersToUpdateStatus.map(u => ({
+              id: u.id_pelanggan,
+              nama: u.nama_pelanggan,
+              statusSebelumnya: 'Belum',
+              statusBaru: 'Sudah (Aktif)',
+              tglAktivasi: u.tgl_aktivasi || null
+            })),
+            sumber: 'API Partner Starlite (/mitra/customer/new)'
+          }
+        });
+      } catch (logErr) {
+        console.warn('Gagal mencatat log sync aktif:', logErr);
       }
     }
 

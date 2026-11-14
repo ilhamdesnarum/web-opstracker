@@ -93,7 +93,16 @@ function decodeGzipPayload(base64Str) {
   for (let i = 0; i < len; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  const decompressed = fflate.unzlibSync(bytes);
+  let decompressed;
+  try {
+    decompressed = fflate.gunzipSync(bytes);
+  } catch (_e) {
+    try {
+      decompressed = fflate.unzlibSync(bytes);
+    } catch (_e2) {
+      decompressed = fflate.decompressSync(bytes);
+    }
+  }
   const text = new TextDecoder('utf-8').decode(decompressed);
   return JSON.parse(text);
 }

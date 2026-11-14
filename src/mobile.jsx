@@ -10,6 +10,7 @@ import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
 import { syncDismantlingFast } from './services/partnerDismantleService.js';
 import { isPercepatanCustomer, buildOdpLookupMap, formatDateDisplay, getWoDismantleInfo } from './utils';
+import { logActivity } from './services/activityLogService.js';
 import './index.css';
 
 const DetailRow = ({ label, value, isLink, href }) => value ? (
@@ -103,7 +104,8 @@ const parseSupabaseDocument = (fields) => {
     tanggalDismantle: fields.tanggal_dismantle || fields.tgl_dismantle || "",
     woDismantle: fields.wo_dismantle || fields.woDismantle || (String(fields.reason_dismantle || '').includes('[WO DISMANTLE]') ? fields.reason_dismantle : ""),
     reasonDismantle: (fields.reason_dismantle || "").replace(/\[WO DISMANTLE\][^\n]*/g, "").trim(),
-    fotoDismantle: fields.foto_dismantle || ""
+    fotoDismantle: fields.foto_dismantle || "",
+    statusPartner: fields.status_partner || fields.statusPartner || null
   };
 };
 
@@ -129,6 +131,8 @@ const parseSupabaseOdpDocument = (fields) => {
 
 // Helper untuk parse dokumen Log Visit dari Supabase ke camelCase React
 const parseSupabaseVisitDocument = (fields) => {
+  const rawNoWo = fields.no_wo || fields.noWo || "";
+  const rawTipeVisit = fields.tipe_visit || fields.tipeVisit || (rawNoWo ? "WO_VISIT" : "PROAKTIF");
   return {
     id: fields.id,
     timestamp: fields.timestamp || "",
@@ -151,7 +155,11 @@ const parseSupabaseVisitDocument = (fields) => {
     usedMaterials: fields.used_materials || fields.material || "",
     petugas: fields.petugas || "",
     evidence: fields.evidence || "",
-    waktuClose: fields.waktu_close || ""
+    waktuClose: fields.waktu_close || "",
+    noWo: rawNoWo,
+    no_wo: rawNoWo,
+    tipeVisit: rawTipeVisit,
+    tipe_visit: rawTipeVisit
   };
 };
 
@@ -658,6 +666,7 @@ const MobileApp = () => {
   const [listModal, setListModal] = useState({ isOpen: false, title: '', type: '', items: [] });
   const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
   const [riwayatFilter, setRiwayatFilter] = useState('');
+  const [riwayatTab, setRiwayatTab] = useState('aktivasi'); // 'aktivasi' | 'registrasi'
   const [isRiwayatDropdownOpen, setIsRiwayatDropdownOpen] = useState(false);
   const [settingStation, setSettingStation] = useState([]);
   const [isSettingStationDropdownOpen, setIsSettingStationDropdownOpen] = useState(false);
@@ -1093,7 +1102,7 @@ const MobileApp = () => {
       setGlobalError(null);
 
       let cachedPelanggan = getCachedData('otas_pelanggan_cache_v7');
-      if (cachedPelanggan && cachedPelanggan.length < 5000) {
+      if (cachedPelanggan && (cachedPelanggan.length < 5000 || !cachedPelanggan.some(p => 'statusPartner' in p))) {
         cachedPelanggan = null;
         setCachedData('otas_pelanggan_cache_v7', null);
       }
@@ -1109,9 +1118,9 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
-        const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
-        const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle';
-        const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at';
+        const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
+        const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
+        const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,status_partner';
 
         const fetchPelanggan = () => fetchAllSupabaseData('data_pelanggan', pelangganColsWithIkrPartner, 'id_pelanggan')
           .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsWithWo, 'id_pelanggan'))
@@ -2596,6 +2605,57 @@ const MobileApp = () => {
     });
   }, [data.pelangganData, todayStr]);
 
+  const riwayatRegistrasiData = useMemo(() => {
+    return (data.pelangganData || []).filter(p => {
+      const rawReg = p.tanggalRegistrasi || p.created_at || p.createdAt || '';
+      const tglReg = standardizeDate(rawReg);
+      return tglReg === todayStr;
+    }).sort((a, b) => {
+      const getComparableTime = (item) => {
+        const str = String(item.tanggalRegistrasi || item.created_at || item.createdAt || '');
+        const match = str.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+        if (match) return match[0];
+        if (str.includes('T')) return str.split('T')[1]?.substring(0, 5) || '';
+        return str;
+      };
+      return getComparableTime(b).localeCompare(getComparableTime(a));
+    }).map(p => {
+      let timeStr = '-';
+      const tsStr = String(p.tanggalRegistrasi || p.created_at || p.createdAt || '');
+      const timeMatch = tsStr.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+
+      if (timeMatch) {
+        timeStr = `${timeMatch[0]} WIB`;
+      } else if (tsStr.includes('T')) {
+        const timePart = tsStr.split('T')[1]?.substring(0, 5);
+        if (timePart) timeStr = `${timePart} WIB`;
+      } else if (tsStr) {
+        try {
+          const d = new Date(tsStr);
+          if (!isNaN(d.getTime())) {
+            timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+          }
+        } catch (e) { }
+      }
+
+      let sales = p.namaSales || p.sales;
+      const isMandiri = !sales || sales === '-' || String(sales).trim().toLowerCase() === 'daftar mandiri';
+      if (isMandiri) sales = 'Daftar Mandiri';
+
+      return {
+        nama: p.namaPelanggan || p.nama_pelanggan || 'Tanpa Nama',
+        stasiun: p.stasiun || '-',
+        alamat: p.alamat || '-',
+        no: String(p.idPelanggan || p.id_pelanggan || '-').replace('# ', ''),
+        odp: p.odp || p.odpAktual || p.kodeOdp || '-',
+        paket: p.paket || p.layanan || p.program || '',
+        status: p.status_aktivasi || p.aktivasi || p.status_ikr || p.ikr || 'Pendaftar Baru',
+        time: timeStr,
+        sales: sales
+      };
+    });
+  }, [data.pelangganData, todayStr]);
+
   const pelangganStats = useMemo(() => {
     const all = data.pelangganData || [];
     let aktif = 0, waiting = 0, suspend = 0, readyDismantle = 0, dismantled = 0, kendala = 0;
@@ -2791,6 +2851,19 @@ const MobileApp = () => {
         petugas: payload.petugas
       });
       if (sbErr) throw sbErr;
+      logActivity({
+        module: 'Data Gangguan',
+        action: 'INPUT_TIKET',
+        description: `Membuat tiket visit gangguan ${payload.idPelanggan || ''} (${payload.namaPelanggan || 'Pelanggan'}) - ${payload.keluhan || ''}`,
+        metadata: {
+          idPelanggan: payload.idPelanggan,
+          namaPelanggan: payload.namaPelanggan,
+          stasiun: payload.stasiun,
+          keluhan: payload.keluhan,
+          catatan: payload.catatan,
+          petugas: payload.petugas
+        }
+      });
       finalize();
     } catch (err) {
       console.warn("Gagal simpan ke Supabase, fallback:", err);
@@ -2869,6 +2942,18 @@ const MobileApp = () => {
         ...prev,
         pelangganData: prev.pelangganData.map(p => p.idPelanggan === idPelanggan ? updated : p)
       }));
+      logActivity({
+        module: 'Data Pelanggan',
+        action: 'UPDATE_PELANGGAN',
+        description: `Memperbarui data pelanggan ${idPelanggan} (${updated.namaPelanggan || 'Pelanggan'}) via Mobile`,
+        metadata: {
+          idPelanggan,
+          aktivasi: finalAktivasi,
+          ikr: finalIkr,
+          odp: updateData.odpAktual,
+          port: updateData.portOdp
+        }
+      });
       showToast('Data pelanggan berhasil diupdate!', 'success');
     } catch (err) {
       showToast('Gagal menyimpan data: ' + err.message, 'error');
@@ -3564,91 +3649,224 @@ const MobileApp = () => {
                 </div>
               </div>
 
-              {/* Riwayat Aktivasi */}
+              {/* Riwayat Aktivasi & Registrasi */}
               <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Icon name="clock" size={16} className="text-blue-600" />
-                    <h3 className="font-bold text-slate-800 text-[14px]">Riwayat Aktivasi</h3>
-                    <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded-sm ml-1 uppercase">{new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                  </div>
-                  <div className="relative">
-                    <div onClick={() => setIsRiwayatDropdownOpen(!isRiwayatDropdownOpen)} className="flex items-center gap-1 border border-slate-200 rounded-md px-2 py-1 bg-slate-50 shrink-0 cursor-pointer hover:bg-slate-100">
-                      <Icon name="filter" size={10} className="text-slate-400" />
-                      <span className="text-[9px] font-bold text-slate-500">{riwayatFilter || 'Semua Stasiun'}</span>
-                      <Icon name="chevron-down" size={10} className="text-slate-400" />
+                <div className="flex flex-col gap-2.5 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/60">
+                      <button
+                        type="button"
+                        onClick={() => setRiwayatTab('aktivasi')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                          riwayatTab === 'aktivasi'
+                            ? 'bg-white text-slate-800 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <Icon name="check-circle" size={12} className={riwayatTab === 'aktivasi' ? 'text-emerald-500' : 'text-slate-400'} />
+                        <span>Aktivasi</span>
+                        <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-bold ${
+                          riwayatTab === 'aktivasi' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {riwayatAktivasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRiwayatTab('registrasi')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                          riwayatTab === 'registrasi'
+                            ? 'bg-white text-slate-800 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <Icon name="user-plus" size={12} className={riwayatTab === 'registrasi' ? 'text-blue-500' : 'text-slate-400'} />
+                        <span>Registrasi</span>
+                        <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-bold ${
+                          riwayatTab === 'registrasi' ? 'bg-blue-50 text-blue-600' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {riwayatRegistrasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).length}
+                        </span>
+                      </button>
                     </div>
-                    {isRiwayatDropdownOpen && (
-                      <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-200 shadow-lg rounded-md z-10 py-1">
-                        <div onClick={() => { setRiwayatFilter(''); setIsRiwayatDropdownOpen(false); }} className={`px-3 py-1.5 text-[10px] cursor-pointer ${!riwayatFilter ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>Semua Stasiun</div>
-                        {[...new Set(riwayatAktivasiData.map(item => item.stasiun))].filter(s => s && s !== '-').sort().map((stasiun, idx) => (
-                          <div key={idx} onClick={() => { setRiwayatFilter(stasiun); setIsRiwayatDropdownOpen(false); }} className={`px-3 py-1.5 text-[10px] cursor-pointer ${riwayatFilter === stasiun ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                            {stasiun}
-                          </div>
-                        ))}
+
+                    <div className="relative">
+                      <div onClick={() => setIsRiwayatDropdownOpen(!isRiwayatDropdownOpen)} className="flex items-center gap-1 border border-slate-200 rounded-md px-2 py-1 bg-slate-50 shrink-0 cursor-pointer hover:bg-slate-100">
+                        <Icon name="filter" size={10} className="text-slate-400" />
+                        <span className="text-[9px] font-bold text-slate-500 max-w-[80px] truncate">{riwayatFilter || 'Semua'}</span>
+                        <Icon name="chevron-down" size={10} className="text-slate-400" />
                       </div>
-                    )}
+                      {isRiwayatDropdownOpen && (
+                        <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-200 shadow-lg rounded-md z-10 py-1">
+                          <div onClick={() => { setRiwayatFilter(''); setIsRiwayatDropdownOpen(false); }} className={`px-3 py-1.5 text-[10px] cursor-pointer ${!riwayatFilter ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>Semua Stasiun</div>
+                          {[...new Set([...riwayatAktivasiData, ...riwayatRegistrasiData].map(item => item.stasiun))].filter(s => s && s !== '-').sort().map((stasiun, idx) => (
+                            <div key={idx} onClick={() => { setRiwayatFilter(stasiun); setIsRiwayatDropdownOpen(false); }} className={`px-3 py-1.5 text-[10px] cursor-pointer ${riwayatFilter === stasiun ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                              {stasiun}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+
                 <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1 -mr-1">
-                  {riwayatAktivasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).length === 0 ? (
-                    <div className="text-center text-[11px] text-slate-400 py-8 border border-dashed border-slate-200 rounded-lg">Belum ada riwayat aktivasi {riwayatFilter ? `di ${riwayatFilter} ` : ''}hari ini.</div>
-                  ) : riwayatAktivasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).map((item, idx) => (
-                    <div key={idx} className="flex gap-3 border-b border-slate-100 pb-4 last:border-0 last:pb-0">
-                      <div className="shrink-0 mt-0.5">
-                        <div className="w-5 h-5 rounded-full border border-emerald-500 bg-emerald-50 flex items-center justify-center">
-                          <Icon name="check" size={10} className="text-emerald-500" />
+                  {riwayatTab === 'aktivasi' ? (
+                    riwayatAktivasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).length === 0 ? (
+                      <div className="text-center text-[11px] text-slate-400 py-8 border border-dashed border-slate-200 rounded-lg">Belum ada riwayat aktivasi {riwayatFilter ? `di ${riwayatFilter} ` : ''}hari ini.</div>
+                    ) : riwayatAktivasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).map((item, idx) => (
+                      <div key={idx} className="flex gap-3 border-b border-slate-100 pb-4 last:border-0 last:pb-0">
+                        <div className="shrink-0 mt-0.5">
+                          <div className="w-5 h-5 rounded-full border border-emerald-500 bg-emerald-50 flex items-center justify-center">
+                            <Icon name="check" size={10} className="text-emerald-500" />
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                            <h4 className="text-[12px] font-bold text-slate-700">{item.nama}</h4>
+                            <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[8px] px-1.5 py-0.5 rounded font-semibold">{item.stasiun}</span>
+                          </div>
+                          <p className="text-[9px] text-slate-400 leading-tight mb-2 pr-2">{item.alamat}</p>
+
+                          {/* Flex wrap for tags */}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                            <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                              <Icon name="hash" size={8} className="text-slate-300" />
+                              <span>{item.no.replace('# ', '')}</span>
+                            </div>
+                            <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                            <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                              <Icon name="box" size={8} className="text-slate-300" />
+                              <span>{item.odp}</span>
+                            </div>
+                            <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                            <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                              <Icon name="git-merge" size={8} className="text-slate-300" />
+                              <span>{item.port}</span>
+                            </div>
+                            <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                            <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                              <Icon name="activity" size={8} className="text-slate-300" />
+                              <span>{item.dist}</span>
+                            </div>
+                            <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                            <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                              <Icon name="cpu" size={8} className="text-slate-300" />
+                              <span>{item.sn}</span>
+                            </div>
+                          </div>
+
+                          {/* Time and Technician */}
+                          <div className="flex items-center justify-between mt-1 pt-2 border-t border-dashed border-slate-100">
+                            <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
+                              <Icon name="clock" size={10} />
+                              <span>{item.time}</span>
+                            </div>
+                            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md text-[9px] font-bold text-emerald-700">
+                              <Icon name="user" size={8} className="text-emerald-500" />
+                              <span>{item.teknisi}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                          <h4 className="text-[12px] font-bold text-slate-700">{item.nama}</h4>
-                          <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[8px] px-1.5 py-0.5 rounded font-semibold">{item.stasiun}</span>
-                        </div>
-                        <p className="text-[9px] text-slate-400 leading-tight mb-2 pr-2">{item.alamat}</p>
+                    ))
+                  ) : (
+                    riwayatRegistrasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).length === 0 ? (
+                      <div className="text-center text-[11px] text-slate-400 py-8 border border-dashed border-slate-200 rounded-lg">Belum ada riwayat registrasi {riwayatFilter ? `di ${riwayatFilter} ` : ''}hari ini.</div>
+                    ) : riwayatRegistrasiData.filter(item => !riwayatFilter || item.stasiun === riwayatFilter).map((item, idx) => {
+                      const odpName = (item.odp || '').trim();
+                      const hasOdp = odpName && odpName !== '-';
+                      const aktVal = String(item.status_aktivasi || item.aktivasi || item.status || '').trim().toLowerCase();
+                      const isSudahAktif = aktVal.includes('sudah') || aktVal === 'aktif' || aktVal === 'done';
+                      const isKendala = aktVal.includes('kendala');
 
-                        {/* Flex wrap for tags */}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
-                          <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
-                            <Icon name="hash" size={8} className="text-slate-300" />
-                            <span>{item.no.replace('# ', '')}</span>
-                          </div>
-                          <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
-                          <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
-                            <Icon name="box" size={8} className="text-slate-300" />
-                            <span>{item.odp}</span>
-                          </div>
-                          <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
-                          <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
-                            <Icon name="git-merge" size={8} className="text-slate-300" />
-                            <span>{item.port}</span>
-                          </div>
-                          <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
-                          <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
-                            <Icon name="activity" size={8} className="text-slate-300" />
-                            <span>{item.dist}</span>
-                          </div>
-                          <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
-                          <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
-                            <Icon name="cpu" size={8} className="text-slate-300" />
-                            <span>{item.sn}</span>
-                          </div>
-                        </div>
+                      let badgeInfo = {
+                        label: 'Menunggu Instalasi',
+                        bg: 'bg-amber-50',
+                        text: 'text-amber-700',
+                        border: 'border-amber-200',
+                        icon: 'clock'
+                      };
 
-                        {/* Time and Technician */}
-                        <div className="flex items-center justify-between mt-1 pt-2 border-t border-dashed border-slate-100">
-                          <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
-                            <Icon name="clock" size={10} />
-                            <span>{item.time}</span>
+                      if (isSudahAktif) {
+                        badgeInfo = {
+                          label: 'Sudah Aktivasi',
+                          bg: 'bg-emerald-50',
+                          text: 'text-emerald-700',
+                          border: 'border-emerald-200',
+                          icon: 'check-circle'
+                        };
+                      } else if (isKendala) {
+                        badgeInfo = {
+                          label: 'Kendala',
+                          bg: 'bg-rose-50',
+                          text: 'text-rose-700',
+                          border: 'border-rose-200',
+                          icon: 'alert-triangle'
+                        };
+                      }
+
+                      return (
+                        <div key={idx} className="flex gap-3 border-b border-slate-100 pb-4 last:border-0 last:pb-0">
+                          <div className="shrink-0 mt-0.5">
+                            <div className="w-5 h-5 rounded-full border border-blue-500 bg-blue-50 flex items-center justify-center">
+                              <Icon name="user-plus" size={10} className="text-blue-500" />
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md text-[9px] font-bold text-emerald-700">
-                            <Icon name="user" size={8} className="text-emerald-500" />
-                            <span>{item.teknisi}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                              <h4 className="text-[12px] font-bold text-slate-700">{item.nama}</h4>
+                              <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[8px] px-1.5 py-0.5 rounded font-semibold">{item.stasiun}</span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 leading-tight mb-2 pr-2">{item.alamat}</p>
+
+                            {/* Flex wrap for tags */}
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                              <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                                <Icon name="hash" size={8} className="text-slate-300" />
+                                <span>{item.no}</span>
+                              </div>
+                              {hasOdp && (
+                                <>
+                                  <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                                  <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                                    <Icon name="box" size={8} className="text-slate-300" />
+                                    <span>{odpName}</span>
+                                  </div>
+                                </>
+                              )}
+                              {item.paket && (
+                                <>
+                                  <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                                  <div className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                                    <Icon name="tag" size={8} className="text-slate-300" />
+                                    <span>{item.paket}</span>
+                                  </div>
+                                </>
+                              )}
+                              <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                              <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[7.5px] font-bold border ${badgeInfo.bg} ${badgeInfo.text} ${badgeInfo.border}`}>
+                                <Icon name={badgeInfo.icon} size={8} />
+                                <span>{badgeInfo.label}</span>
+                              </div>
+                            </div>
+
+                            {/* Time and Sales */}
+                            <div className="flex items-center justify-between mt-1 pt-2 border-t border-dashed border-slate-100">
+                              <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
+                                <Icon name="clock" size={10} />
+                                <span>{item.time}</span>
+                              </div>
+                              <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md text-[9px] font-bold text-blue-700">
+                                <Icon name="user" size={8} className="text-blue-500" />
+                                <span>{item.sales}</span>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -4300,30 +4518,23 @@ const MobileApp = () => {
                         {showAccentBar && <div className={`absolute top-0 left-0 w-1 h-full ${sc.accent}`}></div>}
 
                         <div className="flex justify-between items-start mb-2.5 pl-1">
-                          <div className="flex gap-2 items-center flex-1 min-w-0">
+                          <div className="flex gap-2 items-center flex-1 min-w-0 flex-wrap">
+                            {(() => {
+                              const wo = getWoDismantleInfo(p);
+                              return wo?.hasWo ? (
+                                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full shrink-0 bg-amber-500 text-white shadow-2xs">
+                                  Sedang Diambil
+                                </span>
+                              ) : null;
+                            })()}
                             <span className="text-[10px] font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shrink-0">{p.idPelanggan || p.id || '-'}</span>
                             <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1 truncate">
                               <Icon name="map-pin" size={9} /> {p.stasiun || '-'}
                             </span>
                           </div>
-                          {st === 'READY TO DISMANTLE' ? (
-                            (() => {
-                              const wo = getWoDismantleInfo(p);
-                              return wo?.hasWo ? (
-                                <span className="text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 bg-amber-500 text-white shadow-2xs">
-                                  SEDANG DIAMBIL
-                                </span>
-                              ) : (
-                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
-                                  READY DISM.
-                                </span>
-                              );
-                            })()
-                          ) : (
-                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
-                              {st}
-                            </span>
-                          )}
+                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${sc.bg} ${sc.text}`}>
+                            {st === 'READY TO DISMANTLE' ? 'READY DISM.' : st}
+                          </span>
                         </div>
 
                         <div className="mb-2.5 pl-1">

@@ -255,7 +255,9 @@ export default function ManagePetugasModal({
   // KPIs
   const totalCount = petugasList.length;
   const activeCount = petugasList.filter(p => (p.status || 'Aktif') === 'Aktif').length;
-  const tlCount = petugasList.filter(p => (p.role || '').toLowerCase().includes('leader') || (p.role || '').toLowerCase() === 'tl').length;
+  const spvCount = petugasList.filter(p => (p.role || '').toLowerCase().includes('spv') || (p.role || '').toLowerCase().includes('supervisor')).length;
+  const tlOnlyCount = petugasList.filter(p => (p.role || '').toLowerCase().includes('leader') || (p.role || '').toLowerCase() === 'tl').length;
+  const leaderCount = spvCount + tlOnlyCount;
   const uniqueStasiunCount = new Set(petugasList.map(p => p.area_kerja).filter(Boolean)).size;
 
   const getRoleBadge = (role) => {
@@ -312,7 +314,7 @@ export default function ManagePetugasModal({
       )}
 
       {/* Dialog Card Modal */}
-      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 my-auto">
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-[96vw] max-w-6xl xl:max-w-[1160px] max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 my-auto">
         {/* MODAL HEADER */}
         <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -369,9 +371,9 @@ export default function ManagePetugasModal({
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Team Leader</span>
-            <div className="text-xl sm:text-2xl font-black text-blue-600 mt-0.5">{tlCount}</div>
-            <span className="text-[10px] text-blue-600/80 font-medium">Pimpinan Stasiun</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Leader</span>
+            <div className="text-xl sm:text-2xl font-black text-blue-600 mt-0.5">{leaderCount}</div>
+            <span className="text-[10px] text-blue-600/80 font-medium">{spvCount} SPV • {tlOnlyCount} TL Stasiun</span>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
@@ -611,17 +613,17 @@ export default function ManagePetugasModal({
         </div>
 
         {/* LIST TABLE (SCROLLABLE) */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <table className="w-full text-left text-xs">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+          <table className="w-full text-left text-xs table-fixed">
             <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 sticky top-0 z-10 tracking-wider">
               <tr>
-                <th className="py-3 px-3.5">Nama & Email</th>
-                <th className="py-3 px-3">Jabatan</th>
-                <th className="py-3 px-3">Area Kerja</th>
-                <th className="py-3 px-3">Kontak</th>
-                <th className="py-3 px-3">Akun IKR</th>
-                <th className="py-3 px-3 text-center">Status</th>
-                <th className="py-3 px-3.5 text-right">Aksi</th>
+                <th className="py-2.5 px-3 text-left w-[27%]">Nama & Email</th>
+                <th className="py-2.5 px-2.5 text-left whitespace-nowrap w-[15%]">Jabatan</th>
+                <th className="py-2.5 px-2.5 text-left whitespace-nowrap w-[14%]">Area Kerja</th>
+                <th className="py-2.5 px-2.5 text-left whitespace-nowrap w-[16%]">Kontak</th>
+                <th className="py-2.5 px-2.5 text-left whitespace-nowrap w-[13%]">Akun IKR</th>
+                <th className="py-2.5 px-2 text-center whitespace-nowrap w-[8%]">Status</th>
+                <th className="py-2.5 px-2 text-center whitespace-nowrap w-[7%]">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -649,23 +651,23 @@ export default function ManagePetugasModal({
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                       {/* 1. Nama & Panggilan */}
-                      <td className="py-3 px-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 font-extrabold text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 font-extrabold text-[11px] flex items-center justify-center shrink-0 border border-blue-200">
                             {(p.nick_name || p.full_name || '?').charAt(0).toUpperCase()}
                           </div>
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-800 leading-snug truncate" title={p.full_name}>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-slate-800 text-xs leading-snug truncate" title={p.full_name}>
                               {p.full_name || '-'}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               {p.nick_name && (
-                                <span className="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold border border-slate-200">
+                                <span className="inline-block px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold border border-slate-200 shrink-0">
                                   {p.nick_name}
                                 </span>
                               )}
                               {p.email && (
-                                <span className="text-[10px] text-slate-400 font-mono truncate max-w-[150px]" title={p.email}>
+                                <span className="text-[10px] text-slate-400 font-mono truncate block" title={p.email}>
                                   {p.email}
                                 </span>
                               )}
@@ -675,22 +677,22 @@ export default function ManagePetugasModal({
                       </td>
 
                       {/* 2. Jabatan / Role */}
-                      <td className="py-3 px-3">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold border ${roleBadge.bg}`}>
-                          <Icon name={p.role === 'Team Leader' ? 'user-check' : 'user'} size={11} />
-                          <span>{roleBadge.label}</span>
+                      <td className="py-2.5 px-2.5 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border whitespace-nowrap ${roleBadge.bg}`}>
+                          <Icon name={p.role === 'Team Leader' ? 'user-check' : 'user'} size={12} className="shrink-0" />
+                          <span className="whitespace-nowrap">{roleBadge.label}</span>
                         </span>
                       </td>
 
                       {/* 3. Stasiun & Sektor */}
-                      <td className="py-3 px-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1 text-slate-800 font-bold text-xs">
-                            <Icon name="map-pin" size={12} className="text-slate-400 shrink-0" />
+                      <td className="py-2.5 px-2.5 whitespace-nowrap">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1 text-slate-800 font-bold text-xs whitespace-nowrap">
+                            <Icon name="map-pin" size={11} className="text-slate-400 shrink-0" />
                             <span>{p.area_kerja || '-'}</span>
                           </div>
                           {p.sektor && (
-                            <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold border ${getSektorBadge(p.sektor)}`}>
+                            <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold border whitespace-nowrap ${getSektorBadge(p.sektor)}`}>
                               Sektor {p.sektor}
                             </span>
                           )}
@@ -698,21 +700,21 @@ export default function ManagePetugasModal({
                       </td>
 
                       {/* 4. Kontak & WhatsApp */}
-                      <td className="py-3 px-3">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap">
                         {p.kontak_hp ? (
                           waUrl ? (
                             <a
                               href={waUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-mono text-[11px] font-semibold border border-emerald-200 transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-mono text-[11px] font-semibold border border-emerald-200 transition-colors whitespace-nowrap"
                               title="Buka WhatsApp"
                             >
-                              <Icon name="phone" size={11} className="text-emerald-600" />
+                              <Icon name="phone" size={10} className="text-emerald-600 shrink-0" />
                               <span>{p.kontak_hp}</span>
                             </a>
                           ) : (
-                            <span className="font-mono text-slate-600 text-xs">{p.kontak_hp}</span>
+                            <span className="font-mono text-slate-600 text-xs whitespace-nowrap">{p.kontak_hp}</span>
                           )
                         ) : (
                           <span className="text-slate-300">-</span>
@@ -720,9 +722,9 @@ export default function ManagePetugasModal({
                       </td>
 
                       {/* 5. Akun IKR */}
-                      <td className="py-3 px-3">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap">
                         {p.akun_ikr ? (
-                          <span className="px-2 py-0.5 rounded font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          <span className="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 inline-block align-middle truncate max-w-full" title={p.akun_ikr}>
                             {p.akun_ikr}
                           </span>
                         ) : (
@@ -731,24 +733,24 @@ export default function ManagePetugasModal({
                       </td>
 
                       {/* 6. Status Toggle */}
-                      <td className="py-3 px-3 text-center">
+                      <td className="py-2.5 px-2 text-center whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(p)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${isActive
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer transition-all whitespace-nowrap ${isActive
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                             : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                             }`}
                           title="Klik untuk ubah status aktif / non-aktif"
                         >
-                          <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
                           <span>{isActive ? 'Aktif' : 'Non-Aktif'}</span>
                         </button>
                       </td>
 
                       {/* 7. Aksi */}
-                      <td className="py-3 px-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
                             onClick={() => handleEdit(p)}

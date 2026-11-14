@@ -1211,12 +1211,14 @@ function PreRegisterPortalView({ pelangganData = [], odpData = [], onGoToCoverag
         showToast(`Data ${SUB_TABS.find(t => t.id === tabKey)?.shortLabel || ''} berhasil diperbarui langsung dari sheet.`, 'success');
       }
     } catch (err) {
+      console.error('[PreRegisterPortal] Load tab error:', err);
+      const errMsg = (err && typeof err === 'object' && err.message) ? err.message : (typeof err === 'string' ? err : 'Gagal memuat data dari Portal Starlite');
       setTabState(prev => ({
         ...prev,
         [tabKey]: {
           ...prev[tabKey],
           loading: false,
-          error: err.message || 'Gagal memuat data dari Portal Starlite'
+          error: errMsg
         }
       }));
     }

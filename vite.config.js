@@ -24,6 +24,8 @@ export default defineConfig({
       '/api-portal-vm': {
         target: 'https://script.google.com',
         changeOrigin: true,
+        followRedirects: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api-portal-vm/, ''),
       },
     },

@@ -8,6 +8,8 @@
 // - Mengupdate status_aktivasi: 'Dismantling' dan reason_dismantle di Supabase
 // =========================================================================
 
+import { logActivity } from './activityLogService.js';
+
 const DEFAULT_PARTNER_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODA4N2Q5LTQ3MjItNDMxMi05OTAzLTg0YzJhYTViYmU0NiIsIm5hbWUiOiJBREkgUFJBU0VUWU8iLCJwaG9uZV9udW1iZXIiOiI2MjgxMjM0NTY5NSIsImVtYWlsIjoic3VwcG9ydEByYW5ldC5pZCIsInBhcnRuZXJfbWFzdGVyX2lkIjpbImZjN2E0YTFkLWY2ZDMtNGQxNi05MDBkLTFhYTk3MTU0OGFkMSJdLCJwYXJ0bmVyX25hbWUiOlsiREVTTkFSVU0gSkFZQSBBS0FTSEEiXSwibGFzdF9wYXNzd29yZF91cGRhdGUiOm51bGwsImlhdCI6MTc4NTkzNjM1NCwiZXhwIjoxODE3NDcyMzU0fQ.AIeceSlBn_Xe4CRtLZ8IIUqWwn2T3fZOjc-Ybq_gKsM";
 
 const SUPABASE_URL = "https://jtmferyskpbnacluyafs.supabase.co";
@@ -234,6 +236,29 @@ export async function syncDismantlingFast({
         }
       } catch (err) {
         console.warn('[FAST DISMANTLE SYNC] Gagal upsert batch:', err);
+      }
+    }
+
+    if (updatedCount > 0) {
+      try {
+        logActivity({
+          module: 'Data Pelanggan',
+          action: 'SYNC_PARTNER_DISMANTLE',
+          description: `Sinkronisasi Web Partner: Memperbarui ${updatedCount} pelanggan WO Dismantle (Perangkat Sedang Diambil)`,
+          metadata: {
+            totalDiupdate: updatedCount,
+            totalDismantlingDiPartner: dedupedList.length,
+            sampelPelanggan: rowsToUpsert.slice(0, 20).map(r => ({
+              id: r.id_pelanggan,
+              statusAktivasi: r.status_aktivasi,
+              woDismantle: r.wo_dismantle,
+              telatBayarHari: r.telat_bayar_hari
+            })),
+            sumber: 'API Partner Starlite (/mitra/customer/suspend?status=dismantling)'
+          }
+        });
+      } catch (logErr) {
+        console.warn('Gagal mencatat log sync dismantle:', logErr);
       }
     }
 

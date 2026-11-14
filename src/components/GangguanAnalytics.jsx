@@ -48,6 +48,7 @@ export default function GangguanAnalytics({ visitData = [] }) {
   const [selectedYear, setSelectedYear] = useState(() => now.getFullYear());
   const [selectedStation, setSelectedStation] = useState('ALL');
   const [chartType, setChartType] = useState('bar'); // 'bar' | 'line'
+  const [donutTab, setDonutTab] = useState('klasifikasi'); // 'visit' | 'klasifikasi'
   const [hiddenStations, setHiddenStations] = useState(new Set());
 
   // Kategori normalisasi keluhan
@@ -109,6 +110,8 @@ export default function GangguanAnalytics({ visitData = [] }) {
   const monthlyData = useMemo(() => {
     const counts = new Array(12).fill(0);
     const resolvedCounts = new Array(12).fill(0);
+    const proaktifCounts = new Array(12).fill(0);
+    const woCounts = new Array(12).fill(0);
 
     (visitData || []).forEach(v => {
       if (!v.timestamp) return;
@@ -133,6 +136,9 @@ export default function GangguanAnalytics({ visitData = [] }) {
           counts[m]++;
           const isDone = ['DONE', 'SELESAI', 'CLOSED', 'CLOSE'].includes(String(v.status || '').toUpperCase());
           if (isDone) resolvedCounts[m]++;
+          const isWo = Boolean(v.noWo || v.no_wo) || String(v.tipeVisit || v.tipe_visit || '').toUpperCase().includes('WO');
+          if (isWo) woCounts[m]++;
+          else proaktifCounts[m]++;
         }
       }
     });
@@ -144,6 +150,8 @@ export default function GangguanAnalytics({ visitData = [] }) {
         fullName: MONTH_FULL[idx],
         tiket: isFuture ? null : counts[idx],
         selesai: isFuture ? null : resolvedCounts[idx],
+        proaktif: isFuture ? null : proaktifCounts[idx],
+        openWo: isFuture ? null : woCounts[idx],
         isCurrentMonth: idx === now.getMonth() && selectedYear === now.getFullYear(),
         isFuture
       };
@@ -194,9 +202,11 @@ export default function GangguanAnalytics({ visitData = [] }) {
   }, [visitData, selectedYear, stationStats, now]);
 
   // Kalkulasi distribusi kategori keluhan (semua / stasiun terpilih pada tahun terpilih)
-  const { keluhanData, totalKeluhanTahunIni } = useMemo(() => {
+  const { keluhanData, totalKeluhanTahunIni, totalProaktifTahunIni, totalWoTahunIni } = useMemo(() => {
     const counts = {};
     let total = 0;
+    let totalProaktif = 0;
+    let totalWo = 0;
 
     (visitData || []).forEach(v => {
       if (!v.timestamp) return;
@@ -219,6 +229,9 @@ export default function GangguanAnalytics({ visitData = [] }) {
         const cat = categorizeKeluhan(v.keluhan);
         counts[cat] = (counts[cat] || 0) + 1;
         total++;
+        const isWo = Boolean(v.noWo || v.no_wo) || String(v.tipeVisit || v.tipe_visit || '').toUpperCase().includes('WO');
+        if (isWo) totalWo++;
+        else totalProaktif++;
       }
     });
 
@@ -230,7 +243,12 @@ export default function GangguanAnalytics({ visitData = [] }) {
       }))
       .sort((a, b) => b.value - a.value);
 
-    return { keluhanData: sorted, totalKeluhanTahunIni: total };
+    return {
+      keluhanData: sorted,
+      totalKeluhanTahunIni: total,
+      totalProaktifTahunIni: totalProaktif,
+      totalWoTahunIni: totalWo
+    };
   }, [visitData, selectedYear, selectedStation]);
 
   // Kalkulasi stasiun dengan gangguan terbanyak vs paling sedikit tahun ini
@@ -290,13 +308,27 @@ export default function GangguanAnalytics({ visitData = [] }) {
               </span>
             )}
           </div>
-          <div className="space-y-1.5 min-w-[140px]">
+          <div className="space-y-1.5 min-w-[155px]">
             <div className="flex items-center justify-between gap-4">
               <span className="text-slate-400 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
                 Total Tiket:
               </span>
               <span className="font-black text-white text-sm">{d.tiket}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                Proaktif:
+              </span>
+              <span className="font-bold text-violet-300">{d.proaktif ?? 0}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                Open WO:
+              </span>
+              <span className="font-bold text-blue-300">{d.openWo ?? 0}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-slate-400 flex items-center gap-1.5">
@@ -380,10 +412,16 @@ export default function GangguanAnalytics({ visitData = [] }) {
             <Icon name="bar-chart-3" size={18} />
           </div>
           <div>
-            <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight flex items-center gap-2">
-              Analisa & Grafik Tren Gangguan
+            <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight flex items-center gap-1.5 flex-wrap">
+              <span className="mr-0.5">Analisa & Grafik Tren Gangguan</span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                 Tahun {selectedYear}
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200/80">
+                {totalProaktifTahunIni} Proaktif
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
+                {totalWoTahunIni} Open WO
               </span>
             </h3>
             <p className="text-[11px] text-slate-500 font-medium mt-0.5">
@@ -420,11 +458,19 @@ export default function GangguanAnalytics({ visitData = [] }) {
           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
             <Icon name="ticket" size={16} />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase font-bold text-slate-400">
               {selectedStation === 'ALL' ? `Total Tiket ${selectedYear}` : `Total Tiket (${selectedStation})`}
             </p>
-            <p className="text-base font-black text-slate-800 leading-tight">{totalKeluhanTahunIni} Tiket</p>
+            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+              <span className="text-base font-black text-slate-800 leading-tight mr-0.5">{totalKeluhanTahunIni} Tiket</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200/80 leading-tight">
+                {totalProaktifTahunIni} Proaktif
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/80 leading-tight">
+                {totalWoTahunIni} Open WO
+              </span>
+            </div>
           </div>
         </div>
 
@@ -582,35 +628,49 @@ export default function GangguanAnalytics({ visitData = [] }) {
                     tickLine={false}
                     axisLine={false}
                   />
-                  <Tooltip content={<CustomBarTooltip />} cursor={false} />
+                  <Tooltip content={<CustomBarTooltip />} cursor={{ fill: 'rgba(241, 245, 249, 0.7)' }} />
                   <Bar
-                    dataKey="tiket"
-                    radius={[6, 6, 0, 0]}
+                    dataKey="proaktif"
+                    name="Proaktif"
+                    stackId="visitStack"
+                    fill="#a78bfa"
                     maxBarSize={48}
                     isAnimationActive={isInitialChartAnimationActive()}
-                    activeBar={(props) => {
+                    shape={(props) => {
+                      const hasTopWo = (props.payload?.openWo || 0) > 0;
                       const isCurrent = props.payload?.isCurrentMonth;
                       return (
                         <Rectangle
                           {...props}
-                          fill={isCurrent ? '#1d4ed8' : '#2563eb'}
-                          radius={[6, 6, 0, 0]}
-                          style={{
-                            filter: 'drop-shadow(0 2px 6px rgba(37, 99, 235, 0.35))',
-                            cursor: 'pointer'
-                          }}
+                          fill={isCurrent ? '#8b5cf6' : '#a78bfa'}
+                          stroke="none"
+                          radius={hasTopWo ? [0, 0, 0, 0] : [6, 6, 0, 0]}
+                          className="cursor-pointer"
                         />
                       );
                     }}
-                  >
-                    {monthlyData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.isCurrentMonth ? '#3b82f6' : '#93c5fd'}
-                        className="cursor-pointer"
-                      />
-                    ))}
-                  </Bar>
+                  />
+                  <Bar
+                    dataKey="openWo"
+                    name="Open WO"
+                    stackId="visitStack"
+                    fill="#60a5fa"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={48}
+                    isAnimationActive={isInitialChartAnimationActive()}
+                    shape={(props) => {
+                      const isCurrent = props.payload?.isCurrentMonth;
+                      return (
+                        <Rectangle
+                          {...props}
+                          fill={isCurrent ? '#3b82f6' : '#60a5fa'}
+                          stroke="none"
+                          radius={[6, 6, 0, 0]}
+                          className="cursor-pointer"
+                        />
+                      );
+                    }}
+                  />
                 </BarChart>
               ) : (
                 <LineChart
@@ -667,103 +727,148 @@ export default function GangguanAnalytics({ visitData = [] }) {
             </ResponsiveContainer>
           </div>
 
-          {/* KETERANGAN BULAN PADA BAR CHART */}
+          {/* KETERANGAN WARNA PADA BAR CHART */}
           {chartType === 'bar' && (
-            <div className="flex items-center justify-center gap-4 text-[11px] text-slate-500 mt-2">
+            <div className="flex items-center justify-center gap-5 text-[11px] font-semibold text-slate-600 mt-2">
               <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-blue-500"></span>
-                <span>Bulan Berjalan ({MONTH_FULL[now.getMonth()]})</span>
+                <span className="w-3 h-3 rounded bg-violet-400"></span>
+                <span>Proaktif ({totalProaktifTahunIni})</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-blue-300"></span>
-                <span>Bulan Lainnya</span>
+                <span className="w-3 h-3 rounded bg-blue-400"></span>
+                <span>Open WO ({totalWoTahunIni})</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* 2. DONUT CHART DISTRIBUSI KELUHAN (5 KOLOM) */}
+        {/* 2. DONUT CHART DISTRIBUSI KELUHAN / TIKET VISIT (5 KOLOM) */}
         <div className="lg:col-span-5 flex flex-col border-t lg:border-t-0 lg:border-l border-slate-100 pt-5 lg:pt-0 lg:pl-5">
-          <div className="mb-2">
-            <h4 className="text-xs sm:text-sm font-black text-slate-800">
-              Distribusi Jenis Gangguan
-            </h4>
-            <p className="text-[11px] text-slate-500">
-              {selectedStation === 'ALL'
-                ? 'Proporsi kendala teknis yang dilaporkan pelanggan'
-                : `Proporsi kendala teknis di stasiun ${selectedStation}`}
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-slate-800">
+                Distribusi Jenis Gangguan
+              </h4>
+              <p className="text-[11px] text-slate-500">
+                {donutTab === 'visit'
+                  ? (selectedStation === 'ALL'
+                      ? 'Proporsi tiket kunjungan Proaktif vs Open WO'
+                      : `Proporsi tiket kunjungan di stasiun ${selectedStation}`)
+                  : (selectedStation === 'ALL'
+                      ? 'Proporsi kendala teknis yang dilaporkan pelanggan'
+                      : `Proporsi kendala teknis di stasiun ${selectedStation}`)}
+              </p>
+            </div>
+
+            {/* TAB MENU: TIKET VISIT VS KLASIFIKASI */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 shrink-0 self-start">
+              <button
+                type="button"
+                onClick={() => setDonutTab('visit')}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                  donutTab === 'visit'
+                    ? 'bg-white text-blue-600 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Tiket Visit
+              </button>
+              <button
+                type="button"
+                onClick={() => setDonutTab('klasifikasi')}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                  donutTab === 'klasifikasi'
+                    ? 'bg-white text-blue-600 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Klasifikasi
+              </button>
+            </div>
           </div>
 
-          {keluhanData.length === 0 ? (
+          {totalKeluhanTahunIni === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
               <Icon name="pie-chart" size={36} className="mb-2 opacity-40" />
               <p className="text-xs font-bold">Belum ada data keluhan pada tahun {selectedYear}</p>
             </div>
-          ) : (
-            <>
-              <div className="h-44 sm:h-52 w-full relative">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={keluhanData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={75}
-                      paddingAngle={3}
-                      isAnimationActive={isInitialChartAnimationActive()}
-                    >
-                      {keluhanData.map((entry, index) => (
-                        <Cell key={`slice-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(val, name) => [
-                        `${val} Tiket (${totalKeluhanTahunIni > 0 ? ((val / totalKeluhanTahunIni) * 100).toFixed(1) : 0}%)`,
-                        name
-                      ]}
-                      contentStyle={{
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        borderRadius: '12px',
-                        border: 'none',
-                        color: '#fff',
-                        fontSize: '12px',
-                        fontWeight: 'bold'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                {/* Center text in donut */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-lg font-black text-slate-800 leading-none">{totalKeluhanTahunIni}</span>
-                  <span className="text-[9px] uppercase font-bold text-slate-400">Total Tiket</span>
-                </div>
-              </div>
+          ) : (() => {
+            const visitDonutItems = [
+              { name: 'Proaktif', value: totalProaktifTahunIni, color: '#a78bfa' },
+              { name: 'Open WO', value: totalWoTahunIni, color: '#60a5fa' }
+            ];
+            const activePieData = donutTab === 'visit'
+              ? visitDonutItems.filter(i => i.value > 0)
+              : keluhanData;
+            const activeLegendItems = donutTab === 'visit'
+              ? visitDonutItems
+              : keluhanData;
 
-              {/* LIST LEGEND DENGAN PERSENTASE */}
-              <div className="space-y-1.5 overflow-y-auto max-h-40 custom-scrollbar pr-1 mt-1">
-                {keluhanData.map((item, idx) => {
-                  const pct = totalKeluhanTahunIni > 0 ? ((item.value / totalKeluhanTahunIni) * 100).toFixed(1) : 0;
-                  return (
-                    <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg hover:bg-slate-50">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }}></span>
-                        <span className="font-semibold text-slate-700 truncate">{item.name}</span>
+            return (
+              <>
+                <div className="h-44 sm:h-52 w-full relative">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={activePieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={75}
+                        paddingAngle={activePieData.length > 1 ? 3 : 0}
+                        isAnimationActive={isInitialChartAnimationActive()}
+                      >
+                        {activePieData.map((entry, index) => (
+                          <Cell key={`slice-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(val, name) => [
+                          `${val} Tiket (${totalKeluhanTahunIni > 0 ? ((val / totalKeluhanTahunIni) * 100).toFixed(1) : 0}%)`,
+                          name
+                        ]}
+                        contentStyle={{
+                          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                          borderRadius: '12px',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                        itemStyle={{ color: '#fff' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Center text in donut */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-lg font-black text-slate-800 leading-none">{totalKeluhanTahunIni}</span>
+                    <span className="text-[9px] uppercase font-bold text-slate-400">Total Tiket</span>
+                  </div>
+                </div>
+
+                {/* LIST LEGEND DENGAN PERSENTASE */}
+                <div className="space-y-1.5 overflow-y-auto max-h-40 custom-scrollbar pr-1 mt-1">
+                  {activeLegendItems.map((item, idx) => {
+                    const pct = totalKeluhanTahunIni > 0 ? ((item.value / totalKeluhanTahunIni) * 100).toFixed(1) : 0;
+                    return (
+                      <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg hover:bg-slate-50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }}></span>
+                          <span className="font-semibold text-slate-700 truncate">{item.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <span className="font-bold text-slate-800">{item.value}</span>
+                          <span className="text-[10px] font-bold text-slate-400 min-w-[38px] text-right">({pct}%)</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="font-bold text-slate-800">{item.value}</span>
-                        <span className="text-[10px] font-bold text-slate-400 min-w-[38px] text-right">({pct}%)</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>
