@@ -3401,6 +3401,8 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                   isSyncing={isLoading || isBackgroundSyncing}
                   onRefresh={() => fetchData(true)}
                   onRefreshSilent={fetchDataSilent}
+                  currentUser={currentUser}
+                  userRole={userRole}
                 />
               </div>
             )}

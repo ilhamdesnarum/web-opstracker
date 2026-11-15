@@ -95,8 +95,24 @@ export default function TeamPerformanceView({
   isLoading = false,
   isSyncing = false,
   onRefresh,
-  onRefreshSilent
+  onRefreshSilent,
+  currentUser = null,
+  userRole = ''
 }) {
+  // Deteksi role admin (dari prop userRole, currentUser, atau fallback ke otas_user di localStorage)
+  const isAdmin = useMemo(() => {
+    if (userRole === 'admin') return true;
+    if (currentUser?.role === 'admin') return true;
+    try {
+      const stored = localStorage.getItem('otas_user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed?.role === 'admin';
+      }
+    } catch {}
+    return false;
+  }, [userRole, currentUser]);
+
   // Tanggal Harian yang dipilih
   const todayYMD = useMemo(() => formatDateToYMD(new Date()), []);
   const [selectedDateYMD, setSelectedDateYMD] = useState(todayYMD);
@@ -1886,15 +1902,17 @@ export default function TeamPerformanceView({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Tombol Pantau Tim */}
-          <button
-            onClick={() => setIsPantauTimOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-            title="Pantau Lokasi Live & Baterai Teknisi di Peta"
-          >
-            <Icon name="map-pin" size={14} />
-            <span>Pantau Tim</span>
-          </button>
+          {/* Tombol Pantau Tim - Hanya dimunculkan untuk Role Admin */}
+          {isAdmin && (
+            <button
+              onClick={() => setIsPantauTimOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+              title="Pantau Lokasi Live & Baterai Teknisi di Peta"
+            >
+              <Icon name="map-pin" size={14} />
+              <span>Pantau Tim</span>
+            </button>
+          )}
 
           {/* Tombol Kelola Petugas */}
           <button
@@ -2806,13 +2824,15 @@ export default function TeamPerformanceView({
         document.body
       )}
 
-      {/* MODAL PANTAU TIM */}
-      <PantauTimModal
-        isOpen={isPantauTimOpen}
-        onClose={() => setIsPantauTimOpen(false)}
-        initialStation={stationFilter !== 'ALL' ? stationFilter : 'Semua'}
-        teknisiList={teknisiList}
-      />
+      {/* MODAL PANTAU TIM - Khusus Role Admin */}
+      {isAdmin && (
+        <PantauTimModal
+          isOpen={isPantauTimOpen}
+          onClose={() => setIsPantauTimOpen(false)}
+          initialStation={stationFilter !== 'ALL' ? stationFilter : 'Semua'}
+          teknisiList={teknisiList}
+        />
+      )}
 
       {/* MODAL KELOLA PETUGAS */}
       <ManagePetugasModal
