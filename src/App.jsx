@@ -12050,10 +12050,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
     issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
-    reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || activeReporter,
-    tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
-    reporterKendala: data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || activeReporter,
-    tanggalKendala: (data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date) ? (String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).includes('T') ? String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split('T')[0] : String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split(' ')[0]) : todayDateStr,
+    reporterPending: activeReporter || data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || 'Superuser',
+    tanggalPending: todayDateStr,
+    reporterKendala: activeReporter || data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || 'Superuser',
+    tanggalKendala: todayDateStr,
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
     petugas: activeDispatch?.petugas || data?.activeWo?.petugas || data?.petugasIkr || data?.petugasAktivasi || '',
@@ -12625,6 +12625,14 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     const { name, value } = e.target;
     setFormData(prev => {
       const next = { ...prev, [name]: value };
+      if (name === 'issueKendala' && value !== initialKendalaInfo.issue) {
+        next.reporterKendala = activeReporter || prev.reporterKendala;
+        next.tanggalKendala = todayDateStr;
+      }
+      if (name === 'catatanPending' && value !== initialPendingInfo.note) {
+        next.reporterPending = activeReporter || prev.reporterPending;
+        next.tanggalPending = todayDateStr;
+      }
       if (name === 'odpAktual' && value) {
         const cleanKey = cleanOdpStr(value);
         const simpleKey = String(value).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -13722,15 +13730,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                             <label className="text-[11px] font-bold text-blue-600 flex items-center gap-1.5 uppercase tracking-wider">
                               <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
                             </label>
-                            {activeReporter && formData.reporterPending !== activeReporter && (
-                              <button
-                                type="button"
-                                onClick={() => setFormData(p => ({ ...p, reporterPending: activeReporter, tanggalPending: todayDateStr }))}
-                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-100/70 hover:bg-blue-200 px-2 py-0.5 rounded transition-all cursor-pointer"
-                                title="Klik untuk memakai nama akun Anda yang sedang login"
-                              >
-                                Gunakan Akun Saya ({activeReporter})
-                              </button>
+                            {initialPendingInfo.reporter && initialPendingInfo.reporter !== activeReporter && (
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                Laporan awal: <span className="font-semibold text-slate-600">{initialPendingInfo.reporter}</span>{initialPendingInfo.date ? ` (${formatDateDisplay(initialPendingInfo.date)})` : ''}
+                              </span>
                             )}
                           </div>
                           <input
@@ -13739,7 +13742,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                             value={formData.reporterPending || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder={`Cth: ${activeReporter}...`}
+                            placeholder={`Otomatis: ${activeReporter}`}
                             className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50"
                           />
                         </div>
@@ -13764,15 +13767,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                             <label className="text-[11px] font-bold text-rose-600 flex items-center gap-1.5 uppercase tracking-wider">
                               <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
                             </label>
-                            {activeReporter && formData.reporterKendala !== activeReporter && (
-                              <button
-                                type="button"
-                                onClick={() => setFormData(p => ({ ...p, reporterKendala: activeReporter, tanggalKendala: todayDateStr }))}
-                                className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-100/70 hover:bg-rose-200 px-2 py-0.5 rounded transition-all cursor-pointer"
-                                title="Klik untuk memakai nama akun Anda yang sedang login"
-                              >
-                                Gunakan Akun Saya ({activeReporter})
-                              </button>
+                            {initialKendalaInfo.reporter && initialKendalaInfo.reporter !== activeReporter && (
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                Laporan awal: <span className="font-semibold text-slate-600">{initialKendalaInfo.reporter}</span>{initialKendalaInfo.date ? ` (${formatDateDisplay(initialKendalaInfo.date)})` : ''}
+                              </span>
                             )}
                           </div>
                           <input
@@ -13781,7 +13779,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                             value={formData.reporterKendala || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder={`Cth: ${activeReporter}...`}
+                            placeholder={`Otomatis: ${activeReporter}`}
                             className="w-full p-2.5 bg-rose-50/70 border border-rose-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-rose-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50"
                           />
                         </div>
@@ -13867,15 +13865,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                               setFormData(prev => {
                                 const updated = { ...prev, aktivasi: opt.value };
                                 if (opt.value === 'Pending') {
-                                  if (!updated.reporterPending || updated.reporterPending === '-') {
-                                    updated.reporterPending = activeReporter;
-                                  }
-                                  updated.tanggalPending = updated.tanggalPending || todayDateStr;
+                                  updated.reporterPending = activeReporter || updated.reporterPending;
+                                  updated.tanggalPending = todayDateStr;
                                 } else if (opt.value === 'Kendala') {
-                                  if (!updated.reporterKendala || updated.reporterKendala === '-') {
-                                    updated.reporterKendala = activeReporter;
-                                  }
-                                  updated.tanggalKendala = updated.tanggalKendala || todayDateStr;
+                                  updated.reporterKendala = activeReporter || updated.reporterKendala;
+                                  updated.tanggalKendala = todayDateStr;
                                 }
                                 return updated;
                               });
