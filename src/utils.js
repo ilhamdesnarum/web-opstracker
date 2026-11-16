@@ -29,13 +29,6 @@ export const extractKendalaData = (item) => {
     if (lk.includes('tanggal') && lk.includes('kendala') && !date) date = item[key];
   }
 
-  if (!reporter) {
-    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || '';
-  }
-  if (!date) {
-    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
-  }
-
   return { issue, reporter, date };
 };
 
@@ -51,13 +44,6 @@ export const extractPendingData = (item) => {
     if (lk.includes('catatan') && lk.includes('pending') && !note) note = item[key];
     if (lk.includes('reporter') && lk.includes('pending') && !reporter) reporter = item[key];
     if (lk.includes('tanggal') && lk.includes('pending') && !date) date = item[key];
-  }
-
-  if (!reporter) {
-    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || item.namaSales || item.sales || '';
-  }
-  if (!date) {
-    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
   }
 
   return { note, reporter, date };

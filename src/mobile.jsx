@@ -1147,16 +1147,17 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
+        setCachedData('otas_pelanggan_cache_v9', null);
         setCachedData('otas_pelanggan_cache_v8', null);
         setCachedData('otas_cache_visit', null);
         setCachedData('otas_odp_cache_v5', null);
       }
       setGlobalError(null);
 
-      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v8');
+      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v9');
       if (cachedPelanggan && (cachedPelanggan.length < 5000 || !cachedPelanggan.some(p => 'statusPartner' in p))) {
         cachedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v8', null);
+        setCachedData('otas_pelanggan_cache_v9', null);
       }
 
       const cachedVisit = getCachedData('otas_cache_visit');
@@ -1182,7 +1183,7 @@ const MobileApp = () => {
           fetchPelanggan()
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v8', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v9', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -1292,7 +1293,7 @@ const MobileApp = () => {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v8', parsed);
+                setCachedData('otas_pelanggan_cache_v9', parsed);
                 setData(prev => ({ ...prev, pelangganData: parsed }));
               }
             }).catch(e => console.warn('[MOBILE SYNC PARTNER] Gagal refetch pelanggan baru/aktif/dismantle:', e));
@@ -1361,7 +1362,7 @@ const MobileApp = () => {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v8', nextList);
+                setCachedData('otas_pelanggan_cache_v9', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;

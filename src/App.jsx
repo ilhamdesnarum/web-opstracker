@@ -837,13 +837,6 @@ const extractKendalaData = (item) => {
     if (lk.includes('tanggal') && lk.includes('kendala') && !date) date = item[key];
   }
 
-  if (!reporter) {
-    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || '';
-  }
-  if (!date) {
-    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
-  }
-
   return { issue, reporter, date };
 };
 
@@ -858,13 +851,6 @@ const extractPendingData = (item) => {
     if (lk.includes('catatan') && lk.includes('pending') && !note) note = item[key];
     if (lk.includes('reporter') && lk.includes('pending') && !reporter) reporter = item[key];
     if (lk.includes('tanggal') && lk.includes('pending') && !date) date = item[key];
-  }
-
-  if (!reporter) {
-    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || item.namaSales || item.sales || '';
-  }
-  if (!date) {
-    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
   }
 
   return { note, reporter, date };
@@ -1923,7 +1909,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           newPelangganData.unshift(updatedItem);
         }
       });
-      setCachedData('otas_pelanggan_cache_v12', newPelangganData);
+      setCachedData('otas_pelanggan_cache_v13', newPelangganData);
       return { ...prevData, pelangganData: newPelangganData };
     });
   };
@@ -2176,6 +2162,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
     try {
       if (isForce) {
+        setCachedData('otas_pelanggan_cache_v13', null);
         setCachedData('otas_pelanggan_cache_v12', null);
         setCachedData('otas_odp_cache_v5', null);
         setCachedData('otas_station_cache', null);
@@ -2190,11 +2177,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v12');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v13');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v12', null);
+        setCachedData('otas_pelanggan_cache_v13', null);
       }
 
       if (isForce) {
@@ -2273,7 +2260,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v12', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v13', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -2366,7 +2353,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v12', parsed);
+                setCachedData('otas_pelanggan_cache_v13', parsed);
                 setData(prev => ({
                   ...prev,
                   pelangganData: parsed
@@ -2454,7 +2441,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v12', nextList);
+                setCachedData('otas_pelanggan_cache_v13', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -2665,7 +2652,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v12', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v13', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -4618,7 +4605,7 @@ export function OkupansiView({ data, setData }) {
             }
             return p;
           });
-          setCachedData('otas_pelanggan_cache_v12', updatedPel);
+          setCachedData('otas_pelanggan_cache_v13', updatedPel);
 
           return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
         });
@@ -19786,8 +19773,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                   if (displayStatusStr === 'PENDING') {
                     const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                    const repPending = pendingRep || item.reporterPending || item.reporter_pending || item.petugasIkr || item.petugasAktivasi || item.namaSales || item.sales || '';
-                    const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || item.tanggalRegistrasi || item.createdAt;
+                    const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
+                    const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
                     const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
 
                     return (
@@ -19830,8 +19817,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   const isKendala = displayStatusStr === 'KENDALA' || hasKendala || issueText;
                   if (!isKendala) return null;
 
-                  const repKendala = reporter || item.reporterKendala || item.reporter_kendala || item.petugasIkr || item.petugasAktivasi || '';
-                  const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || item.tanggalRegistrasi || item.createdAt;
+                  const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
+                  const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
                   const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
                   const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
 
@@ -20381,8 +20368,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             // 1. Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass) beserta Pelapor & Tanggal
                             if (displayStatusStr === 'PENDING') {
                               const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                              const repPending = pendingRep || item.reporterPending || item.reporter_pending || item.petugasIkr || item.petugasAktivasi || item.namaSales || item.sales || '';
-                              const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || item.tanggalRegistrasi || item.createdAt;
+                              const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
+                              const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
                               const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
 
                               return (
@@ -20432,8 +20419,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                             if (!isKendala || displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'SUSPEND') return null;
 
-                            const repKendala = reporter || item.reporterKendala || item.reporter_kendala || item.petugasIkr || item.petugasAktivasi || '';
-                            const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || item.tanggalRegistrasi || item.createdAt;
+                            const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
+                            const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
                             const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
                             const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
 
