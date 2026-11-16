@@ -4729,13 +4729,14 @@ const MobileApp = () => {
                               const { issue: finalIssue, reporter: repKendala, date: tglKendala } = extractKendalaData(p);
                               const tglKendalaDisplay = formatDateDisplay(tglKendala);
                               const displayKendalaText = p.issueKendala || finalIssue || 'Terkendala di lapangan';
+                              const cleanKendalaText = (displayKendalaText || '').replace(/^kendala\s*[:\-]\s*/i, '').trim();
 
                               return (
                                 <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg">
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                                    <span className="whitespace-normal leading-relaxed font-bold italic">
-                                      <span className="font-extrabold text-rose-800">KENDALA:</span> {displayKendalaText}
+                                    <span className="whitespace-normal leading-relaxed font-medium italic text-rose-950">
+                                      {cleanKendalaText || 'Terkendala di lapangan'}
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70 text-[8.5px] text-rose-700 font-semibold not-italic">
