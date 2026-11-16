@@ -12050,10 +12050,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
     issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
-    reporterPending: activeReporter || data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || 'Superuser',
-    tanggalPending: todayDateStr,
-    reporterKendala: activeReporter || data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || 'Superuser',
-    tanggalKendala: todayDateStr,
+    reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || '',
+    tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
+    reporterKendala: data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || '',
+    tanggalKendala: (data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date) ? (String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).includes('T') ? String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split('T')[0] : String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split(' ')[0]) : todayDateStr,
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
     petugas: activeDispatch?.petugas || data?.activeWo?.petugas || data?.petugasIkr || data?.petugasAktivasi || '',
@@ -12478,17 +12478,17 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isKendalaStatus = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
 
       const finalInlineRepPending = isPendingStatus 
-        ? (payload.reporterPending || payload.reporter_pending || activeReporter) 
+        ? ((payload.reporterPending && payload.reporterPending !== initialPendingInfo.reporter) ? payload.reporterPending : (activeReporter || payload.reporterPending || 'Superuser')) 
         : null;
       const finalInlineTglPending = isPendingStatus 
-        ? (payload.tanggalPending || payload.tanggal_pending || todayDateStr) 
+        ? todayDateStr 
         : null;
 
       const finalInlineRepKendala = isKendalaStatus 
-        ? (payload.reporterKendala || payload.reporter_kendala || activeReporter) 
+        ? ((payload.reporterKendala && payload.reporterKendala !== initialKendalaInfo.reporter) ? payload.reporterKendala : (activeReporter || payload.reporterKendala || 'Superuser')) 
         : null;
       const finalInlineTglKendala = isKendalaStatus 
-        ? (payload.tanggalKendala || payload.tanggal_kendala || todayDateStr) 
+        ? todayDateStr 
         : null;
 
       const updateData = {
@@ -12625,14 +12625,6 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     const { name, value } = e.target;
     setFormData(prev => {
       const next = { ...prev, [name]: value };
-      if (name === 'issueKendala' && value !== initialKendalaInfo.issue) {
-        next.reporterKendala = activeReporter || prev.reporterKendala;
-        next.tanggalKendala = todayDateStr;
-      }
-      if (name === 'catatanPending' && value !== initialPendingInfo.note) {
-        next.reporterPending = activeReporter || prev.reporterPending;
-        next.tanggalPending = todayDateStr;
-      }
       if (name === 'odpAktual' && value) {
         const cleanKey = cleanOdpStr(value);
         const simpleKey = String(value).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -13726,23 +13718,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     {currentNormStatus === 'PENDING' ? (
                       <>
                         <div className="animate-fade">
-                          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                            <label className="text-[11px] font-bold text-blue-600 flex items-center gap-1.5 uppercase tracking-wider">
-                              <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
-                            </label>
-                            {initialPendingInfo.reporter && initialPendingInfo.reporter !== activeReporter && (
-                              <span className="text-[10px] text-slate-400 font-normal">
-                                Laporan awal: <span className="font-semibold text-slate-600">{initialPendingInfo.reporter}</span>{initialPendingInfo.date ? ` (${formatDateDisplay(initialPendingInfo.date)})` : ''}
-                              </span>
-                            )}
-                          </div>
+                          <label className="text-[11px] font-bold text-blue-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
+                          </label>
                           <input
                             type="text"
                             name="reporterPending"
                             value={formData.reporterPending || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder={`Otomatis: ${activeReporter}`}
+                            placeholder="Ketik nama reporter pending..."
                             className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50"
                           />
                         </div>
@@ -13763,23 +13748,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     ) : currentNormStatus === 'KENDALA' ? (
                       <>
                         <div className="animate-fade">
-                          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                            <label className="text-[11px] font-bold text-rose-600 flex items-center gap-1.5 uppercase tracking-wider">
-                              <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
-                            </label>
-                            {initialKendalaInfo.reporter && initialKendalaInfo.reporter !== activeReporter && (
-                              <span className="text-[10px] text-slate-400 font-normal">
-                                Laporan awal: <span className="font-semibold text-slate-600">{initialKendalaInfo.reporter}</span>{initialKendalaInfo.date ? ` (${formatDateDisplay(initialKendalaInfo.date)})` : ''}
-                              </span>
-                            )}
-                          </div>
+                          <label className="text-[11px] font-bold text-rose-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
+                          </label>
                           <input
                             type="text"
                             name="reporterKendala"
                             value={formData.reporterKendala || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder={`Otomatis: ${activeReporter}`}
+                            placeholder="Ketik nama reporter kendala..."
                             className="w-full p-2.5 bg-rose-50/70 border border-rose-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-rose-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50"
                           />
                         </div>
