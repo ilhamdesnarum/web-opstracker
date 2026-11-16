@@ -20051,19 +20051,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   if (displayStatusStr === 'READY TO DISMANTLE') {
                     const woDismantle = getWoDismantleInfo(item);
                     const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
-                    const repRtd = woDismantle?.hasWo
-                      ? (woDismantle.teknisi || 'Teknisi IKR')
-                      : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
-
-                    // Jangan pernah menampilkan kata generik 'dismantle' atau nama teknisi di baris catatan
-                    const isGeneric = (txt) => !txt || txt.toLowerCase().includes('dismantle') || txt === '.' || txt === '-';
-                    const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
-                    const meaningfulReason = (!isReasonDuplicate && !isGeneric(dismantleReason)) ? dismantleReason : '';
-                    const meaningfulCatatan = (!isGeneric(item.catatan) && item.catatan !== item.alamat) ? item.catatan : '';
-
-                    const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
-                      ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Sedang Diambil')
-                      : 'Belum Ada WO');
+                    const isSudahRilisWo = Boolean(woDismantle?.hasWo);
+                    const noteRtd = isSudahRilisWo ? 'Sudah Rilis WO' : 'Belum Rilis WO';
+                    const repRtd = isSudahRilisWo ? (woDismantle.teknisi || '-') : '-';
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
@@ -20633,19 +20623,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           if (displayStatusStr === 'READY TO DISMANTLE') {
                             const woDismantle = getWoDismantleInfo(item);
                             const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
-                            const repRtd = woDismantle?.hasWo
-                              ? (woDismantle.teknisi || 'Teknisi IKR')
-                              : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
-
-                            // Jangan pernah menampilkan kata generik 'dismantle' atau nama teknisi di baris catatan
-                            const isGeneric = (txt) => !txt || txt.toLowerCase().includes('dismantle') || txt === '.' || txt === '-';
-                            const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
-                            const meaningfulReason = (!isReasonDuplicate && !isGeneric(dismantleReason)) ? dismantleReason : '';
-                            const meaningfulCatatan = (!isGeneric(item.catatan) && item.catatan !== item.alamat) ? item.catatan : '';
-
-                            const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
-                              ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Sedang Diambil')
-                              : 'Belum Ada WO');
+                            const isSudahRilisWo = Boolean(woDismantle?.hasWo);
+                            const noteRtd = isSudahRilisWo ? 'Sudah Rilis WO' : 'Belum Rilis WO';
+                            const repRtd = isSudahRilisWo ? (woDismantle.teknisi || '-') : '-';
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
