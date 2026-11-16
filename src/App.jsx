@@ -19924,7 +19924,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 p-2 rounded-md ml-6">
                         <div className="flex items-start gap-1.5">
                           <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-blue-950">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-blue-950">
                             {cleanNotePending || 'Menunggu jadwal pasang'}
                           </span>
                         </div>
@@ -19954,7 +19954,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50 border border-rose-200 p-2 rounded-md ml-6">
                         <div className="flex items-start gap-1.5">
                           <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-rose-950 font-medium">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-rose-950 font-medium">
                             {cleanKendalaText || 'Terkendala di lapangan'}
                           </span>
                         </div>
@@ -19980,7 +19980,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-slate-800 bg-slate-50 border border-slate-200 p-2 rounded-md ml-6" title={dismantleReason || 'Dismantled'}>
                         <div className="flex items-start gap-1.5">
                           <Icon name="x-circle" size={10} className="text-slate-500 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-slate-800 font-medium">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-slate-800 font-medium">
                             {dismantleReason || 'Perangkat dismantled'}
                           </span>
                         </div>
@@ -20017,7 +20017,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-emerald-950 bg-emerald-50 border border-emerald-200 p-2 rounded-md ml-6" title={noteAkt}>
                         <div className="flex items-start gap-1.5">
                           <Icon name="check-circle" size={10} className="text-emerald-600 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-emerald-950 font-medium">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-emerald-950 font-medium">
                             {noteAkt}
                           </span>
                         </div>
@@ -20047,7 +20047,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6" title={noteSuspend}>
                         <div className="flex items-start gap-1.5">
                           <Icon name="pause-circle" size={10} className="text-orange-600 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-orange-950 font-medium">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-orange-950 font-medium">
                             {noteSuspend}
                           </span>
                         </div>
@@ -20077,7 +20077,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
                         <div className="flex items-start gap-1.5">
                           <Icon name="package-minus" size={10} className="text-amber-700 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic text-amber-950 font-medium">
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-amber-950 font-medium">
                             {noteRtd}
                           </span>
                         </div>
@@ -20105,7 +20105,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteWaiting}>
                       <div className="flex items-start gap-1.5">
                         <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
-                        <span className="whitespace-normal leading-tight italic text-amber-950 font-medium">
+                        <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-amber-950 font-medium">
                           {noteWaiting}
                         </span>
                       </div>
@@ -20487,7 +20487,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={cleanNotePending || 'Pending'}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-blue-950">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-blue-950">
                                       {cleanNotePending || 'Menunggu jadwal pasang'}
                                     </span>
                                   </div>
@@ -20519,7 +20519,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg" title={cleanKendalaText || 'Terkendala'}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-rose-950">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-rose-950">
                                       {cleanKendalaText || 'Terkendala di lapangan'}
                                     </span>
                                   </div>
@@ -20547,7 +20547,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-slate-800 bg-slate-50/90 border border-slate-200/80 p-2 rounded-lg" title={dismantleReason || 'Dismantled'}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="x-circle" size={12} className="text-slate-500 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-slate-800">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-slate-800">
                                       {dismantleReason || 'Perangkat dismantled'}
                                     </span>
                                   </div>
@@ -20586,7 +20586,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-emerald-950 bg-emerald-50/90 border border-emerald-200/80 p-2 rounded-lg" title={noteAkt}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="check-circle" size={12} className="text-emerald-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-emerald-950">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-emerald-950">
                                       {noteAkt}
                                     </span>
                                   </div>
@@ -20618,7 +20618,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-orange-950 bg-orange-50/90 border border-orange-200/80 p-2 rounded-lg" title={noteSuspend}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="pause-circle" size={12} className="text-orange-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-orange-950">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-orange-950">
                                       {noteSuspend}
                                     </span>
                                   </div>
@@ -20650,7 +20650,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteRtd}>
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="package-minus" size={12} className="text-amber-700 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-amber-950">
                                       {noteRtd}
                                     </span>
                                   </div>
@@ -20680,7 +20680,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                               <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteWaiting}>
                                 <div className="flex items-start gap-1.5">
                                   <Icon name="clock" size={12} className="text-amber-600 shrink-0 mt-0.5" />
-                                  <span className="leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                  <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-amber-950">
                                     {noteWaiting}
                                   </span>
                                 </div>
