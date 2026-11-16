@@ -59,7 +59,7 @@ export const ManagePoFormModal = ({
       setFormData({
         stasiun: poToEdit.stasiun || initialStation || '',
         noPoRelease: poToEdit.noPoRelease || '',
-        jenisPo: poToEdit.jenisPo || 'Direct',
+        jenisPo: String(poToEdit.jenisPo || poToEdit.jenis_po || '').toLowerCase() === 'handover' ? 'Handover' : 'Direct',
         tahapPembangunan: poToEdit.tahapPembangunan || '',
         segmen: poToEdit.segmen || (
           String(poToEdit.tahapPembangunan || '').toLowerCase().includes('innercity') || String(poToEdit.tahapPembangunan || '').toLowerCase().includes('inner city')
@@ -310,8 +310,6 @@ export const ManagePoFormModal = ({
               >
                 <option value="Direct">Direct</option>
                 <option value="Handover">Handover</option>
-                <option value="Percepatan">Percepatan</option>
-                <option value="Lainnya">Lainnya</option>
               </select>
             </div>
 
