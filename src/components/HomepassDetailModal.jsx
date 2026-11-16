@@ -81,7 +81,14 @@ export const HomepassDetailModal = ({
       const pos = stationPoMap.get(stName) || [];
       const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
       const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
-      const totalHp = hpReg + hpPerc;
+      const posInnerHp = pos.reduce((acc, p) => {
+        if (isPoInnercity(p)) {
+          return acc + Number(p.hpInnercity || p.hp_innercity || p.hpReguler || p.hp_reguler || 0);
+        }
+        return acc;
+      }, 0);
+      const hpInner = row.hpInnercity !== undefined ? Number(row.hpInnercity) : (Number(row.hpInnercityVal || 0) || posInnerHp);
+      const totalHp = hpReg + hpPerc + hpInner;
       const rfs = pos.reduce((acc, p) => acc + Number(p.hp_rfs || p.hpRfs || 0), 0);
       const rfsRatio = totalHp > 0 ? (rfs / totalHp) * 100 : 0;
 
@@ -91,6 +98,7 @@ export const HomepassDetailModal = ({
         poCount: pos.length,
         hpReg,
         hpPerc,
+        hpInner,
         totalHp,
         rfs,
         rfsRatio
@@ -107,7 +115,7 @@ export const HomepassDetailModal = ({
       let matchSegment = true;
       if (segmentFilter === 'REGULER') matchSegment = row.hpReg > 0;
       if (segmentFilter === 'PERCEPATAN') matchSegment = row.hpPerc > 0;
-      if (segmentFilter === 'INNERCITY') matchSegment = (row.pos || []).some(p => isPoInnercity(p));
+      if (segmentFilter === 'INNERCITY') matchSegment = row.hpInner > 0 || (row.pos || []).some(p => isPoInnercity(p));
 
       let matchRfs = true;
       if (rfsFilter === 'HAS_RFS') matchRfs = row.rfs > 0;
@@ -122,9 +130,21 @@ export const HomepassDetailModal = ({
     return (detailPoData || []).map(po => {
       const isPerc = isPoPercepatan(po);
       const isInner = isPoInnercity(po);
-      const hpReg = Number(po.hpReguler || po.hp_reguler || 0);
-      const hpPerc = Number(po.hpPercepatan || po.hp_percepatan || 0);
-      const totalHp = hpReg + hpPerc;
+      let hpReg = Number(po.hpReguler || po.hp_reguler || 0);
+      let hpPerc = Number(po.hpPercepatan || po.hp_percepatan || 0);
+      let hpInner = Number(po.hpInnercity || po.hp_innercity || 0);
+
+      if (isInner) {
+        if (!hpInner) hpInner = hpReg || hpPerc || 0;
+        hpReg = 0;
+        hpPerc = 0;
+      } else if (isPerc) {
+        hpReg = 0;
+      } else {
+        hpPerc = 0;
+      }
+
+      const totalHp = hpReg + hpPerc + hpInner;
       const rfs = Number(po.hp_rfs || po.hpRfs || 0);
       const rfsRatio = totalHp > 0 ? (rfs / totalHp) * 100 : 0;
       const tahap = po.tahapPembangunan || po.tahap_pembangunan || (isInner ? 'Innercity' : (isPerc ? 'Percepatan' : 'Reguler'));
@@ -136,6 +156,7 @@ export const HomepassDetailModal = ({
         tahap,
         hpReg,
         hpPerc,
+        hpInner,
         totalHp,
         rfs,
         rfsRatio
@@ -178,10 +199,11 @@ export const HomepassDetailModal = ({
         poCount: acc.poCount + r.poCount,
         hpReg: acc.hpReg + r.hpReg,
         hpPerc: acc.hpPerc + r.hpPerc,
+        hpInner: acc.hpInner + r.hpInner,
         totalHp: acc.totalHp + r.totalHp,
         rfs: acc.rfs + r.rfs
       }),
-      { poCount: 0, hpReg: 0, hpPerc: 0, totalHp: 0, rfs: 0 }
+      { poCount: 0, hpReg: 0, hpPerc: 0, hpInner: 0, totalHp: 0, rfs: 0 }
     );
   }, [filteredStationRows]);
 
@@ -190,10 +212,11 @@ export const HomepassDetailModal = ({
       (acc, r) => ({
         hpReg: acc.hpReg + r.hpReg,
         hpPerc: acc.hpPerc + r.hpPerc,
+        hpInner: acc.hpInner + r.hpInner,
         totalHp: acc.totalHp + r.totalHp,
         rfs: acc.rfs + r.rfs
       }),
-      { hpReg: 0, hpPerc: 0, totalHp: 0, rfs: 0 }
+      { hpReg: 0, hpPerc: 0, hpInner: 0, totalHp: 0, rfs: 0 }
     );
   }, [filteredPoRows]);
 
@@ -202,6 +225,7 @@ export const HomepassDetailModal = ({
   const totalHpGlobal = Number(totals.hpTerbangun || 0);
   const totalHpRegGlobal = Number(totals.hpReguler || 0);
   const totalHpPercGlobal = Number(totals.hpPercepatan || 0);
+  const totalHpInnerGlobal = Number(totals.hpInnercity || 0);
   const rfsRatioGlobal = totalHpGlobal > 0 ? ((totalRfs / totalHpGlobal) * 100).toFixed(2) : "0.00";
   const rfsPendingGlobal = Math.max(0, totalHpGlobal - totalRfs);
 
@@ -264,7 +288,7 @@ export const HomepassDetailModal = ({
               </span>
               <span className="text-xs font-bold text-slate-400">HP</span>
             </div>
-            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-200/60 mt-1">
+            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-200/60 mt-1 flex-wrap gap-1.5">
               <span className="flex items-center gap-1 text-slate-600">
                 <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
                 Reguler: <strong className="text-blue-700 font-extrabold">{totalHpRegGlobal.toLocaleString('id-ID')}</strong>
@@ -273,6 +297,12 @@ export const HomepassDetailModal = ({
                 <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0"></span>
                 Percepatan: <strong className="text-purple-700 font-extrabold">{totalHpPercGlobal.toLocaleString('id-ID')}</strong>
               </span>
+              {totalHpInnerGlobal > 0 && (
+                <span className="flex items-center gap-1 text-slate-600">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                  Innercity: <strong className="text-amber-700 font-extrabold">{totalHpInnerGlobal.toLocaleString('id-ID')}</strong>
+                </span>
+              )}
             </div>
           </div>
 
@@ -432,6 +462,7 @@ export const HomepassDetailModal = ({
                     <th className="px-3.5 py-2.5 text-center">Jml PO</th>
                     <th className="px-3.5 py-2.5 text-right bg-blue-50/40 text-blue-700">HP Reguler</th>
                     <th className="px-3.5 py-2.5 text-right bg-purple-50/40 text-purple-700">HP Percepatan</th>
+                    <th className="px-3.5 py-2.5 text-right bg-amber-50/40 text-amber-700">HP Innercity</th>
                     <th className="px-3.5 py-2.5 text-right font-black text-slate-800">Total HP</th>
                     <th className="px-3.5 py-2.5 text-right bg-emerald-50/50 text-emerald-700">Total RFS</th>
                     <th className="px-3.5 py-2.5 text-center">Kesiapan RFS</th>
@@ -441,7 +472,7 @@ export const HomepassDetailModal = ({
                 <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
                   {filteredStationRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         <Building2 size={36} className="opacity-30 mx-auto mb-2" />
                         <p className="text-xs font-semibold text-slate-600">Tidak ada stasiun yang cocok dengan filter</p>
                       </td>
@@ -468,6 +499,9 @@ export const HomepassDetailModal = ({
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-bold text-purple-700 bg-purple-50/10">
                           {row.hpPerc.toLocaleString('id-ID')}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right font-bold text-amber-700 bg-amber-50/10">
+                          {row.hpInner > 0 ? row.hpInner.toLocaleString('id-ID') : '-'}
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-extrabold text-slate-900">
                           {row.totalHp.toLocaleString('id-ID')}
@@ -521,6 +555,9 @@ export const HomepassDetailModal = ({
                       <td className="px-3.5 py-3 text-right text-purple-700 bg-purple-50/30">
                         {activeStationTotals.hpPerc.toLocaleString('id-ID')}
                       </td>
+                      <td className="px-3.5 py-3 text-right text-amber-700 bg-amber-50/30">
+                        {activeStationTotals.hpInner.toLocaleString('id-ID')}
+                      </td>
                       <td className="px-3.5 py-3 text-right text-slate-900 text-[13px]">
                         {activeStationTotals.totalHp.toLocaleString('id-ID')}
                       </td>
@@ -551,6 +588,7 @@ export const HomepassDetailModal = ({
                     <th className="px-3.5 py-2.5 text-center">Jenis PO</th>
                     <th className="px-3.5 py-2.5 text-right bg-blue-50/40 text-blue-700">HP Reguler</th>
                     <th className="px-3.5 py-2.5 text-right bg-purple-50/40 text-purple-700">HP Percepatan</th>
+                    <th className="px-3.5 py-2.5 text-right bg-amber-50/40 text-amber-700">HP Innercity</th>
                     <th className="px-3.5 py-2.5 text-right font-black text-slate-800">Total HP</th>
                     <th className="px-3.5 py-2.5 text-right bg-emerald-50/50 text-emerald-700">HP RFS</th>
                     <th className="px-3.5 py-2.5 text-center">Status RFS</th>
@@ -559,7 +597,7 @@ export const HomepassDetailModal = ({
                 <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
                   {filteredPoRows.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400">
+                      <td colSpan={11} className="py-12 text-center text-slate-400">
                         <FileText size={36} className="opacity-30 mx-auto mb-2" />
                         <p className="text-xs font-semibold text-slate-600">Tidak ada PO Release yang cocok dengan filter</p>
                       </td>
@@ -598,6 +636,9 @@ export const HomepassDetailModal = ({
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-bold text-purple-700 bg-purple-50/10">
                           {po.hpPerc > 0 ? po.hpPerc.toLocaleString('id-ID') : '-'}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right font-bold text-amber-700 bg-amber-50/10">
+                          {po.hpInner > 0 ? po.hpInner.toLocaleString('id-ID') : '-'}
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-extrabold text-slate-900">
                           {po.totalHp.toLocaleString('id-ID')}
@@ -640,6 +681,9 @@ export const HomepassDetailModal = ({
                       <td className="px-3.5 py-3 text-right text-purple-700 bg-purple-50/30">
                         {activePoTotals.hpPerc.toLocaleString('id-ID')}
                       </td>
+                      <td className="px-3.5 py-3 text-right text-amber-700 bg-amber-50/30">
+                        {activePoTotals.hpInner.toLocaleString('id-ID')}
+                      </td>
                       <td className="px-3.5 py-3 text-right text-slate-900 text-[13px]">
                         {activePoTotals.totalHp.toLocaleString('id-ID')}
                       </td>
@@ -660,8 +704,8 @@ export const HomepassDetailModal = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500 shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500 shrink-0 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="flex items-center gap-1.5 font-bold text-slate-700">
               <span className="w-2 h-2 rounded-full bg-blue-600"></span>
               Reguler: {totalHpRegGlobal.toLocaleString('id-ID')} HP
@@ -671,6 +715,15 @@ export const HomepassDetailModal = ({
               <span className="w-2 h-2 rounded-full bg-purple-600"></span>
               Percepatan: {totalHpPercGlobal.toLocaleString('id-ID')} HP
             </span>
+            {totalHpInnerGlobal > 0 && (
+              <>
+                <span className="text-slate-300">•</span>
+                <span className="flex items-center gap-1.5 font-bold text-amber-700">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  Innercity: {totalHpInnerGlobal.toLocaleString('id-ID')} HP
+                </span>
+              </>
+            )}
             <span className="text-slate-300">•</span>
             <span className="flex items-center gap-1.5 font-bold text-emerald-700">
               <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
