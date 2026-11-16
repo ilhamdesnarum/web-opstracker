@@ -19901,20 +19901,6 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
                       {displayStatusStr}
                     </span>
-
-                    {/* INDIKATOR UMUR WO */}
-                    {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (
-                      <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
-                        <Icon name="clock" size={8} /> {umurWoStr}
-                      </span>
-                    )}
-
-                    {/* INDIKATOR TELAT BAYAR */}
-                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (Number(item.telatBayarHari) > 0) && (
-                      <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title="Jumlah Hari Keterlambatan Bayar">
-                        <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -19933,12 +19919,19 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
 
                     return (
-                      <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 p-2 rounded-md ml-6">
-                        <div className="flex items-start gap-1.5">
-                          <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-blue-950">
-                            {cleanNotePending || 'Menunggu jadwal pasang'}
-                          </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 p-2 rounded-md ml-6 shadow-2xs">
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                            <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
+                            <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1 text-blue-950">
+                              {cleanNotePending || 'Menunggu jadwal pasang'}
+                            </span>
+                          </div>
+                          {umurWoStr && (
+                            <span className={`shrink-0 px-1 py-0.5 rounded text-[8px] font-bold flex items-center gap-0.5 shadow-2xs ${isWoLama ? 'bg-rose-100/90 text-rose-700 border border-rose-200' : 'bg-blue-100/90 text-blue-700 border border-blue-200'}`} title="Umur WO dari Tanggal Registrasi">
+                              <Icon name="clock" size={8} /> {umurWoStr}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-medium not-italic">
                           <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Pelapor: ${repPending || '-'}`}>
@@ -20051,17 +20044,25 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   if (displayStatusStr === 'SUSPEND') {
                     const tglExp = getExpDateDisplay(item);
                     const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                    const noteSuspend = Number(item.telatBayarHari) > 0
-                      ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
-                      : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan di-suspend / isolir');
+                    const noteSuspend = (item.catatan && item.catatan !== item.alamat)
+                      ? item.catatan
+                      : (Number(item.telatBayarHari) > 0 ? 'Isolir / Tunggakan langganan' : 'Layanan di-suspend / isolir');
 
                     return (
-                      <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6" title={noteSuspend}>
-                        <div className="flex items-start gap-1.5">
-                          <Icon name="pause-circle" size={10} className="text-orange-600 shrink-0 mt-0.5" />
-                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-orange-950 font-medium">
-                            {noteSuspend}
-                          </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6 shadow-2xs" title={noteSuspend}>
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                            <Icon name="pause-circle" size={10} className="text-orange-600 shrink-0 mt-0.5" />
+                            <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1 text-orange-950 font-medium">
+                              {noteSuspend}
+                            </span>
+                          </div>
+                          {Number(item.telatBayarHari) > 0 && (
+                            <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-rose-100/90 text-rose-700 border border-rose-200 flex items-center gap-0.5 shadow-2xs" title={`Telat bayar ${item.telatBayarHari} hari`}>
+                              <Icon name="clock" size={8} className="text-rose-600" />
+                              Telat {item.telatBayarHari}h
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-orange-200/70 text-[8.5px] text-orange-800 font-medium not-italic">
                           <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas: ${repSuspend}`}>
@@ -20086,12 +20087,20 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     const repRtd = isSudahRilisWo ? (woDismantle.teknisi || '-') : '-';
 
                     return (
-                      <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
-                        <div className="flex items-start gap-1.5">
-                          <Icon name="package-minus" size={10} className="text-amber-700 shrink-0 mt-0.5" />
-                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-amber-950 font-medium">
-                            {noteRtd}
-                          </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6 shadow-2xs" title={noteRtd}>
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                            <Icon name="package-minus" size={10} className="text-amber-700 shrink-0 mt-0.5" />
+                            <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1 text-amber-950 font-medium">
+                              {noteRtd}
+                            </span>
+                          </div>
+                          {Number(item.telatBayarHari) > 0 && (
+                            <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-rose-100/90 text-rose-700 border border-rose-200 flex items-center gap-0.5 shadow-2xs" title={`Telat bayar ${item.telatBayarHari} hari`}>
+                              <Icon name="clock" size={8} className="text-rose-600" />
+                              Telat {item.telatBayarHari}h
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70 text-[8.5px] text-amber-800 font-medium not-italic">
                           <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas / Teknisi: ${repRtd}`}>
@@ -20114,12 +20123,19 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || 'Menunggu jadwal pasang';
 
                   return (
-                    <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteWaiting}>
-                      <div className="flex items-start gap-1.5">
-                        <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
-                        <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1.5 text-amber-950 font-medium">
-                          {noteWaiting}
-                        </span>
+                    <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6 shadow-2xs" title={noteWaiting}>
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                          <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
+                          <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1 text-amber-950 font-medium">
+                            {noteWaiting}
+                          </span>
+                        </div>
+                        {umurWoStr && (
+                          <span className={`shrink-0 px-1 py-0.5 rounded text-[8px] font-bold flex items-center gap-0.5 shadow-2xs ${isWoLama ? 'bg-rose-100/90 text-rose-700 border border-rose-200' : 'bg-amber-100/90 text-amber-800 border border-amber-300'}`} title="Umur WO dari Tanggal Registrasi">
+                            <Icon name="clock" size={8} /> {umurWoStr}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70 text-[8.5px] text-amber-800 font-medium not-italic">
                         <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas / Sales: ${repWaiting}`}>
@@ -20446,27 +20462,11 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     </td>
                     <td className="px-4 py-3 min-w-[220px] max-w-[290px]">
                       <div className="flex flex-col items-start gap-1">
-                        {/* BARIS 1: BADGES STATUS & UMUR WO / TELAT / WO DISPATCH */}
+                        {/* BARIS 1: BADGES STATUS & WO DISPATCH */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
                             {displayStatusStr}
                           </span>
-
-                          {/* INDIKATOR UMUR WO (Waiting, Pending) */}
-                          {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (
-                            <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
-                              <Icon name="clock" size={10} />
-                              {umurWoStr}
-                            </span>
-                          )}
-
-                          {/* INDIKATOR TELAT BAYAR (Suspend & Ready to Dismantle) */}
-                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && Number(item.telatBayarHari) > 0 && (
-                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                              <Icon name="clock" size={9} className="text-rose-500" />
-                              Telat {item.telatBayarHari} Hari
-                            </span>
-                          )}
 
                           {/* ACTIVE WO DISPATCH BADGE (Jika ada WO aktif yang sedang berjalan) */}
                           {(() => {
@@ -20496,12 +20496,20 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
-                                <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={cleanNotePending || 'Pending'}>
-                                  <div className="flex items-start gap-1.5">
-                                    <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-blue-950">
-                                      {cleanNotePending || 'Menunggu jadwal pasang'}
-                                    </span>
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg shadow-2xs" title={cleanNotePending || 'Pending'}>
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                      <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
+                                      <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words text-blue-950">
+                                        {cleanNotePending || 'Menunggu jadwal pasang'}
+                                      </span>
+                                    </div>
+                                    {umurWoStr && (
+                                      <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 shadow-2xs ${isWoLama ? 'bg-rose-100/80 text-rose-700 border border-rose-200/80' : 'bg-blue-100/80 text-blue-700 border border-blue-200/80'}`} title="Umur WO dari Tanggal Registrasi">
+                                        <Icon name="clock" size={9} />
+                                        {umurWoStr}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-blue-200/70 text-[9px] text-blue-700 font-semibold not-italic">
                                     <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repPending || '-'}`}>
@@ -20621,18 +20629,26 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           if (displayStatusStr === 'SUSPEND') {
                             const tglExp = getExpDateDisplay(item);
                             const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                            const noteSuspend = Number(item.telatBayarHari) > 0
-                              ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
-                              : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan di-suspend / isolir');
+                            const noteSuspend = (item.catatan && item.catatan !== item.alamat)
+                              ? item.catatan
+                              : (Number(item.telatBayarHari) > 0 ? 'Isolir / Tunggakan langganan' : 'Layanan di-suspend / isolir');
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
-                                <div className="flex flex-col gap-1 text-[10px] font-medium text-orange-950 bg-orange-50/90 border border-orange-200/80 p-2 rounded-lg" title={noteSuspend}>
-                                  <div className="flex items-start gap-1.5">
-                                    <Icon name="pause-circle" size={12} className="text-orange-600 shrink-0 mt-0.5" />
-                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-orange-950">
-                                      {noteSuspend}
-                                    </span>
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-orange-950 bg-orange-50/90 border border-orange-200/80 p-2 rounded-lg shadow-2xs" title={noteSuspend}>
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                      <Icon name="pause-circle" size={12} className="text-orange-600 shrink-0 mt-0.5" />
+                                      <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words text-orange-950">
+                                        {noteSuspend}
+                                      </span>
+                                    </div>
+                                    {Number(item.telatBayarHari) > 0 && (
+                                      <span className="shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-100/80 text-rose-700 border border-rose-200/80 flex items-center gap-1 shadow-2xs" title={`Telat bayar ${item.telatBayarHari} hari`}>
+                                        <Icon name="clock" size={9} className="text-rose-600" />
+                                        Telat {item.telatBayarHari}h
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-orange-200/70 text-[9px] text-orange-800 font-semibold not-italic">
                                     <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas: ${repSuspend}`}>
@@ -20659,12 +20675,20 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
-                                <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteRtd}>
-                                  <div className="flex items-start gap-1.5">
-                                    <Icon name="package-minus" size={12} className="text-amber-700 shrink-0 mt-0.5" />
-                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-amber-950">
-                                      {noteRtd}
-                                    </span>
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg shadow-2xs" title={noteRtd}>
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                      <Icon name="package-minus" size={12} className="text-amber-700 shrink-0 mt-0.5" />
+                                      <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                        {noteRtd}
+                                      </span>
+                                    </div>
+                                    {Number(item.telatBayarHari) > 0 && (
+                                      <span className="shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-100/90 text-rose-700 border border-rose-200/90 flex items-center gap-1 shadow-2xs" title={`Telat bayar ${item.telatBayarHari} hari`}>
+                                        <Icon name="clock" size={9} className="text-rose-600" />
+                                        Telat {item.telatBayarHari}h
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-amber-200/70 text-[9px] text-amber-800 font-semibold not-italic">
                                     <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas / Teknisi: ${repRtd}`}>
@@ -20689,12 +20713,20 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                           return (
                             <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
-                              <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteWaiting}>
-                                <div className="flex items-start gap-1.5">
-                                  <Icon name="clock" size={12} className="text-amber-600 shrink-0 mt-0.5" />
-                                  <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words pr-2 text-amber-950">
-                                    {noteWaiting}
-                                  </span>
+                              <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg shadow-2xs" title={noteWaiting}>
+                                <div className="flex items-start justify-between gap-1.5">
+                                  <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                    <Icon name="clock" size={12} className="text-amber-600 shrink-0 mt-0.5" />
+                                    <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                      {noteWaiting}
+                                    </span>
+                                  </div>
+                                  {umurWoStr && (
+                                    <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 shadow-2xs ${isWoLama ? 'bg-rose-100/80 text-rose-700 border border-rose-200/80' : 'bg-amber-100/90 text-amber-800 border border-amber-300'}`} title="Umur WO dari Tanggal Registrasi">
+                                      <Icon name="clock" size={9} />
+                                      {umurWoStr}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-amber-200/70 text-[9px] text-amber-800 font-semibold not-italic">
                                   <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas / Sales: ${repWaiting}`}>
