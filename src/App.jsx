@@ -19809,6 +19809,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
             let umurWoStr = '';
             let isWoLama = false;
+            let waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
             if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
               const stdDate = standardizeDate(item.tanggalRegistrasi);
               if (stdDate) {
@@ -19828,8 +19829,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       } else {
                         umurWoStr = `0 Jam`;
                       }
+                      waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
+                    } else if (diffDays <= 2) {
+                      umurWoStr = `${diffDays} Hari`;
+                      waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
                     } else {
                       umurWoStr = `${diffDays} Hari`;
+                      waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
                     }
                     isWoLama = diffDays >= 3;
                   }
@@ -20132,7 +20138,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           </span>
                         </div>
                         {umurWoStr && (
-                          <span className={`shrink-0 px-1 py-0.5 rounded text-[8px] font-bold flex items-center gap-0.5 shadow-2xs ${isWoLama ? 'bg-rose-100/90 text-rose-700 border border-rose-200' : 'bg-amber-100/90 text-amber-800 border border-amber-300'}`} title="Umur WO dari Tanggal Registrasi">
+                          <span className={`shrink-0 px-1 py-0.5 rounded text-[8px] font-bold flex items-center gap-0.5 shadow-2xs border ${waitingBadgeClass}`} title="Umur WO dari Tanggal Registrasi">
                             <Icon name="clock" size={8} /> {umurWoStr}
                           </span>
                         )}
@@ -20331,6 +20337,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                 let umurWoStr = '';
                 let isWoLama = false;
+                let waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
                 if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
                   const stdDate = standardizeDate(item.tanggalRegistrasi);
                   if (stdDate) {
@@ -20350,8 +20357,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           } else {
                             umurWoStr = `0 Jam`;
                           }
+                          waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
+                        } else if (diffDays <= 2) {
+                          umurWoStr = `${diffDays} Hari`;
+                          waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
                         } else {
                           umurWoStr = `${diffDays} Hari`;
+                          waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
                         }
                         isWoLama = diffDays >= 3;
                       }
@@ -20722,7 +20734,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                     </span>
                                   </div>
                                   {umurWoStr && (
-                                    <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 shadow-2xs ${isWoLama ? 'bg-rose-100/80 text-rose-700 border border-rose-200/80' : 'bg-amber-100/90 text-amber-800 border border-amber-300'}`} title="Umur WO dari Tanggal Registrasi">
+                                    <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 shadow-2xs border ${waitingBadgeClass}`} title={`Umur WO: ${umurWoStr}`}>
                                       <Icon name="clock" size={9} />
                                       {umurWoStr}
                                     </span>
