@@ -294,7 +294,7 @@ export const ExecutiveRolloutTracker = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
 
         {/* Card 1: Total Homepass (Clickable Drilldown) */}
-        <div 
+        <div
           onClick={() => setIsHomepassModalOpen(true)}
           className="bg-white rounded-xl p-4 border border-slate-200/70 shadow-sm hover:shadow-md hover:border-blue-300 transition-all relative overflow-hidden group cursor-pointer"
           title="Klik untuk melihat rincian sumber Total HP dan Total RFS"
@@ -689,10 +689,10 @@ export const ExecutiveRolloutTracker = ({
                   {/* --- ROW HEADER (UNIFIED ACCORDION ROW) --- */}
                   <div
                     onClick={() => toggleStation(stName)}
-                    className="px-5 py-3 flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 cursor-pointer select-none"
+                    className="px-5 py-3 flex flex-col lg:grid lg:grid-cols-12 items-start gap-3 lg:gap-4 cursor-pointer select-none"
                   >
                     {/* Left: Chevron + Station Identity */}
-                    <div className="flex items-center gap-3 w-full lg:col-span-3 xl:col-span-3">
+                    <div className="flex items-start gap-3 w-full lg:col-span-3 xl:col-span-3 pt-0.5">
                       <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${isExpanded ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
                         }`}>
                         <ChevronRight
@@ -732,7 +732,7 @@ export const ExecutiveRolloutTracker = ({
                     </div>
 
                     {/* Center: Separated Reguler & Percepatan Progress Bars & Detail Numbers */}
-                    <div className="w-full lg:col-span-6 xl:col-span-6 flex flex-col gap-1.5 justify-center">
+                    <div className="w-full lg:col-span-6 xl:col-span-6 flex flex-col gap-1.5 justify-start">
                       {/* Track 1: HC Reguler (hanya ditampilkan jika ada kapasitas Reguler) */}
                       {hpReg > 0 && (
                         <div className="px-2.5 py-1.5 rounded-lg border bg-white/90 border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all">
@@ -964,7 +964,7 @@ export const ExecutiveRolloutTracker = ({
                     </div>
 
                     {/* Right: Health Badge & Action Buttons */}
-                    <div className="flex items-center gap-2 w-full justify-end lg:col-span-3 xl:col-span-3 mt-2 lg:mt-0">
+                    <div className="flex items-center gap-2 w-full justify-end lg:col-span-3 xl:col-span-3 mt-2 lg:mt-0 pt-0.5">
                       <div className="flex flex-col items-end">
                         <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${healthBadge.color}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${healthBadge.dot}`}></span>
@@ -1041,7 +1041,7 @@ export const ExecutiveRolloutTracker = ({
                             const poHpReg = Number(po.hpReguler || po.hp_reguler || 0);
                             const poHpPerc = Number(po.hpPercepatan || po.hp_percepatan || 0);
                             const poHpInner = Number(po.hpInnercity || po.hp_innercity || 0);
-                            const poTotalHp = isPoInner 
+                            const poTotalHp = isPoInner
                               ? (poHpInner || poHpReg || 0)
                               : (isPoPerc ? (poHpPerc || 0) : (poHpReg || 0));
                             const finalPoTotalHp = poTotalHp > 0 ? poTotalHp : (poHpReg + poHpPerc + poHpInner);
@@ -1070,26 +1070,24 @@ export const ExecutiveRolloutTracker = ({
                             return (
                               <div
                                 key={pIdx}
-                                className={`bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm ${
-                                  isPoInner 
-                                    ? 'hover:border-amber-300' 
-                                    : isPoPerc 
-                                      ? 'hover:border-purple-300' 
+                                className={`bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm ${isPoInner
+                                    ? 'hover:border-amber-300'
+                                    : isPoPerc
+                                      ? 'hover:border-purple-300'
                                       : 'hover:border-blue-300'
-                                } hover:shadow transition-all flex flex-col justify-between`}
+                                  } hover:shadow transition-all flex flex-col justify-between`}
                               >
                                 <div>
                                   {/* Header: PO Number & Stage */}
                                   <div className="flex items-start justify-between gap-1.5 mb-2">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1 flex-wrap mb-0.5">
-                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
-                                          isPoInner 
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${isPoInner
                                             ? 'bg-amber-50 text-amber-700 border-amber-200/60'
-                                            : isPoPerc 
-                                              ? 'bg-purple-50 text-purple-700 border-purple-200/60' 
+                                            : isPoPerc
+                                              ? 'bg-purple-50 text-purple-700 border-purple-200/60'
                                               : 'bg-blue-50 text-blue-700 border-blue-200/60'
-                                        }`}>
+                                          }`}>
                                           {po.tahapPembangunan || (isPoInner ? 'Innercity' : (isPoPerc ? 'Percepatan' : 'Reguler'))}
                                         </span>
                                         <span className="text-[9px] font-bold px-1 py-0.2 bg-slate-100 text-slate-600 rounded">
@@ -1107,13 +1105,12 @@ export const ExecutiveRolloutTracker = ({
                                         setPoToEdit(po);
                                         setIsManageModalOpen(true);
                                       }}
-                                      className={`p-1 rounded text-slate-400 ${
-                                        isPoInner 
-                                          ? 'hover:text-amber-600 hover:bg-amber-50' 
-                                          : isPoPerc 
-                                            ? 'hover:text-purple-600 hover:bg-purple-50' 
+                                      className={`p-1 rounded text-slate-400 ${isPoInner
+                                          ? 'hover:text-amber-600 hover:bg-amber-50'
+                                          : isPoPerc
+                                            ? 'hover:text-purple-600 hover:bg-purple-50'
                                             : 'hover:text-blue-600 hover:bg-blue-50'
-                                      } transition-colors cursor-pointer`}
+                                        } transition-colors cursor-pointer`}
                                       title="Edit data PO ini"
                                     >
                                       <Edit3 size={12} />
@@ -1138,13 +1135,12 @@ export const ExecutiveRolloutTracker = ({
                                           {basePoHp > 0 ? ((poAktif / basePoHp) * 100).toFixed(2) : "0.00"}%
                                         </span>
                                         <span className="text-slate-300 text-[10px]">|</span>
-                                        <span className={`font-black text-[11px] ${
-                                          isPoInner 
-                                            ? 'text-amber-700' 
-                                            : isPoPerc 
-                                              ? 'text-purple-700' 
+                                        <span className={`font-black text-[11px] ${isPoInner
+                                            ? 'text-amber-700'
+                                            : isPoPerc
+                                              ? 'text-purple-700'
                                               : 'text-blue-700'
-                                        }`} title="Persentase Total Aktivasi">
+                                          }`} title="Persentase Total Aktivasi">
                                           {poTakeUp}%
                                         </span>
                                       </div>
@@ -1180,13 +1176,12 @@ export const ExecutiveRolloutTracker = ({
                                       )}
                                       {Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) > 0 && (
                                         <div
-                                          className={`h-full ${
-                                            isPoInner 
-                                              ? 'bg-amber-500' 
-                                              : isPoPerc 
-                                                ? 'bg-purple-500' 
+                                          className={`h-full ${isPoInner
+                                              ? 'bg-amber-500'
+                                              : isPoPerc
+                                                ? 'bg-purple-500'
                                                 : 'bg-blue-500'
-                                          } transition-all duration-500`}
+                                            } transition-all duration-500`}
                                           style={{ width: `${Math.min((Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) / basePoHp) * 100, 100)}%` }}
                                           title={`Lainnya: ${Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled))}`}
                                         ></div>
