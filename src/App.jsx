@@ -154,7 +154,11 @@ const parseSupabasePoRelease = (fields) => {
     noPoRelease: fields.no_po_release || '',
     jenisPo: fields.jenis_po || 'Direct',
     tahapPembangunan: fields.tahap_pembangunan || '',
-    segmen: fields.segmen || (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler'),
+    segmen: fields.segmen || (
+      String(fields.tahap_pembangunan || '').toLowerCase().includes('innercity') || String(fields.tahap_pembangunan || '').toLowerCase().includes('inner city')
+        ? 'Innercity'
+        : (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler')
+    ),
     hpReguler: hpReg,
     hpPercepatan: hpPerc,
     hpTerbangun: totHp,
@@ -18516,10 +18520,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
           // 3. Pencocokan cerdas berdasarkan angka, segmen, dan alias tahap stasiun
           if (!matched && stationPos.length > 0) {
-            const isPerc = cleanT.includes('percepatan');
+            const isInner = cleanT.includes('innercity') || cleanT.includes('inner city');
+            const isPerc = cleanT.includes('percepatan') && !isInner;
             const filteredBySeg = stationPos.filter(p => {
               const seg = String(p.segmen || p.tahapPembangunan || p.tahap_pembangunan || '').toLowerCase();
-              return isPerc ? seg.includes('percepatan') : !seg.includes('percepatan');
+              if (isInner) return seg.includes('innercity') || seg.includes('inner city');
+              if (isPerc) return seg.includes('percepatan');
+              return !seg.includes('percepatan') && !seg.includes('innercity');
             });
 
             const cand = filteredBySeg.length > 0 ? filteredBySeg : stationPos;

@@ -14,7 +14,7 @@ import {
   HelpCircle,
   ExternalLink
 } from 'lucide-react';
-import { toProperCase, isPercepatanCustomer, isPoPercepatan, buildOdpLookupMap } from '../utils';
+import { toProperCase, isPercepatanCustomer, isPoPercepatan, isPoInnercity, isInnercityCustomer, buildOdpLookupMap } from '../utils';
 import { CustomerStatusDrilldownModal } from './CustomerStatusDrilldownModal';
 import { ManagePoFormModal } from './ManagePoFormModal';
 
@@ -58,7 +58,12 @@ export const matchCustomerToPo = (po, cust, odpData = []) => {
     return true;
   }
   
-  // 3. Pemisahan Segmen (Reguler vs Percepatan)
+  // 3. Pemisahan Segmen (Reguler vs Percepatan vs Innercity)
+  const poIsInner = isPoInnercity(po);
+  const custIsInner = isInnercityCustomer(cust, odpData);
+  if (poIsInner && !custIsInner) return false;
+  if (!poIsInner && custIsInner) return false;
+
   const poIsPerc = isPoPercepatan(po);
   const custIsPerc = isPercepatanCustomer(cust, odpData);
 
@@ -141,9 +146,12 @@ export const PoReleaseModal = ({
   // Filtered PO List dari tab dan search
   const filteredList = useMemo(() => {
     return (detailPoList || []).filter(po => {
-      const seg = String(po.segmen || po.hpByPo || po.tahapPembangunan || '').toLowerCase();
-      if (activeTab === 'REGULER' && !seg.includes('reguler')) return false;
-      if (activeTab === 'PERCEPATAN' && !seg.includes('percepatan')) return false;
+      const isInner = isPoInnercity(po);
+      const isPerc = isPoPercepatan(po);
+
+      if (activeTab === 'REGULER' && (isPerc || isInner)) return false;
+      if (activeTab === 'PERCEPATAN' && !isPerc) return false;
+      if (activeTab === 'INNERCITY' && !isInner) return false;
 
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
@@ -478,6 +486,12 @@ export const PoReleaseModal = ({
             >
               Percepatan
             </button>
+            <button
+              onClick={() => setActiveTab('INNERCITY')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${activeTab === 'INNERCITY' ? 'bg-white text-amber-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              Innercity
+            </button>
           </div>
 
           <div className="relative flex-1 max-w-xs">
@@ -553,9 +567,11 @@ export const PoReleaseModal = ({
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              isPoPercepatan(po)
-                                ? 'bg-purple-50 text-purple-700 border-purple-200/60'
-                                : 'bg-blue-50 text-blue-700 border-blue-200/60'
+                              isPoInnercity(po)
+                                ? 'bg-amber-50 text-amber-700 border-amber-200/60'
+                                : isPoPercepatan(po)
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200/60'
+                                  : 'bg-blue-50 text-blue-700 border-blue-200/60'
                             }`}>
                               {tahap}
                             </span>

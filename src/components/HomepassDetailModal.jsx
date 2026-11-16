@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Percent
 } from 'lucide-react';
-import { toProperCase, isPoPercepatan } from '../utils';
+import { toProperCase, isPoPercepatan, isPoInnercity } from '../utils';
 
 export const HomepassDetailModal = ({
   isOpen,
@@ -107,6 +107,7 @@ export const HomepassDetailModal = ({
       let matchSegment = true;
       if (segmentFilter === 'REGULER') matchSegment = row.hpReg > 0;
       if (segmentFilter === 'PERCEPATAN') matchSegment = row.hpPerc > 0;
+      if (segmentFilter === 'INNERCITY') matchSegment = (row.pos || []).some(p => isPoInnercity(p));
 
       let matchRfs = true;
       if (rfsFilter === 'HAS_RFS') matchRfs = row.rfs > 0;
@@ -120,16 +121,18 @@ export const HomepassDetailModal = ({
   const poRows = useMemo(() => {
     return (detailPoData || []).map(po => {
       const isPerc = isPoPercepatan(po);
+      const isInner = isPoInnercity(po);
       const hpReg = Number(po.hpReguler || po.hp_reguler || 0);
       const hpPerc = Number(po.hpPercepatan || po.hp_percepatan || 0);
       const totalHp = hpReg + hpPerc;
       const rfs = Number(po.hp_rfs || po.hpRfs || 0);
       const rfsRatio = totalHp > 0 ? (rfs / totalHp) * 100 : 0;
-      const tahap = po.tahapPembangunan || po.tahap_pembangunan || (isPerc ? 'Percepatan' : 'Reguler');
+      const tahap = po.tahapPembangunan || po.tahap_pembangunan || (isInner ? 'Innercity' : (isPerc ? 'Percepatan' : 'Reguler'));
 
       return {
         ...po,
         isPerc,
+        isInner,
         tahap,
         hpReg,
         hpPerc,
@@ -156,8 +159,9 @@ export const HomepassDetailModal = ({
       }
 
       let matchSegment = true;
-      if (segmentFilter === 'REGULER') matchSegment = !po.isPerc;
+      if (segmentFilter === 'REGULER') matchSegment = !po.isPerc && !po.isInner;
       if (segmentFilter === 'PERCEPATAN') matchSegment = po.isPerc;
+      if (segmentFilter === 'INNERCITY') matchSegment = po.isInner;
 
       let matchRfs = true;
       if (rfsFilter === 'HAS_RFS') matchRfs = po.rfs > 0;
@@ -385,6 +389,7 @@ export const HomepassDetailModal = ({
               <option value="ALL">Semua Segmen</option>
               <option value="REGULER">Hanya Reguler</option>
               <option value="PERCEPATAN">Hanya Percepatan</option>
+              <option value="INNERCITY">Hanya Innercity</option>
             </select>
 
             {/* Filter RFS */}
@@ -574,9 +579,11 @@ export const HomepassDetailModal = ({
                         </td>
                         <td className="px-3.5 py-2.5 text-center">
                           <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded border inline-block ${
-                            po.isPerc
-                              ? 'bg-purple-50 text-purple-700 border-purple-200/60'
-                              : 'bg-blue-50 text-blue-700 border-blue-200/60'
+                            po.isInner
+                              ? 'bg-amber-50 text-amber-700 border-amber-200/60'
+                              : po.isPerc
+                                ? 'bg-purple-50 text-purple-700 border-purple-200/60'
+                                : 'bg-blue-50 text-blue-700 border-blue-200/60'
                           }`}>
                             {po.tahap}
                           </span>

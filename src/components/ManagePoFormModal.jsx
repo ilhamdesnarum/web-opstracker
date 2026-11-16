@@ -61,7 +61,11 @@ export const ManagePoFormModal = ({
         noPoRelease: poToEdit.noPoRelease || '',
         jenisPo: poToEdit.jenisPo || 'Direct',
         tahapPembangunan: poToEdit.tahapPembangunan || '',
-        segmen: poToEdit.segmen || (String(poToEdit.tahapPembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler'),
+        segmen: poToEdit.segmen || (
+          String(poToEdit.tahapPembangunan || '').toLowerCase().includes('innercity') || String(poToEdit.tahapPembangunan || '').toLowerCase().includes('inner city')
+            ? 'Innercity'
+            : (String(poToEdit.tahapPembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler')
+        ),
         hpReguler: poToEdit.hp_reguler || poToEdit.hpReguler || '',
         hpPercepatan: poToEdit.hp_percepatan || poToEdit.hpPercepatan || '',
         hpRfs: poToEdit.hp_rfs || poToEdit.hpRfs || '',
@@ -90,13 +94,14 @@ export const ManagePoFormModal = ({
       // Otomatis sesuaikan segmen jika tahap pembangunan diubah
       if (field === 'tahapPembangunan') {
         const lower = String(value).toLowerCase();
-        if (lower.includes('percepatan')) updated.segmen = 'Percepatan';
+        if (lower.includes('innercity') || lower.includes('inner city') || lower.includes('inner-city')) updated.segmen = 'Innercity';
+        else if (lower.includes('percepatan')) updated.segmen = 'Percepatan';
         else if (lower.includes('reguler')) updated.segmen = 'Reguler';
       }
 
       // Reset nilai HP yang tidak relevan jika segmen diubah
       if (field === 'segmen' || field === 'tahapPembangunan') {
-        if (updated.segmen === 'Reguler') {
+        if (updated.segmen === 'Reguler' || updated.segmen === 'Innercity') {
           updated.hpPercepatan = 0;
         } else if (updated.segmen === 'Percepatan') {
           updated.hpReguler = 0;
@@ -334,11 +339,12 @@ export const ManagePoFormModal = ({
               >
                 <option value="Reguler">Reguler</option>
                 <option value="Percepatan">Percepatan</option>
+                <option value="Innercity">Innercity</option>
               </select>
             </div>
           </div>
 
-          {/* Baris 3: Homepass (Reguler & Percepatan) */}
+          {/* Baris 3: Homepass (Reguler, Percepatan & Innercity) */}
           <div className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -364,13 +370,25 @@ export const ManagePoFormModal = ({
               )}
               {formData.segmen === 'Percepatan' && (
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">HP Percepatan</label>
+                  <label className="block text-[10px] font-bold text-purple-700 uppercase mb-0.5">HP Percepatan</label>
                   <input
                     type="number"
                     min="0"
                     value={formData.hpPercepatan}
                     onChange={(e) => handleChange('hpPercepatan', e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                  />
+                </div>
+              )}
+              {formData.segmen === 'Innercity' && (
+                <div>
+                  <label className="block text-[10px] font-bold text-amber-700 uppercase mb-0.5">HP Innercity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.hpReguler}
+                    onChange={(e) => handleChange('hpReguler', e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg text-xs sm:text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
                   />
                 </div>
               )}

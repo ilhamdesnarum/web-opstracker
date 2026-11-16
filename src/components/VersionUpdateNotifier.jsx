@@ -170,3 +170,4 @@ export function VersionUpdateNotifier({ isMobile = false }) {
 }
 
 export default VersionUpdateNotifier;
+

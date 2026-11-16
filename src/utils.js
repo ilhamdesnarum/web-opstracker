@@ -102,15 +102,49 @@ export const getWoDismantleInfo = (item) => {
   };
 };
 
+// --- Helper Function: Tentukan apakah PO masuk ke Segmen Innercity ---
+export const isPoInnercity = (po) => {
+  if (!po) return false;
+  const seg = String(po.segmen || '').toLowerCase();
+  const tahap = String(po.tahapPembangunan || po.tahap_pembangunan || '').toLowerCase();
+  const jenis = String(po.jenisPo || po.jenis_po || '').toLowerCase();
+  return seg === 'innercity' || seg.includes('innercity') || tahap.includes('innercity') || tahap.includes('inner city') || jenis.includes('innercity');
+};
+
 // --- Helper Function: Tentukan apakah PO masuk ke Segmen Percepatan atau Reguler ---
 export const isPoPercepatan = (po) => {
   if (!po) return false;
+  if (isPoInnercity(po)) return false;
   const seg = String(po.segmen || '').toLowerCase();
   const tahap = String(po.tahapPembangunan || po.tahap_pembangunan || '').toLowerCase();
   const jenis = String(po.jenisPo || po.jenis_po || '').toLowerCase();
 
   if (seg === 'percepatan' || tahap.includes('percepatan') || jenis === 'percepatan') return true;
   if (Number(po.hpPercepatan || po.hp_percepatan || 0) > 0 && Number(po.hpReguler || po.hp_reguler || 0) === 0) return true;
+  return false;
+};
+
+// --- Helper Function: Tentukan apakah pelanggan masuk ke Segmen Innercity ---
+export const isInnercityCustomer = (pelanggan, odpData = []) => {
+  if (!pelanggan) return false;
+  const tahapPel = String(pelanggan.tahapPembangunan || pelanggan.tahap_pembangunan || '').toLowerCase().trim();
+  if (tahapPel.includes('innercity') || tahapPel.includes('inner city') || tahapPel.includes('inner-city')) return true;
+
+  const rawOdp = String(pelanggan.odpAktual || pelanggan.odp || pelanggan.kodeOdp || pelanggan.label || '').toUpperCase().trim();
+  if (rawOdp.includes('INNERCITY') || rawOdp.includes('INNER_CITY') || rawOdp.includes('INNER-CITY')) return true;
+
+  if (odpData && (odpData.length > 0 || odpData.size > 0)) {
+    const cleanRaw = rawOdp.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (cleanRaw) {
+      const odpMap = odpData instanceof Map ? odpData : buildOdpLookupMap(odpData);
+      const matched = odpMap.get(cleanRaw);
+      if (matched) {
+        const tahap = String(matched.tahapPembangunan || matched.tahap_pembangunan || '').toLowerCase();
+        if (tahap.includes('innercity') || tahap.includes('inner city') || tahap.includes('inner-city')) return true;
+      }
+    }
+  }
+
   return false;
 };
 
@@ -147,7 +181,11 @@ export const buildOdpLookupMap = (odpData = []) => {
 export const isPercepatanCustomer = (pelanggan, odpData = []) => {
   if (!pelanggan) return false;
 
+  // Jika pelanggan termasuk segmen Innercity, maka bukan Percepatan!
+  if (isInnercityCustomer(pelanggan, odpData)) return false;
+
   const tahapPel = String(pelanggan.tahapPembangunan || pelanggan.tahap_pembangunan || '').toLowerCase().trim();
+  if (tahapPel.includes('innercity') || tahapPel.includes('inner city')) return false;
   if (tahapPel.includes('percepatan')) return true;
   if (tahapPel.includes('reguler') || tahapPel.includes('tahap') || tahapPel.includes('512') || tahapPel.includes('kopin') || tahapPel.includes('cynet') || tahapPel.includes('duit') || tahapPel.includes('handover') || tahapPel.includes('kjn') || tahapPel.includes('kopnatel')) return false;
 

@@ -180,7 +180,11 @@ const parseSupabasePoRelease = (fields) => {
     noPoRelease: fields.no_po_release || '',
     jenisPo: fields.jenis_po || 'Direct',
     tahapPembangunan: fields.tahap_pembangunan || '',
-    segmen: fields.segmen || (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler'),
+    segmen: fields.segmen || (
+      String(fields.tahap_pembangunan || '').toLowerCase().includes('innercity') || String(fields.tahap_pembangunan || '').toLowerCase().includes('inner city')
+        ? 'Innercity'
+        : (String(fields.tahap_pembangunan || '').toLowerCase().includes('percepatan') ? 'Percepatan' : 'Reguler')
+    ),
     hpReguler: hpReg,
     hpPercepatan: hpPerc,
     hpTerbangun: totHp,
