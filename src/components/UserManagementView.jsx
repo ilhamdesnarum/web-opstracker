@@ -1181,8 +1181,8 @@ export default function UserManagementView({ currentUser }) {
             <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
               <tr>
                 <th className="py-3.5 px-4 min-w-[160px]">Waktu & Tanggal</th>
-                <th className="py-3.5 px-4 min-w-[170px]">Pengguna</th>
-                <th className="py-3.5 px-4">Role & Sektor</th>
+                <th className="py-3.5 px-4 min-w-[130px] max-w-[150px]">Pengguna</th>
+                <th className="py-3.5 px-4 min-w-[120px] whitespace-nowrap">Role & Sektor</th>
                 <th className="py-3.5 px-4 min-w-[125px] whitespace-nowrap">Modul</th>
                 <th className="py-3.5 px-4">Aksi</th>
                 <th className="py-3.5 px-4 min-w-[260px]">Deskripsi Aktivitas</th>
@@ -1237,29 +1237,24 @@ export default function UserManagementView({ currentUser }) {
                       </td>
 
                       {/* 2. Pengguna */}
-                      <td className="py-3.5 px-4 align-top">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-extrabold text-xs flex items-center justify-center shrink-0 border border-blue-200">
-                            {(log.user_name || log.username || '?').charAt(0).toUpperCase()}
+                      <td className="py-3.5 px-4 align-top min-w-[130px] max-w-[150px]">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 leading-snug truncate" title={log.user_name}>
+                            {log.user_name || log.username || 'Sistem'}
                           </div>
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-800 leading-snug truncate" title={log.user_name}>
-                              {log.user_name || log.username || 'Sistem'}
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-mono">
-                              @{log.username || 'sistem'}
-                            </div>
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            @{log.username || 'sistem'}
                           </div>
                         </div>
                       </td>
 
                       {/* 3. Role & Sektor */}
-                      <td className="py-3.5 px-4 align-top">
+                      <td className="py-3.5 px-4 align-top min-w-[120px] whitespace-nowrap">
                         <div className="flex flex-col gap-1 items-start">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${roleBadge.className}`}>
-                            <span>{roleBadge.label}</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${roleBadge.className}`}>
+                            <span className="whitespace-nowrap">{roleBadge.label}</span>
                           </span>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${getSektorBadge(log.sektor)}`}>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${getSektorBadge(log.sektor)}`}>
                             {log.sektor || 'Semua'}
                           </span>
                         </div>
