@@ -20453,47 +20453,6 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                               </div>
                             );
                           })()}
-
-                          {/* INDIKATOR KENDALA POPUP TRIGGER */}
-                          {displayStatusStr === 'KENDALA' && (
-                            <div className="relative flex items-center">
-                              <div
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenKendalaId(openKendalaId === item.idPelanggan ? null : item.idPelanggan);
-                                }}
-                                className={`p-1 rounded-full shadow-sm transition-colors cursor-pointer ${openKendalaId === item.idPelanggan ? 'bg-rose-500 text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-200 animate-pulse'}`}
-                                title="Lihat Rincian Kendala"
-                              >
-                                <Icon name="alert-triangle" size={12} />
-                              </div>
-
-                              {openKendalaId === item.idPelanggan && (
-                                <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-3 w-64 bg-white border border-rose-200 shadow-2xl rounded-xl p-4 z-50 animate-dropdown origin-right cursor-default">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setOpenKendalaId(null); }}
-                                    className="absolute top-2.5 right-2.5 p-1 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
-                                  >
-                                    <Icon name="x" size={14} />
-                                  </button>
-
-                                  <div className="text-xs font-bold text-rose-600 mb-2.5 flex items-center gap-1.5 border-b border-rose-50 pb-2 pr-6">
-                                    <Icon name="info" size={16} /> Laporan Kendala
-                                  </div>
-                                  <p className="text-xs text-slate-700 mb-4 leading-relaxed whitespace-normal break-words font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                                    "{issue || 'Isi kendala tidak tercatat'}"
-                                  </p>
-                                  <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
-                                    <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
-                                    <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? formatDateDisplay(date) : '-'}</span>
-                                  </div>
-
-                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
-                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 ml-[1px] border-[6px] border-transparent border-l-rose-200 -z-10"></div>
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </div>
 
                         {/* BARIS 2: UNIFIED STATUS CARD (SERAGAM UNTUK SEMUA STATUS) */}
