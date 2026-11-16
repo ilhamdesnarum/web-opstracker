@@ -20051,10 +20051,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   if (displayStatusStr === 'READY TO DISMANTLE') {
                     const woDismantle = getWoDismantleInfo(item);
                     const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
-                    const repRtd = woDismantle?.teknisi || item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                    const noteRtd = woDismantle?.hasWo
-                      ? `WO Dismantle: ${woDismantle.teknisi}`
-                      : 'Belum Ada WO Dismantle';
+                    const repRtd = woDismantle?.hasWo
+                      ? (woDismantle.teknisi || 'Teknisi IKR')
+                      : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
+
+                    // Hindari duplikasi nama teknisi di baris catatan atas
+                    const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
+                    const meaningfulReason = (!isReasonDuplicate && dismantleReason) ? dismantleReason : '';
+                    const meaningfulCatatan = (item.catatan && item.catatan !== item.alamat && !item.catatan.toLowerCase().includes('dismantle')) ? item.catatan : '';
+
+                    const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
+                      ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Dismantle: Sedang Diambil')
+                      : 'Belum Ada WO Dismantle');
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
@@ -20624,10 +20632,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           if (displayStatusStr === 'READY TO DISMANTLE') {
                             const woDismantle = getWoDismantleInfo(item);
                             const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
-                            const repRtd = woDismantle?.teknisi || item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                            const noteRtd = woDismantle?.hasWo
-                              ? `WO Dismantle: ${woDismantle.teknisi}`
-                              : 'Belum Ada WO Dismantle';
+                            const repRtd = woDismantle?.hasWo
+                              ? (woDismantle.teknisi || 'Teknisi IKR')
+                              : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
+
+                            // Hindari duplikasi nama teknisi di baris catatan atas
+                            const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
+                            const meaningfulReason = (!isReasonDuplicate && dismantleReason) ? dismantleReason : '';
+                            const meaningfulCatatan = (item.catatan && item.catatan !== item.alamat && !item.catatan.toLowerCase().includes('dismantle')) ? item.catatan : '';
+
+                            const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
+                              ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Dismantle: Sedang Diambil')
+                              : 'Belum Ada WO Dismantle');
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
