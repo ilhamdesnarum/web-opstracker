@@ -17443,7 +17443,22 @@ function DataGangguanView({
 // ==========================================
 // KOMPONEN: MODAL UPDATE MASSAL (DENGAN LOCAL UPDATE & MODERN DROPDOWN)
 // ==========================================
-function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
+function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate, currentUser }) {
+  const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const activeUser = useMemo(() => {
+    if (currentUser) return currentUser;
+    try {
+      const stored = localStorage.getItem('otas_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  }, [currentUser]);
+  const activeReporter = useMemo(() => {
+    if (!activeUser) return 'Superuser';
+    if (activeUser.name || activeUser.nama_lengkap) return activeUser.name || activeUser.nama_lengkap;
+    if (activeUser.username) return activeUser.username.startsWith('@') ? activeUser.username : `@${activeUser.username}`;
+    return 'Superuser';
+  }, [activeUser]);
+
   const [bulkData, setBulkData] = useState(() =>
     selectedData.map(item => ({
       ...item,
@@ -17546,13 +17561,23 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
     setMessage(null);
 
     const finalBulkData = bulkData.map(item => {
-      const isNonKendala = item.aktivasi !== 'Kendala' && item.aktivasi !== 'kendala';
+      const finalAktivasi = item.aktivasi;
+      const isPending = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
+      const isKendala = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
       return {
         ...item,
         ikr: item.aktivasi,
-        issueKendala: isNonKendala ? null : (item.issueKendala || null),
-        reporterKendala: isNonKendala ? null : (item.reporterKendala || null),
-        tanggalKendala: isNonKendala ? null : (item.tanggalKendala || null),
+        issueKendala: isKendala ? (item.issueKendala || item.catatan || null) : null,
+        reporterKendala: isKendala ? (item.reporterKendala || item.reporter_kendala || activeReporter) : null,
+        tanggalKendala: isKendala ? (item.tanggalKendala || item.tanggal_kendala || todayDateStr) : null,
+        reporter_kendala: isKendala ? (item.reporterKendala || item.reporter_kendala || activeReporter) : null,
+        tanggal_kendala: isKendala ? (item.tanggalKendala || item.tanggal_kendala || todayDateStr) : null,
+        catatanPending: isPending ? (item.catatanPending || item.catatan_pending || item.catatan || null) : null,
+        catatan_pending: isPending ? (item.catatanPending || item.catatan_pending || item.catatan || null) : null,
+        reporterPending: isPending ? (item.reporterPending || item.reporter_pending || activeReporter) : null,
+        reporter_pending: isPending ? (item.reporterPending || item.reporter_pending || activeReporter) : null,
+        tanggalPending: isPending ? (item.tanggalPending || item.tanggal_pending || todayDateStr) : null,
+        tanggal_pending: isPending ? (item.tanggalPending || item.tanggal_pending || todayDateStr) : null,
         catatan: item.catatan || null
       };
     });
@@ -17564,14 +17589,21 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate }) {
         let finalIkr = it.ikr;
         if (finalAktivasi === 'Waiting') { finalAktivasi = 'Belum'; finalIkr = 'Belum'; }
         else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
-        const isNonKendala = finalAktivasi !== 'Kendala';
-        const { error: sbErr } = await supabase.from('data_pelanggan').update({
+        const isPending = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
+        const isKendala = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
+
+        const sbUpdatePayload = {
           status_aktivasi: finalAktivasi,
           status_ikr: finalIkr,
-          issue_kendala: isNonKendala ? null : (it.issueKendala || null),
-          reporter_kendala: isNonKendala ? null : (it.reporterKendala || null),
-          tanggal_kendala: isNonKendala ? null : (it.tanggalKendala || null)
-        }).eq('id_pelanggan', it.idPelanggan);
+          issue_kendala: isKendala ? (it.issueKendala || null) : null,
+          reporter_kendala: isKendala ? (it.reporterKendala || activeReporter) : null,
+          tanggal_kendala: isKendala ? (it.tanggalKendala || todayDateStr) : null,
+          catatan_pending: isPending ? (it.catatanPending || null) : null,
+          reporter_pending: isPending ? (it.reporterPending || activeReporter) : null,
+          tanggal_pending: isPending ? (it.tanggalPending || todayDateStr) : null
+        };
+
+        const { error: sbErr } = await supabase.from('data_pelanggan').update(sbUpdatePayload).eq('id_pelanggan', it.idPelanggan);
         if (sbErr) throw sbErr;
       }
 
@@ -20772,6 +20804,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               }
             }}
             onLocalPelangganUpdate={onLocalPelangganUpdate}
+            currentUser={currentUser}
           />
         )}
 
@@ -20799,6 +20832,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             initialFilterStatus={filterStatus}
             onClose={() => setIsQuickScanOpen(false)}
             onLocalPelangganUpdate={onLocalPelangganUpdate}
+            currentUser={currentUser}
           />
         )}
 
