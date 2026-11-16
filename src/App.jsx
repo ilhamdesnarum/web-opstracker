@@ -20274,19 +20274,19 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     />
                   </div>
                 </th>
-                <th className="px-3 py-3.5 w-28 text-left text-xs uppercase tracking-wider font-bold">ID PEL</th>
-                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[340px]">NAMA & ALAMAT</th>
-                <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">KONTAK & LOKASI</th>
-                <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">STASIUN & SALES</th>
-                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[260px] cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
-                  <div className="flex items-center">
+                <th className="px-3 py-3.5 w-28 text-left text-xs uppercase tracking-wider font-bold whitespace-nowrap">ID PEL</th>
+                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[340px] whitespace-nowrap">NAMA & ALAMAT</th>
+                <th className="px-4 py-3.5 w-40 text-left text-xs uppercase tracking-wider font-bold whitespace-nowrap">KONTAK & LOKASI</th>
+                <th className="px-4 py-3.5 w-40 text-left text-xs uppercase tracking-wider font-bold whitespace-nowrap">STASIUN & SALES</th>
+                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[260px] cursor-pointer hover:bg-slate-100 transition-colors select-none whitespace-nowrap" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
+                  <div className="flex items-center whitespace-nowrap">
                     STATUS
                     {sortAgeOrder === 'asc' && <Icon name="chevron-up" size={14} className="ml-1 text-blue-500" />}
                     {sortAgeOrder === 'desc' && <Icon name="chevron-down" size={14} className="ml-1 text-blue-500" />}
                     {!sortAgeOrder && <Icon name="chevrons-up-down" size={14} className="ml-1 text-slate-300" />}
                   </div>
                 </th>
-                <th className="px-3 py-3.5 w-28 text-center text-xs uppercase tracking-wider font-bold shrink-0">AKSI</th>
+                <th className="px-3 py-3.5 w-28 text-center text-xs uppercase tracking-wider font-bold shrink-0 whitespace-nowrap">AKSI</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -20311,14 +20311,14 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       </div>
                     </td>
                     {/* Kontak & Lokasi Skeleton */}
-                    <td className="px-4 py-3 w-36">
+                    <td className="px-4 py-3 w-40">
                       <div className="space-y-1.5">
                         <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
                         <div className="h-3.5 w-20 bg-slate-100 rounded"></div>
                       </div>
                     </td>
                     {/* Stasiun & Sales Skeleton */}
-                    <td className="px-4 py-3 w-36">
+                    <td className="px-4 py-3 w-40">
                       <div className="space-y-1.5">
                         <div className="h-4 w-20 bg-slate-200 rounded"></div>
                         <div className="h-3.5 w-24 bg-slate-100 rounded"></div>
@@ -20486,7 +20486,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="font-bold text-slate-800 text-xs sm:text-sm truncate" title={item.namaPelanggan}>{item.namaPelanggan || 'Tanpa Nama'}</div>
                       <div className="text-[11px] text-slate-500 leading-snug line-clamp-2 break-words mt-0.5" title={item.alamat}>{item.alamat || '-'}</div>
                     </td>
-                    <td className="px-4 py-3 w-36 whitespace-nowrap">
+                    <td className="px-4 py-3 w-40 whitespace-nowrap">
                       <div className="flex flex-col gap-1">
                         {waLink ? (
                           <a href={waLink} target="_blank" rel="noreferrer" className="flex items-center text-xs text-emerald-600 hover:text-emerald-700 font-semibold transition-colors truncate">
@@ -20506,7 +20506,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 w-36 whitespace-nowrap">
+                    <td className="px-4 py-3 w-40 whitespace-nowrap">
                       <div className="flex flex-col items-start gap-1">
                         <span className="font-semibold text-slate-800 text-xs truncate max-w-[130px]" title={item.stasiun}>
                           {toProperCase(item.stasiun) || '-'}
