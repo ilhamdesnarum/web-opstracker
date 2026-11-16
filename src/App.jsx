@@ -861,6 +861,34 @@ const extractPendingData = (item) => {
   return { note, reporter, date };
 };
 
+const extractDismantleData = (item) => {
+  if (!item) return { reason: '', reporter: '', date: '' };
+  const r = String(item.reasonDismantle || item.reason_dismantle || '').replace(/\[WO DISMANTLE\][^\n]*/g, '').trim();
+  const k = String(item.issueKendala || item.issue_kendala || '').trim();
+  const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+  const reason = isMeaningful(r)
+    ? r
+    : isMeaningful(k)
+      ? k
+      : (r && r !== '.' && r !== ',')
+        ? (r.toLowerCase() === 'ya' || r.toLowerCase() === 'yo' ? `Alasan: ${r}` : r)
+        : (k || 'Perangkat dismantled');
+
+  const woInfo = getWoDismantleInfo(item);
+  const reporter = woInfo?.teknisi
+    || item.petugasAktivasi
+    || item.petugasIkr
+    || item.reporterKendala
+    || item.reporter_kendala
+    || item.reporterPending
+    || item.reporter_pending
+    || '-';
+
+  const date = item.tanggalDismantle || item.tanggal_dismantle || item.tglDismantle || '';
+
+  return { reason, reporter, date };
+};
+
 // --- Helper Function: Pencari Status Pelanggan Global ---
 const getGlobalStatusStr = (item) => {
   const valAktivasi = String(item.aktivasi || item.statusAktivasi || '').trim().toUpperCase();
@@ -19775,6 +19803,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
             const { issue, reporter, date } = extractKendalaData(item);
             const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
+            const { reason: dismantleReason, reporter: dismantleRep, date: dismantleDate } = extractDismantleData(item);
 
             let umurWoStr = '';
             let isWoLama = false;
@@ -19915,31 +19944,6 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         )}
                       </>
                     )}
-                    {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') && (
-                      <div className="flex flex-col items-start gap-1 mt-1 w-full">
-                        {item.tanggalDismantle ? (
-                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title={`Tanggal Dismantle: ${formatDateDisplay(item.tanggalDismantle)}`}>
-                            <Icon name="calendar" size={8} className="text-rose-400" /> Dismantle: {formatDateDisplay(item.tanggalDismantle)}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
-                            <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Dismantle: -
-                          </span>
-                        )}
-                        {(() => {
-                          const r = (item.reasonDismantle || '').trim();
-                          const k = (item.issueKendala || '').trim();
-                          const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
-                          const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
-                          if (!reasonText) return null;
-                          return (
-                            <span className="inline-flex items-center gap-1 text-[8px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded max-w-[220px] truncate" title={`Alasan: ${reasonText}`}>
-                              <Icon name="info" size={8} className="text-slate-500 shrink-0" /> Alasan: {reasonText}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    )}
                     {(displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') && (
                       <div className="flex flex-col items-end gap-1 mt-0.5">
                         {(() => {
@@ -19957,7 +19961,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         })()}
                       </div>
                     )}
-                    {(displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && (
+                    {displayStatusStr === 'WAITING' && (
                       <div className="flex flex-col items-end gap-1 mt-0.5">
                         {(() => {
                           const rawReg = item.tanggalRegistrasi || item.createdAt;
@@ -19981,9 +19985,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   {item.alamat || 'Alamat tidak tersedia'}
                 </div>
 
-                {/* Pending, Waiting & Kendala Mobile Row */}
+                {/* Pending, Waiting, Kendala & Dismantled Mobile Row */}
                 {(() => {
-                  if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
+                  if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
 
                   if (displayStatusStr === 'PENDING') {
                     const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
@@ -20008,6 +20012,43 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           <span className="flex items-center gap-1 shrink-0 font-semibold text-blue-600" title={`Tanggal: ${tglPendingFormatted || '-'}`}>
                             <Icon name="calendar" size={9} className="text-blue-500 shrink-0" />
                             <span>{tglPendingFormatted || '-'}</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (displayStatusStr === 'WAITING') {
+                    const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                    if (!noteWaiting) return null;
+                    return (
+                      <div className="flex items-start gap-1.5 text-[9px] font-medium text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded-md ml-6">
+                        <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal leading-tight italic">
+                          <span className="font-bold text-amber-800">CATATAN:</span> {noteWaiting}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') {
+                    const tglDismantleFormatted = formatDateDisplay(dismantleDate);
+                    return (
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-slate-800 bg-slate-50 border border-slate-200 p-2 rounded-md ml-6" title={dismantleReason || 'Dismantled'}>
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="x-circle" size={10} className="text-slate-500 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic text-slate-800 font-medium">
+                            {dismantleReason || 'Perangkat dismantled'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 text-[8.5px] text-slate-600 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate" title={`Petugas / Teknisi: ${dismantleRep || '-'}`}>
+                            <Icon name="user" size={9} className="text-slate-400 shrink-0" />
+                            <span className="truncate">{dismantleRep || '-'}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-slate-600" title={`Tanggal Dismantle: ${tglDismantleFormatted || '-'}`}>
+                            <Icon name="calendar" size={9} className="text-slate-400 shrink-0" />
+                            <span>{tglDismantleFormatted || '-'}</span>
                           </span>
                         </div>
                       </div>
@@ -20242,6 +20283,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                 const { issue, reporter, date } = extractKendalaData(item);
             const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
+            const { reason: dismantleReason, reporter: dismantleRep, date: dismantleDate } = extractDismantleData(item);
 
                 let umurWoStr = '';
                 let isWoLama = false;
@@ -20382,43 +20424,32 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             {displayStatusStr}
                           </span>
 
-                          {/* 2. TGL DISMANTLED */}
-                          {item.tanggalDismantle ? (
-                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200" title={`Tanggal Dismantle: ${formatDateDisplay(item.tanggalDismantle)}`}>
-                              <Icon name="calendar" size={9} className="text-rose-400" />
-                              Dismantle: {formatDateDisplay(item.tanggalDismantle)}
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Dismantle tidak tercatat">
-                              <Icon name="calendar" size={9} className="text-slate-400" />
-                              Tgl Dismantle: -
-                            </span>
-                          )}
-
-                          {/* 3. ALASAN DISMANTLED (BADGE ABU-ABU) */}
+                          {/* 2. CARD DISMANTLED (STANDAR DENGAN PENDING & KENDALA) */}
                           {(() => {
-                            const r = (item.reasonDismantle || '').trim();
-                            const k = (item.issueKendala || '').trim();
-                            const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
-                            const reasonText = isMeaningful(r) ? r : isMeaningful(k) ? k : (r && r !== '.' && r !== ',') ? r : k;
-                            if (!reasonText) return null;
+                            const tglDismantleFormatted = formatDateDisplay(dismantleDate);
                             return (
-                              <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-700 bg-slate-100 border border-slate-200 max-w-[280px]" title={`Alasan: ${reasonText}`}>
-                                <Icon name="info" size={9} className="text-slate-500 shrink-0" />
-                                <span className="truncate">Alasan: {reasonText}</span>
-                              </span>
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-slate-800 bg-slate-50/90 border border-slate-200/80 p-2 rounded-lg" title={dismantleReason || 'Dismantled'}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="x-circle" size={12} className="text-slate-500 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-slate-800">
+                                      {dismantleReason || 'Perangkat dismantled'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-slate-200/70 text-[9px] text-slate-600 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas / Teknisi: ${dismantleRep || '-'}`}>
+                                      <Icon name="user" size={10} className="text-slate-400 shrink-0" />
+                                      <span className="truncate">{dismantleRep || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-slate-600 font-bold" title={`Tanggal Dismantle: ${tglDismantleFormatted || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-slate-400 shrink-0" />
+                                      <span>{tglDismantleFormatted || '-'}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
                             );
                           })()}
-
-                          {/* PETUGAS (JIKA ADA) */}
-                          {(item.petugasIkr || item.petugasAktivasi) && (
-                            <div className="mt-0.5 flex items-center text-[10px] text-slate-400">
-                              <Icon name="user" size={10} className="mr-1 shrink-0" />
-                              <span className="truncate max-w-[140px]">
-                                {item.petugasAktivasi || item.petugasIkr}
-                              </span>
-                            </div>
-                          )}
                         </div>
                       ) : (
                         <div className="flex flex-col items-start gap-1">
@@ -20558,8 +20589,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             })()
                           )}
 
-                          {/* BARIS 1.6: TANGGAL REGISTRASI (Untuk Pelanggan Baru / Waiting / Kendala) */}
-                          {(displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA') && (
+                          {/* BARIS 1.6: TANGGAL REGISTRASI (Untuk Pelanggan Waiting / Belum Terpasang) */}
+                          {displayStatusStr === 'WAITING' && (
                             (() => {
                               const rawReg = item.tanggalRegistrasi || item.createdAt;
                               const tglReg = formatDateDisplay(rawReg);
