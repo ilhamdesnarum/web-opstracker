@@ -1489,25 +1489,28 @@ export default function TeamPerformanceView({
 
     return (
       <div className="overflow-x-auto custom-scrollbar">
-        <table className={`w-full text-left border-collapse text-xs font-sans ${isTwoCol ? 'min-w-[420px]' : 'min-w-[560px]'}`}>
+        <table className={`w-full text-left border-collapse text-xs font-sans ${isTwoCol ? 'min-w-[480px]' : 'min-w-[620px]'}`}>
           {/* THEAD LIGHT STASIUN */}
           <thead className="sticky top-0 z-10 select-none bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider border-b border-slate-200">
             <tr>
+              <th className="px-2 py-2.5 w-24 min-w-[85px] text-center border-r border-slate-200/70 rounded-tl-xl">
+                Sektor
+              </th>
               {isTwoCol ? (
-                <th className="px-2.5 py-2.5 w-32 min-w-[110px] text-left border-r border-slate-200/70 rounded-tl-xl">
+                <th className="px-2.5 py-2.5 w-28 min-w-[95px] text-left border-r border-slate-200/70">
                   Stasiun / TL
                 </th>
               ) : (
                 <>
-                  <th className="px-2 py-2.5 w-24 text-left border-r border-slate-200/70 rounded-tl-xl">
+                  <th className="px-2 py-2.5 w-24 text-left border-r border-slate-200/70">
                     TL
                   </th>
-                  <th className="px-2.5 py-2.5 w-32 min-w-[110px] text-left border-r border-slate-200/70">
+                  <th className="px-2.5 py-2.5 w-28 min-w-[95px] text-left border-r border-slate-200/70">
                     Stasiun
                   </th>
                 </>
               )}
-              <th className="px-2 py-2.5 min-w-[130px] text-left border-r border-slate-200/70">
+              <th className="px-2 py-2.5 min-w-[125px] text-left border-r border-slate-200/70">
                 Tim Teknisi
               </th>
               <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70" title="Total Work Order">
@@ -1567,44 +1570,51 @@ export default function TeamPerformanceView({
                     return (
                       <tr key={tm.id || tmIdx} className="hover:bg-slate-50/70 transition-colors">
 
-                        {/* JIKA 2 KOLOM: STASIUN & TL DIGABUNG JADI 1 KOLOM */}
+                        {/* KOLOM 1: SEKTOR (ROWSPAN SEBANYAK JUMLAH TIM DALAM CLUSTER) */}
+                        {tmIdx === 0 && (
+                          <td
+                            rowSpan={teams.length}
+                            className="px-2 py-2 border-r border-slate-100 bg-slate-50/40 align-middle text-center"
+                          >
+                            {sektor ? (
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-1 text-[9.5px] font-extrabold rounded-lg border uppercase tracking-wider whitespace-nowrap shadow-2xs ${getSektorBadgeClass(sektor)}`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
+                                Sektor {sektor}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">-</span>
+                            )}
+                          </td>
+                        )}
+
+                        {/* KOLOM 2: JIKA 2 KOLOM: STASIUN & TL DIGABUNG JADI 1 KOLOM */}
                         {isTwoCol ? (
                           tmIdx === 0 && (
                             <td
                               rowSpan={teams.length}
                               className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
                             >
-                              <div className="flex flex-col gap-1">
-                                {sektor && (
-                                  <div>
-                                    <span
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[8.5px] font-extrabold rounded border uppercase tracking-wider ${getSektorBadgeClass(sektor)}`}
-                                    >
-                                      <span className={`w-1 h-1 rounded-full ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
-                                      Sektor {sektor}
-                                    </span>
-                                  </div>
-                                )}
-                                <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
-                                  {sc.stasiun}
-                                </div>
-                                <div>
-                                  <span
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
-                                    title={`Team Leader: ${sc.teamLeader || '-'}`}
-                                  >
-                                    <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
-                                    <span className="truncate">{sc.teamLeader || '-'}</span>
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                    {getStationList(sc).length} Stasiun
-                                  </span>
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                    {teams.length} Tim
-                                  </span>
-                                </div>
+                              <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
+                                {sc.stasiun}
+                              </div>
+                              <div className="mt-1">
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
+                                  title={`Team Leader: ${sc.teamLeader || '-'}`}
+                                >
+                                  <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
+                                  <span className="truncate">{sc.teamLeader || '-'}</span>
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                  {getStationList(sc).length} Stasiun
+                                </span>
+                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                  {teams.length} Tim
+                                </span>
                               </div>
                             </td>
                           )
@@ -1631,28 +1641,16 @@ export default function TeamPerformanceView({
                                 rowSpan={teams.length}
                                 className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
                               >
-                                <div className="flex flex-col gap-1">
-                                  {sektor && (
-                                    <div>
-                                      <span
-                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[8.5px] font-extrabold rounded border uppercase tracking-wider ${getSektorBadgeClass(sektor)}`}
-                                      >
-                                        <span className={`w-1 h-1 rounded-full ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
-                                        Sektor {sektor}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
-                                    {sc.stasiun}
-                                  </div>
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                      {getStationList(sc).length} Stasiun
-                                    </span>
-                                    <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                      {teams.length} Tim
-                                    </span>
-                                  </div>
+                                <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
+                                  {sc.stasiun}
+                                </div>
+                                <div className="mt-0.5 flex items-center gap-1 flex-wrap">
+                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                    {getStationList(sc).length} Stasiun
+                                  </span>
+                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                    {teams.length} Tim
+                                  </span>
                                 </div>
                               </td>
                             )}
@@ -1753,7 +1751,7 @@ export default function TeamPerformanceView({
 
                   {/* BARIS SUBTOTAL PER STASIUN */}
                   <tr className="bg-slate-50/80 text-slate-700 font-bold text-[11px] border-y border-slate-200/80">
-                    <td colSpan={isTwoCol ? 2 : 3} className="px-2.5 py-1.5 font-bold text-slate-700 text-left border-r border-slate-200/60 uppercase tracking-tight">
+                    <td colSpan={isTwoCol ? 3 : 4} className="px-2.5 py-1.5 font-bold text-slate-700 text-left border-r border-slate-200/60 uppercase tracking-tight">
                       Subtotal {sc.stasiun} {sektor ? `(${sektor})` : ''}
                     </td>
                     <td className="px-1 py-1.5 text-center font-bold text-blue-700 border-r border-slate-200/60">
@@ -1797,14 +1795,17 @@ export default function TeamPerformanceView({
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden snapshot-card">
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse text-xs font-sans min-w-[420px]">
+          <table className="w-full text-left border-collapse text-xs font-sans min-w-[480px]">
             {/* THEAD */}
             <thead className="bg-slate-50 text-slate-400 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider border-b border-slate-200">
               <tr>
-                <th className="px-2.5 py-2.5 w-28 text-left border-r border-slate-200/70 rounded-tl-xl">
+                <th className="px-2 py-2.5 w-24 text-center border-r border-slate-200/70 rounded-tl-xl">
+                  Sektor
+                </th>
+                <th className="px-2.5 py-2.5 w-28 text-left border-r border-slate-200/70">
                   Stasiun / TL
                 </th>
-                <th className="px-2.5 py-2.5 min-w-[130px] text-left border-r border-slate-200/70">
+                <th className="px-2.5 py-2.5 min-w-[125px] text-left border-r border-slate-200/70">
                   Tim Teknisi
                 </th>
                 <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">WO</th>
@@ -1812,6 +1813,7 @@ export default function TeamPerformanceView({
                 <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">Vis</th>
                 <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">Dis</th>
                 <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">Pnd</th>
+                <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">Kdl</th>
                 <th className="px-0.5 py-2.5 w-7 text-center border-r border-slate-200/70">Out</th>
                 <th className="px-0.5 py-2.5 w-11 text-center rounded-tr-xl">Prod</th>
               </tr>
@@ -1825,6 +1827,15 @@ export default function TeamPerformanceView({
                   <React.Fragment key={stIdx}>
                     {Array.from({ length: teamCount }).map((__, tmIdx) => (
                       <tr key={tmIdx} className="animate-pulse">
+                        {tmIdx === 0 && (
+                          <td
+                            rowSpan={teamCount}
+                            className="px-2 py-2 border-r border-slate-100 bg-slate-50/40 align-middle text-center"
+                          >
+                            <div className="h-5 bg-slate-200/70 rounded-lg w-16 mx-auto animate-pulse"></div>
+                          </td>
+                        )}
+
                         {tmIdx === 0 && (
                           <td
                             rowSpan={teamCount}
@@ -1865,6 +1876,9 @@ export default function TeamPerformanceView({
                           <div className="h-3.5 w-4 bg-slate-100 rounded mx-auto animate-pulse"></div>
                         </td>
                         <td className="px-1 py-2 text-center border-r border-slate-100">
+                          <div className="h-3.5 w-4 bg-rose-100 rounded mx-auto animate-pulse"></div>
+                        </td>
+                        <td className="px-1 py-2 text-center border-r border-slate-100">
                           <div className="h-3.5 w-4 bg-slate-100 rounded mx-auto animate-pulse"></div>
                         </td>
                         <td className="px-1 py-2 text-center">
@@ -1875,7 +1889,7 @@ export default function TeamPerformanceView({
 
                     {/* Subtotal Shimmer */}
                     <tr className="bg-slate-50/80 border-y border-slate-200/80 animate-pulse">
-                      <td colSpan={2} className="px-2.5 py-2 border-r border-slate-200/60">
+                      <td colSpan={3} className="px-2.5 py-2 border-r border-slate-200/60">
                         <div className="h-3 bg-slate-200 rounded w-28 animate-pulse"></div>
                       </td>
                       <td className="px-1 py-2 text-center border-r border-slate-200/60">
