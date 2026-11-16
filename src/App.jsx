@@ -19854,9 +19854,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   // 24 jam ke atas -> tampil dalam Hari
                   const totalDays = Math.floor(totalHours / 24);
                   if (totalDays <= 2) {
-                    // 1 s/d 2 hari (24 - 71 jam) -> OREN
+                    // 1 s/d 2 hari (24 - 71 jam) -> OREN (True Orange)
                     umurWoStr = `${totalDays} Hari`;
-                    waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
+                    waitingBadgeClass = 'bg-orange-100 text-orange-700 border-orange-300';
                     isWoLama = false;
                   } else {
                     // Lebih dari 2 hari (>= 72 jam / 3 hari ke atas) -> MERAH
@@ -20407,9 +20407,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       // 24 jam ke atas -> tampil dalam Hari
                       const totalDays = Math.floor(totalHours / 24);
                       if (totalDays <= 2) {
-                        // 1 s/d 2 hari (24 - 71 jam) -> OREN
+                        // 1 s/d 2 hari (24 - 71 jam) -> OREN (True Orange)
                         umurWoStr = `${totalDays} Hari`;
-                        waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
+                        waitingBadgeClass = 'bg-orange-100 text-orange-700 border-orange-300';
                         isWoLama = false;
                       } else {
                         // Lebih dari 2 hari (>= 72 jam / 3 hari ke atas) -> MERAH
