@@ -865,14 +865,14 @@ const extractDismantleData = (item) => {
   if (!item) return { reason: '', reporter: '', date: '' };
   const r = String(item.reasonDismantle || item.reason_dismantle || '').replace(/\[WO DISMANTLE\][^\n]*/g, '').trim();
   const k = String(item.issueKendala || item.issue_kendala || '').trim();
-  const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && txt.toLowerCase() !== 'dismantle';
+  const isMeaningful = (txt) => txt && txt !== '.' && txt !== '-' && txt !== ',' && txt !== 'ya' && txt !== 'yo' && !txt.toLowerCase().includes('dismantle');
   const reason = isMeaningful(r)
     ? r
     : isMeaningful(k)
       ? k
       : (r && r !== '.' && r !== ',')
         ? (r.toLowerCase() === 'ya' || r.toLowerCase() === 'yo' ? `Alasan: ${r}` : r)
-        : (k || 'Perangkat dismantled');
+        : (isMeaningful(k) ? k : '');
 
   const woInfo = getWoDismantleInfo(item);
   const reporter = woInfo?.teknisi
@@ -20055,14 +20055,15 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       ? (woDismantle.teknisi || 'Teknisi IKR')
                       : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
 
-                    // Hindari duplikasi nama teknisi di baris catatan atas
+                    // Jangan pernah menampilkan kata generik 'dismantle' atau nama teknisi di baris catatan
+                    const isGeneric = (txt) => !txt || txt.toLowerCase().includes('dismantle') || txt === '.' || txt === '-';
                     const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
-                    const meaningfulReason = (!isReasonDuplicate && dismantleReason) ? dismantleReason : '';
-                    const meaningfulCatatan = (item.catatan && item.catatan !== item.alamat && !item.catatan.toLowerCase().includes('dismantle')) ? item.catatan : '';
+                    const meaningfulReason = (!isReasonDuplicate && !isGeneric(dismantleReason)) ? dismantleReason : '';
+                    const meaningfulCatatan = (!isGeneric(item.catatan) && item.catatan !== item.alamat) ? item.catatan : '';
 
                     const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
-                      ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Dismantle: Sedang Diambil')
-                      : 'Belum Ada WO Dismantle');
+                      ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Sedang Diambil')
+                      : 'Belum Ada WO');
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
@@ -20636,14 +20637,15 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                               ? (woDismantle.teknisi || 'Teknisi IKR')
                               : (item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-'));
 
-                            // Hindari duplikasi nama teknisi di baris catatan atas
+                            // Jangan pernah menampilkan kata generik 'dismantle' atau nama teknisi di baris catatan
+                            const isGeneric = (txt) => !txt || txt.toLowerCase().includes('dismantle') || txt === '.' || txt === '-';
                             const isReasonDuplicate = dismantleReason && repRtd && dismantleReason.toLowerCase().includes(repRtd.toLowerCase());
-                            const meaningfulReason = (!isReasonDuplicate && dismantleReason) ? dismantleReason : '';
-                            const meaningfulCatatan = (item.catatan && item.catatan !== item.alamat && !item.catatan.toLowerCase().includes('dismantle')) ? item.catatan : '';
+                            const meaningfulReason = (!isReasonDuplicate && !isGeneric(dismantleReason)) ? dismantleReason : '';
+                            const meaningfulCatatan = (!isGeneric(item.catatan) && item.catatan !== item.alamat) ? item.catatan : '';
 
                             const noteRtd = meaningfulReason || meaningfulCatatan || (woDismantle?.hasWo
-                              ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Dismantle: Sedang Diambil')
-                              : 'Belum Ada WO Dismantle');
+                              ? (woDismantle.ticket ? `WO Sedang Diambil (Tiket #${woDismantle.ticket})` : 'WO Sedang Diambil')
+                              : 'Belum Ada WO');
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
