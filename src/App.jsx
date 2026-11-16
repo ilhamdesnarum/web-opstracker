@@ -19158,12 +19158,12 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               type="button"
               onClick={() => setDismantleWoFilter('WITH_WO')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_WO'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/50'}`}
+                ? 'bg-[#8657f1] text-white shadow-xs'
+                : 'bg-white text-purple-900 border border-purple-200 hover:bg-purple-50'}`}
               title="Pelanggan yang sudah ada WO Dismantle dan ditugaskan ke teknisi"
             >
               <span>Sudah Ada WO (Sedang Diambil)</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-purple-900/40 text-white' : 'bg-purple-100 text-purple-800'}`}>
                 {dismantleCounts.withWo}
               </span>
             </button>
@@ -19872,7 +19872,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           const woDismantle = getWoDismantleInfo(item);
                           if (woDismantle?.hasWo) {
                             return (
-                              <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold bg-amber-500 text-white shadow-2xs">
+                              <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold bg-[#8657f1] text-white shadow-2xs">
                                 Sedang Diambil
                               </span>
                             );
@@ -20382,7 +20382,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           const woDismantle = getWoDismantleInfo(item);
                           if (woDismantle?.hasWo) {
                             return (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-2xs tracking-wide">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#8657f1] text-white shadow-2xs tracking-wide">
                                 Sedang Diambil
                               </span>
                             );

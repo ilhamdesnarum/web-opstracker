@@ -4588,7 +4588,7 @@ const MobileApp = () => {
                             {(() => {
                               const wo = getWoDismantleInfo(p);
                               return wo?.hasWo ? (
-                                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full shrink-0 bg-amber-500 text-white shadow-2xs">
+                                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full shrink-0 bg-[#8657f1] text-white shadow-2xs">
                                   Sedang Diambil
                                 </span>
                               ) : null;
