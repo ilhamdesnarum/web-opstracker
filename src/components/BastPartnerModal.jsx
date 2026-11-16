@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { standardizeDate } from '../utils.js';
 import { formatToWibTime } from '../services/partnerBastService.js';
@@ -24,6 +24,38 @@ export default function BastPartnerModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStation, setSelectedStation] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState(initialFilterStatus || 'ALL');
+
+  // Ref penampung fungsi dan status loading agar interval polling tidak ter-trigger ulang terus-menerus
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+
+  // Auto-sync saat modal terbuka:
+  // 1. Langsung fetch data terbaru saat modal baru dibuka
+  // 2. Pasang interval polling berkala setiap 20 detik selama modal aktif terbuka
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Trigger refresh langsung saat modal dibuka (jika tidak sedang loading)
+    if (onRefreshRef.current && !isLoadingRef.current) {
+      onRefreshRef.current();
+    }
+
+    // Interval polling berkala setiap 20 detik selama modal terbuka
+    const intervalTimer = setInterval(() => {
+      if (onRefreshRef.current && !isLoadingRef.current) {
+        onRefreshRef.current();
+      }
+    }, 20000);
+
+    return () => clearInterval(intervalTimer);
+  }, [isOpen]);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -197,6 +229,7 @@ export default function BastPartnerModal({
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Portal Mitra Real-Time
+                    <span className="text-emerald-700/80 font-semibold">• Auto-Sync 20d</span>
                     {lastSync && (
                       <span className="text-emerald-700 font-medium">
                         • {new Date(lastSync).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}

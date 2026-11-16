@@ -1902,6 +1902,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   const [partnerBastData, setPartnerBastData] = useState([]);
   const [isBastLoading, setIsBastLoading] = useState(false);
   const [bastLastSync, setBastLastSync] = useState(null);
+  const bastRealtimeDebounceRef = useRef(null);
 
   const loadPartnerBast = useCallback(async (force = false) => {
     setIsBastLoading(true);
@@ -1920,13 +1921,13 @@ function App({ currentUser: propCurrentUser, onLogout }) {
     }
   }, []);
 
-  // Auto-sync BAST setiap 60 detik di level global aplikasi
+  // Auto-sync BAST setiap 30 detik di level global aplikasi
   useEffect(() => {
     loadPartnerBast(false);
 
     const intervalBast = setInterval(() => {
       loadPartnerBast(true);
-    }, 60000);
+    }, 30000);
 
     return () => clearInterval(intervalBast);
   }, [loadPartnerBast]);
@@ -2710,6 +2711,17 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               pelangganData: newPelangganData
             };
           });
+
+          // Pemicu Realtime: jika ada aktivasi baru atau pembaruan status aktivasi, picu sinkronisasi BAST Partner secara otomatis
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const aktStatus = String(payload.new?.status_aktivasi || payload.new?.aktivasi || '').toLowerCase();
+            if (aktStatus.includes('sudah') || aktStatus === 'aktif') {
+              if (bastRealtimeDebounceRef.current) clearTimeout(bastRealtimeDebounceRef.current);
+              bastRealtimeDebounceRef.current = setTimeout(() => {
+                loadPartnerBast(true);
+              }, 2500);
+            }
+          }
         }
       )
       .subscribe();
@@ -7926,10 +7938,10 @@ function DashboardView({
     if (isSelectedToday) {
       loadPartnerBast(false);
 
-      // Auto-sync BAST setiap 60 detik di level Dashboard
+      // Auto-sync BAST setiap 30 detik di level Dashboard
       const bastInterval = setInterval(() => {
         loadPartnerBast(true);
-      }, 60000);
+      }, 30000);
 
       return () => clearInterval(bastInterval);
     }

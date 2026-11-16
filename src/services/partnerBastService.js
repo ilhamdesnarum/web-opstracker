@@ -92,8 +92,8 @@ export async function fetchPartnerBastToday(targetDate, forceRefresh = false) {
   const isTargetToday = dateToFetch === todayWib;
 
   const now = Date.now();
-  // Gunakan cache jika masih valid (< 60 detik) dan tanggal sama
-  if (!forceRefresh && bastMemoryCache.date === dateToFetch && (now - bastMemoryCache.timestamp < 60000) && bastMemoryCache.data.length > 0) {
+  // Gunakan cache jika masih valid (< 20 detik) dan tanggal sama
+  if (!forceRefresh && bastMemoryCache.date === dateToFetch && (now - bastMemoryCache.timestamp < 20000) && bastMemoryCache.data.length > 0) {
     return {
       success: true,
       count: bastMemoryCache.data.length,
