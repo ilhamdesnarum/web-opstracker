@@ -378,6 +378,61 @@ export default function TeamPerformanceView({
     return [];
   };
 
+  // Mapping Kode Stasiun & Nama Stasiun ke Wilayah Sektor
+  const stationCodeToSektorMap = useMemo(() => {
+    const map = {};
+    DEFAULT_STATION_CODES.forEach(s => {
+      if (s.sektor) {
+        if (s.kode_stasiun) map[s.kode_stasiun.toUpperCase()] = s.sektor;
+        if (s.stasiun) map[s.stasiun.toUpperCase()] = s.sektor;
+      }
+    });
+    stationMasterList.forEach(s => {
+      if (s.sektor) {
+        if (s.kode_stasiun) map[s.kode_stasiun.toUpperCase()] = s.sektor;
+        if (s.stasiun) map[s.stasiun.toUpperCase()] = s.sektor;
+      }
+    });
+    return map;
+  }, [stationMasterList]);
+
+  // Helper: Ambil nama sektor dari cluster / stasiun (e.g. 'Barat', 'Tengah', 'Timur')
+  const getClusterSektor = (sc) => {
+    if (!sc) return '';
+    if (sc.sektor && typeof sc.sektor === 'string' && sc.sektor.trim()) {
+      return sc.sektor.trim();
+    }
+    const list = getStationList(sc);
+    const sektors = Array.from(new Set(
+      list.map(st => {
+        const u = String(st || '').trim().toUpperCase();
+        return stationCodeToSektorMap[u] || (stationNameToCodeMap[u] && stationCodeToSektorMap[stationNameToCodeMap[u]]);
+      }).filter(Boolean)
+    ));
+    if (sektors.length > 0) {
+      return sektors.join(' / ');
+    }
+    if (sc.stasiun) {
+      const u = String(sc.stasiun).trim().toUpperCase();
+      if (stationCodeToSektorMap[u]) return stationCodeToSektorMap[u];
+    }
+    return '';
+  };
+
+  // Helper: Kelas styling badge sektor (Barat: Emerald, Tengah: Blue, Timur: Orange)
+  const getSektorBadgeClass = (sektor) => {
+    switch (sektor) {
+      case 'Barat':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'Tengah':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'Timur':
+        return 'bg-orange-50 text-orange-700 border-orange-200';
+      default:
+        return 'bg-slate-100 text-slate-600 border-slate-200';
+    }
+  };
+
   // Handler Buka Modal Kelola Tim
   const handleOpenManageModal = () => {
     const list = JSON.parse(JSON.stringify(stationClusters || []));
@@ -491,11 +546,15 @@ export default function TeamPerformanceView({
     }
 
     setIsSavingClusters(true);
-    setStationClusters(draftClusters);
+    const clustersToSave = draftClusters.map(st => ({
+      ...st,
+      sektor: getClusterSektor(st) || st.sektor || ''
+    }));
+    setStationClusters(clustersToSave);
 
     // 1. Simpan ke LocalStorage sebagai cache cepat
     try {
-      localStorage.setItem('starlite_station_clusters_v3', JSON.stringify(draftClusters));
+      localStorage.setItem('starlite_station_clusters_v3', JSON.stringify(clustersToSave));
     } catch (e) {
       console.error(e);
     }
@@ -507,7 +566,7 @@ export default function TeamPerformanceView({
         .from('starlite_team_config')
         .upsert({
           id: 'current_clusters',
-          clusters: draftClusters,
+          clusters: clustersToSave,
           updated_at: new Date().toISOString()
         });
 
@@ -1206,6 +1265,7 @@ export default function TeamPerformanceView({
   // Salin Format Laporan Operasional Telegram
   const handleCopyTelegram = (tm, stasiunName, teamLeader) => {
     const m = teamMetricsMap[tm.id] || { totalWO: 0, aktivasi: 0, visit: 0, dismantle: 0, pending: 0, outstanding: 0, prodStr: '-' };
+    const sektorName = getClusterSektor({ stasiun: stasiunName });
 
     const rec = m.records || {};
     const allTasks = [
@@ -1234,6 +1294,7 @@ export default function TeamPerformanceView({
     const text = `📊 *LAPORAN HARIAN TIM LAPANGAN*\n` +
       `📅 *Tanggal:* ${formattedSelectedDate}\n` +
       `👤 *Team Leader:* ${teamLeader || '-'}\n` +
+      (sektorName ? `🗺️ *Sektor:* Sektor ${sektorName}\n` : '') +
       `🚉 *Stasiun:* ${stasiunName}\n` +
       `👥 *Tim:* ${tm.nama}\n` +
       `----------------------------------------\n` +
@@ -1385,13 +1446,19 @@ export default function TeamPerformanceView({
   const renderStationTable = (clustersSubset, isTwoCol = false) => {
     // Saring clusters dan teams
     const activeClusters = clustersSubset.map(sc => {
+      const clusterSektor = getClusterSektor(sc);
       if (stationFilter !== 'ALL') {
-        const clusterSt = String(sc.stasiun || '').toLowerCase();
-        const filterSt = stationFilter.toLowerCase();
-        const sList = getStationList(sc).map(s => s.toLowerCase());
-        const sNames = sList.map(code => (stationCodeToNameMap[code.toUpperCase()] || '').toLowerCase());
-        const isMatch = clusterSt === filterSt || sList.includes(filterSt) || sNames.includes(filterSt);
-        if (!isMatch) return null;
+        if (stationFilter.startsWith('SEKTOR_')) {
+          const targetSektor = stationFilter.replace('SEKTOR_', '').toLowerCase();
+          if (!clusterSektor.toLowerCase().includes(targetSektor)) return null;
+        } else {
+          const clusterSt = String(sc.stasiun || '').toLowerCase();
+          const filterSt = stationFilter.toLowerCase();
+          const sList = getStationList(sc).map(s => s.toLowerCase());
+          const sNames = sList.map(code => (stationCodeToNameMap[code.toUpperCase()] || '').toLowerCase());
+          const isMatch = clusterSt === filterSt || sList.includes(filterSt) || sNames.includes(filterSt);
+          if (!isMatch) return null;
+        }
       }
       const filteredTeams = (sc.teams || []).filter(tm => {
         if (searchQuery.trim()) {
@@ -1399,15 +1466,16 @@ export default function TeamPerformanceView({
           const matchName = (tm.nama || '').toLowerCase().includes(q);
           const matchSt = (sc.stasiun || '').toLowerCase().includes(q);
           const matchTL = (sc.teamLeader || '').toLowerCase().includes(q);
+          const matchSektor = clusterSektor.toLowerCase().includes(q);
           const matchMemb = (tm.anggota || []).some(m => (m.nama || '').toLowerCase().includes(q));
           const matchIndividualSt = getStationList(sc).some(s => s.toLowerCase().includes(q));
-          return matchName || matchSt || matchTL || matchMemb || matchIndividualSt;
+          return matchName || matchSt || matchTL || matchMemb || matchIndividualSt || matchSektor;
         }
         return true;
       });
 
       if (filteredTeams.length === 0) return null;
-      return { ...sc, filteredTeams };
+      return { ...sc, filteredTeams, resolvedSektor: clusterSektor };
     }).filter(Boolean);
 
     if (activeClusters.length === 0) {
@@ -1426,7 +1494,7 @@ export default function TeamPerformanceView({
           <thead className="sticky top-0 z-10 select-none bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider border-b border-slate-200">
             <tr>
               {isTwoCol ? (
-                <th className="px-2 py-2.5 w-28 text-left border-r border-slate-200/70 rounded-tl-xl">
+                <th className="px-2.5 py-2.5 w-32 min-w-[110px] text-left border-r border-slate-200/70 rounded-tl-xl">
                   Stasiun / TL
                 </th>
               ) : (
@@ -1434,7 +1502,7 @@ export default function TeamPerformanceView({
                   <th className="px-2 py-2.5 w-24 text-left border-r border-slate-200/70 rounded-tl-xl">
                     TL
                   </th>
-                  <th className="px-2 py-2.5 w-24 text-left border-r border-slate-200/70">
+                  <th className="px-2.5 py-2.5 w-32 min-w-[110px] text-left border-r border-slate-200/70">
                     Stasiun
                   </th>
                 </>
@@ -1473,6 +1541,7 @@ export default function TeamPerformanceView({
           <tbody className="text-slate-800 font-medium text-xs divide-y divide-slate-100">
             {activeClusters.map((sc, scIdx) => {
               const teams = sc.filteredTeams;
+              const sektor = sc.resolvedSektor || getClusterSektor(sc);
 
               // Hitung Subtotal per Stasiun
               let subWO = 0, subAkt = 0, subVis = 0, subDis = 0, subPnd = 0, subKdl = 0, subOut = 0, subSel = 0;
@@ -1505,25 +1574,37 @@ export default function TeamPerformanceView({
                               rowSpan={teams.length}
                               className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
                             >
-                              <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
-                                {sc.stasiun}
-                              </div>
-                              <div className="mt-1">
-                                <span
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
-                                  title={`Team Leader: ${sc.teamLeader || '-'}`}
-                                >
-                                  <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
-                                  <span className="truncate">{sc.teamLeader || '-'}</span>
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center gap-1 flex-wrap">
-                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                  {getStationList(sc).length} Stasiun
-                                </span>
-                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                  {teams.length} Tim
-                                </span>
+                              <div className="flex flex-col gap-1">
+                                {sektor && (
+                                  <div>
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[8.5px] font-extrabold rounded border uppercase tracking-wider ${getSektorBadgeClass(sektor)}`}
+                                    >
+                                      <span className={`w-1 h-1 rounded-full ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
+                                      Sektor {sektor}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
+                                  {sc.stasiun}
+                                </div>
+                                <div>
+                                  <span
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
+                                    title={`Team Leader: ${sc.teamLeader || '-'}`}
+                                  >
+                                    <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
+                                    <span className="truncate">{sc.teamLeader || '-'}</span>
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                    {getStationList(sc).length} Stasiun
+                                  </span>
+                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                    {teams.length} Tim
+                                  </span>
+                                </div>
                               </div>
                             </td>
                           )
@@ -1550,16 +1631,28 @@ export default function TeamPerformanceView({
                                 rowSpan={teams.length}
                                 className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
                               >
-                                <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
-                                  {sc.stasiun}
-                                </div>
-                                <div className="mt-0.5 flex items-center gap-1 flex-wrap">
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                    {getStationList(sc).length} Stasiun
-                                  </span>
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                    {teams.length} Tim
-                                  </span>
+                                <div className="flex flex-col gap-1">
+                                  {sektor && (
+                                    <div>
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[8.5px] font-extrabold rounded border uppercase tracking-wider ${getSektorBadgeClass(sektor)}`}
+                                      >
+                                        <span className={`w-1 h-1 rounded-full ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
+                                        Sektor {sektor}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
+                                    {sc.stasiun}
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                      {getStationList(sc).length} Stasiun
+                                    </span>
+                                    <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                      {teams.length} Tim
+                                    </span>
+                                  </div>
                                 </div>
                               </td>
                             )}
@@ -1584,7 +1677,7 @@ export default function TeamPerformanceView({
                           {m.totalWO > 0 ? (
                             <button
                               type="button"
-                              onClick={() => setDetailModal({ isOpen: true, teamData: { ...tm, ...m, stasiun: sc.stasiun, teamLeader: sc.teamLeader }, activeTab: 'semua' })}
+                              onClick={() => setDetailModal({ isOpen: true, teamData: { ...tm, ...m, stasiun: sc.stasiun, teamLeader: sc.teamLeader, sektor }, activeTab: 'semua' })}
                               className="inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-md bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white font-black text-[10px] border border-blue-200 hover:border-blue-600 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
                               title="Klik untuk melihat rincian tugas / WO hari ini"
                             >
@@ -1661,7 +1754,7 @@ export default function TeamPerformanceView({
                   {/* BARIS SUBTOTAL PER STASIUN */}
                   <tr className="bg-slate-50/80 text-slate-700 font-bold text-[11px] border-y border-slate-200/80">
                     <td colSpan={isTwoCol ? 2 : 3} className="px-2.5 py-1.5 font-bold text-slate-700 text-left border-r border-slate-200/60 uppercase tracking-tight">
-                      Subtotal {sc.stasiun}
+                      Subtotal {sc.stasiun} {sektor ? `(${sektor})` : ''}
                     </td>
                     <td className="px-1 py-1.5 text-center font-bold text-blue-700 border-r border-slate-200/60">
                       {subWO > 0 ? subWO : '-'}
@@ -1988,17 +2081,25 @@ export default function TeamPerformanceView({
             className="text-xs font-bold bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-1.5 cursor-pointer focus:outline-none"
           >
             <option value="ALL">Semua Stasiun ({totalUniqueStationCount} Stasiun • {totalTeamLeadersCount} TL)</option>
+            <optgroup label="Filter Berdasarkan Sektor">
+              <option value="SEKTOR_BARAT">Sektor Barat (KLN, KBD, WLR, KNS)</option>
+              <option value="SEKTOR_TENGAH">Sektor Tengah (SMT, ATA, BBG)</option>
+              <option value="SEKTOR_TIMUR">Sektor Timur (WDU, RBG, SL, KNN)</option>
+            </optgroup>
             <optgroup label="Wilayah Team Leader (Cluster)">
-              {stationClusters.map(sc => (
-                <option key={sc.stasiun} value={sc.stasiun}>
-                  {sc.stasiun} ({sc.teamLeader ? `TL: ${sc.teamLeader}` : ''} • {getStationList(sc).length} Stasiun)
-                </option>
-              ))}
+              {stationClusters.map(sc => {
+                const s = getClusterSektor(sc);
+                return (
+                  <option key={sc.stasiun} value={sc.stasiun}>
+                    {s ? `[Sektor ${s}] ` : ''}{sc.stasiun} ({sc.teamLeader ? `TL: ${sc.teamLeader}` : ''} • {getStationList(sc).length} Stasiun)
+                  </option>
+                );
+              })}
             </optgroup>
             <optgroup label="Stasiun Individual">
               {uniqueStationsList.map(st => (
                 <option key={st.kode} value={st.kode}>
-                  Stasiun {st.kode} ({st.nama})
+                  Stasiun {st.kode} ({st.nama}{st.sektor ? ` - Sektor ${st.sektor}` : ''})
                 </option>
               ))}
             </optgroup>
@@ -2198,7 +2299,7 @@ export default function TeamPerformanceView({
                     Rincian Tugas: {detailModal.teamData.nama}
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    TL: {detailModal.teamData.teamLeader} • Stasiun {detailModal.teamData.stasiun} • {formattedSelectedDate}
+                    TL: {detailModal.teamData.teamLeader || '-'}{detailModal.teamData.sektor ? ` • Sektor ${detailModal.teamData.sektor}` : ''} • Stasiun {detailModal.teamData.stasiun} • {formattedSelectedDate}
                   </p>
                 </div>
               </div>
@@ -2459,6 +2560,7 @@ export default function TeamPerformanceView({
                   {draftClusters.map((st, sIdx) => {
                     const isActive = sIdx === activeStationIdx;
                     const stCount = getStationList(st).length;
+                    const stSektor = getClusterSektor(st);
                     return (
                       <button
                         key={sIdx}
@@ -2469,7 +2571,14 @@ export default function TeamPerformanceView({
                           }`}
                       >
                         <div className="truncate">
-                          <div className="text-xs truncate">{st.stasiun || 'Tanpa Nama'}</div>
+                          <div className="text-xs truncate flex items-center gap-1.5">
+                            <span>{st.stasiun || 'Tanpa Nama'}</span>
+                            {stSektor && (
+                              <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border ${isActive ? 'bg-blue-700/80 text-white border-blue-400/50' : getSektorBadgeClass(stSektor)}`}>
+                                {stSektor}
+                              </span>
+                            )}
+                          </div>
                           <div className={`text-[10px] truncate ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
                             TL: {st.teamLeader || '-'} {stCount > 1 ? `(${stCount} Stasiun)` : ''}
                           </div>
@@ -2582,9 +2691,18 @@ export default function TeamPerformanceView({
                               <span className="text-slate-400">
                                 Pilih <strong>kode stasiun</strong> lalu tekan <strong>Enter</strong>.
                               </span>
-                              {getStationList(currentSt).length > 1 && (
-                                <div className="text-blue-600 font-bold tracking-tight" title={currentSt.stasiun}>
-                                  Gabungan: <span className="font-extrabold">{currentSt.stasiun}</span>
+                              {getStationList(currentSt).length > 0 && (
+                                <div className="flex items-center gap-2 flex-wrap mt-1">
+                                  {getStationList(currentSt).length > 1 && (
+                                    <span className="text-blue-600 font-bold tracking-tight text-[10px]" title={currentSt.stasiun}>
+                                      Gabungan: <strong className="font-extrabold">{currentSt.stasiun}</strong>
+                                    </span>
+                                  )}
+                                  {getClusterSektor(currentSt) && (
+                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold rounded border ${getSektorBadgeClass(getClusterSektor(currentSt))}`}>
+                                      Wilayah: Sektor {getClusterSektor(currentSt)}
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
