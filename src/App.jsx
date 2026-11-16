@@ -19158,12 +19158,12 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               type="button"
               onClick={() => setDismantleWoFilter('WITH_WO')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_WO'
-                ? 'bg-[#8657f1] text-white shadow-xs'
-                : 'bg-white text-purple-900 border border-purple-200 hover:bg-purple-50'}`}
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/50'}`}
               title="Pelanggan yang sudah ada WO Dismantle dan ditugaskan ke teknisi"
             >
               <span>Sudah Ada WO (Sedang Diambil)</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-purple-900/40 text-white' : 'bg-purple-100 text-purple-800'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
                 {dismantleCounts.withWo}
               </span>
             </button>
