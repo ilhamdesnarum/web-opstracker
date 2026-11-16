@@ -19773,6 +19773,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                   if (displayStatusStr === 'PENDING') {
                     const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                    const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
                     const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
                     const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
                     const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
@@ -19781,8 +19782,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 p-2 rounded-md ml-6">
                         <div className="flex items-start gap-1.5">
                           <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                          <span className="whitespace-normal leading-tight italic">
-                            <span className="font-bold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                          <span className="whitespace-normal leading-tight italic text-blue-950">
+                            {cleanNotePending || 'Menunggu jadwal pasang'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-medium not-italic">
@@ -20368,17 +20369,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             // 1. Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass) beserta Pelapor & Tanggal
                             if (displayStatusStr === 'PENDING') {
                               const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                              const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
                               const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
                               const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
                               const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
 
                               return (
                                 <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px]">
-                                  <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={notePending || 'Pending'}>
+                                  <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={cleanNotePending || 'Pending'}>
                                     <div className="flex items-start gap-1.5">
                                       <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
-                                      <span className="leading-snug font-bold italic line-clamp-2 break-words">
-                                        <span className="font-extrabold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                                      <span className="leading-snug font-medium italic line-clamp-2 break-words text-blue-950">
+                                        {cleanNotePending || 'Menunggu jadwal pasang'}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-blue-200/70 text-[9px] text-blue-700 font-semibold not-italic">

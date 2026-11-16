@@ -4697,13 +4697,14 @@ const MobileApp = () => {
                           ) : st === 'PENDING' ? (
                             (() => {
                               const { note: notePending, reporter: repPending, date: tglPending } = extractPendingData(p);
+                              const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
                               const tglPendingDisplay = formatDateDisplay(tglPending);
                               return (
                                 <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg">
                                   <div className="flex items-start gap-1.5">
                                     <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span className="whitespace-normal leading-relaxed font-bold italic">
-                                      <span className="font-extrabold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                                    <span className="whitespace-normal leading-relaxed font-medium italic text-blue-950">
+                                      {cleanNotePending || 'Menunggu jadwal pasang'}
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-semibold not-italic">
