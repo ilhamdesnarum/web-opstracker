@@ -3382,6 +3382,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                   onLocalWoDispatchDelete={handleLocalWoDispatchDelete}
                   initialStatusFilter={initialDatabaseStatusFilter}
                   initialStationFilter={initialDatabaseStationFilter}
+                  currentUser={currentUser}
                 />
               </div>
             )}
@@ -11884,8 +11885,29 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 // ==========================================
 // MODAL AKSI (ADD, EDIT, LOG GANGGUAN, DETAIL PELANGGAN)
 // ==========================================
-function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalWoDispatchAdd, onLocalWoDispatchDelete, woDispatchData = [], petugasList = [], odpData = [], detailPoData = [] }) {
+function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, visitData = [], onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalWoDispatchAdd, onLocalWoDispatchDelete, woDispatchData = [], petugasList = [], odpData = [], detailPoData = [], currentUser }) {
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  const activeUser = useMemo(() => {
+    if (currentUser) return currentUser;
+    try {
+      const stored = localStorage.getItem('otas_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  }, [currentUser]);
+
+  const activeReporter = useMemo(() => {
+    if (!activeUser) return 'Superuser';
+    if (activeUser.name || activeUser.nama_lengkap) {
+      return activeUser.name || activeUser.nama_lengkap;
+    }
+    if (activeUser.username) {
+      return activeUser.username.startsWith('@') ? activeUser.username : `@${activeUser.username}`;
+    }
+    return 'Superuser';
+  }, [activeUser]);
 
   // Cari WO dispatch aktif untuk pelanggan ini dari data.activeWo atau woDispatchData
   const activeDispatch = useMemo(() => {
@@ -12000,9 +12022,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
     issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
-    reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || '',
+    reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || activeReporter,
     tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
-    reporterKendala: data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || '',
+    reporterKendala: data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || activeReporter,
     tanggalKendala: (data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date) ? (String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).includes('T') ? String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split('T')[0] : String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split(' ')[0]) : todayDateStr,
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
@@ -12427,6 +12449,20 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isPendingStatus = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
       const isKendalaStatus = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
 
+      const finalInlineRepPending = isPendingStatus 
+        ? (payload.reporterPending || payload.reporter_pending || activeReporter) 
+        : null;
+      const finalInlineTglPending = isPendingStatus 
+        ? (payload.tanggalPending || payload.tanggal_pending || todayDateStr) 
+        : null;
+
+      const finalInlineRepKendala = isKendalaStatus 
+        ? (payload.reporterKendala || payload.reporter_kendala || activeReporter) 
+        : null;
+      const finalInlineTglKendala = isKendalaStatus 
+        ? (payload.tanggalKendala || payload.tanggal_kendala || todayDateStr) 
+        : null;
+
       const updateData = {
         nomor_hp: payload.nomorHp,
         alamat: payload.alamat,
@@ -12444,11 +12480,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         petugas_ikr: payload.petugasIkr,
         catatan: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || null) : (payload.catatan || null),
         catatan_pending: isPendingStatus ? (payload.catatanPending || null) : null,
-        reporter_pending: isPendingStatus ? (payload.reporterPending || null) : null,
-        tanggal_pending: isPendingStatus ? (payload.tanggalPending || null) : null,
+        reporter_pending: finalInlineRepPending,
+        tanggal_pending: finalInlineTglPending,
         issue_kendala: isKendalaStatus ? (payload.issueKendala || null) : (isWaitingStatus ? null : (payload.issueKendala || null)),
-        tanggal_kendala: isKendalaStatus ? (payload.tanggalKendala || null) : null,
-        reporter_kendala: isKendalaStatus ? (payload.reporterKendala || null) : null,
+        tanggal_kendala: finalInlineTglKendala,
+        reporter_kendala: finalInlineRepKendala,
         tanggal_dismantle: isDismantleStatus ? (payload.tanggalDismantle || null) : null,
         reason_dismantle: isDismantleStatus ? (payload.reasonDismantle || null) : null
       };
@@ -12479,15 +12515,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         catatanWaiting: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || '') : (payload.catatanWaiting || ''),
         catatan: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || '') : (payload.catatan || ''),
         catatanPending: isPendingStatus ? (payload.catatanPending || '') : '',
-        reporterPending: isPendingStatus ? (payload.reporterPending || '') : '',
-        tanggalPending: isPendingStatus ? (payload.tanggalPending || '') : '',
-        reporter_pending: isPendingStatus ? (payload.reporterPending || '') : '',
-        tanggal_pending: isPendingStatus ? (payload.tanggalPending || '') : '',
+        reporterPending: isPendingStatus ? (finalInlineRepPending || '') : '',
+        tanggalPending: isPendingStatus ? (finalInlineTglPending || '') : '',
+        reporter_pending: isPendingStatus ? (finalInlineRepPending || '') : '',
+        tanggal_pending: isPendingStatus ? (finalInlineTglPending || '') : '',
         issueKendala: isWaitingStatus ? '' : (payload.issueKendala || ''),
-        reporterKendala: isKendalaStatus ? (payload.reporterKendala || '') : '',
-        tanggalKendala: isKendalaStatus ? (payload.tanggalKendala || '') : '',
-        reporter_kendala: isKendalaStatus ? (payload.reporterKendala || '') : '',
-        tanggal_kendala: isKendalaStatus ? (payload.tanggalKendala || '') : ''
+        reporterKendala: isKendalaStatus ? (finalInlineRepKendala || '') : '',
+        tanggalKendala: isKendalaStatus ? (finalInlineTglKendala || '') : '',
+        reporter_kendala: isKendalaStatus ? (finalInlineRepKendala || '') : '',
+        tanggal_kendala: isKendalaStatus ? (finalInlineTglKendala || '') : ''
       };
       if (onLocalPelangganUpdate) onLocalPelangganUpdate([safeUpdatedLocal]);
       setInternalData(safeUpdatedLocal);
@@ -12949,11 +12985,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           status_aktivasi: formData.aktivasi || 'Belum',
           catatan: formData.catatan || '',
           catatan_pending: isPendingAdd ? (formData.catatanPending || '') : null,
-          reporter_pending: isPendingAdd ? (formData.reporterPending || null) : null,
-          tanggal_pending: isPendingAdd ? (formData.tanggalPending || null) : null,
+          reporter_pending: isPendingAdd ? (formData.reporterPending || activeReporter) : null,
+          tanggal_pending: isPendingAdd ? (formData.tanggalPending || todayDateStr) : null,
           issue_kendala: isKendalaAdd ? (formData.issueKendala || '') : (isPendingAdd ? null : (formData.issueKendala || '')),
-          reporter_kendala: isKendalaAdd ? (formData.reporterKendala || null) : null,
-          tanggal_kendala: isKendalaAdd ? (formData.tanggalKendala || null) : null,
+          reporter_kendala: isKendalaAdd ? (formData.reporterKendala || activeReporter) : null,
+          tanggal_kendala: isKendalaAdd ? (formData.tanggalKendala || todayDateStr) : null,
           tanggal_dismantle: isDismantleStatus ? (formData.tanggalDismantle || null) : null,
           reason_dismantle: isDismantleStatus ? (formData.reasonDismantle || null) : null,
           created_at: nowIso,
@@ -12967,7 +13003,17 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 ...formData,
                 idPelanggan: formattedId,
                 ikr: isPendingAdd ? 'Pending' : (isKendalaAdd ? 'Kendala' : 'Belum'),
-                aktivasi: formData.aktivasi || 'Belum'
+                aktivasi: formData.aktivasi || 'Belum',
+                catatanPending: isPendingAdd ? (formData.catatanPending || '') : '',
+                reporterPending: isPendingAdd ? (formData.reporterPending || activeReporter) : '',
+                tanggalPending: isPendingAdd ? (formData.tanggalPending || todayDateStr) : '',
+                reporter_pending: isPendingAdd ? (formData.reporterPending || activeReporter) : '',
+                tanggal_pending: isPendingAdd ? (formData.tanggalPending || todayDateStr) : '',
+                issueKendala: isKendalaAdd ? (formData.issueKendala || '') : '',
+                reporterKendala: isKendalaAdd ? (formData.reporterKendala || activeReporter) : '',
+                tanggalKendala: isKendalaAdd ? (formData.tanggalKendala || todayDateStr) : '',
+                reporter_kendala: isKendalaAdd ? (formData.reporterKendala || activeReporter) : '',
+                tanggal_kendala: isKendalaAdd ? (formData.tanggalKendala || todayDateStr) : ''
               }]);
             }
           } catch (e) { console.error(e); }
@@ -13044,6 +13090,32 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isPendingUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
       const isKendalaUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
 
+      const oldStatusUpper = String(getGlobalStatusStr(data || {})).toUpperCase();
+      const isPendingChanged = isPendingUpdate && (
+        oldStatusUpper !== 'PENDING' ||
+        String(updatePayload.catatanPending || '').trim() !== String(data?.catatanPending || data?.catatan_pending || '').trim() ||
+        (!data?.reporterPending && !data?.reporter_pending)
+      );
+      const isKendalaChanged = isKendalaUpdate && (
+        oldStatusUpper !== 'KENDALA' ||
+        String(updatePayload.issueKendala || '').trim() !== String(data?.issueKendala || data?.issue_kendala || '').trim() ||
+        (!data?.reporterKendala && !data?.reporter_kendala)
+      );
+
+      const finalReporterPending = isPendingUpdate 
+        ? (updatePayload.reporterPending || (isPendingChanged ? activeReporter : (data?.reporterPending || data?.reporter_pending || activeReporter)))
+        : null;
+      const finalTanggalPending = isPendingUpdate 
+        ? (updatePayload.tanggalPending || (isPendingChanged ? todayDateStr : (data?.tanggalPending || data?.tanggal_pending || todayDateStr)))
+        : null;
+
+      const finalReporterKendala = isKendalaUpdate 
+        ? (updatePayload.reporterKendala || (isKendalaChanged ? activeReporter : (data?.reporterKendala || data?.reporter_kendala || activeReporter)))
+        : null;
+      const finalTanggalKendala = isKendalaUpdate 
+        ? (updatePayload.tanggalKendala || (isKendalaChanged ? todayDateStr : (data?.tanggalKendala || data?.tanggal_kendala || todayDateStr)))
+        : null;
+
       const finalizeSuccessEdit = () => {
         try {
           const localPayload = {
@@ -13051,15 +13123,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             catatanWaiting: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatanWaiting || ''),
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatan || ''),
             catatanPending: isPendingUpdate ? (updatePayload.catatanPending || '') : '',
-            reporterPending: isPendingUpdate ? (updatePayload.reporterPending || '') : '',
-            tanggalPending: isPendingUpdate ? (updatePayload.tanggalPending || '') : '',
-            reporter_pending: isPendingUpdate ? (updatePayload.reporterPending || '') : '',
-            tanggal_pending: isPendingUpdate ? (updatePayload.tanggalPending || '') : '',
+            reporterPending: isPendingUpdate ? (finalReporterPending || '') : '',
+            tanggalPending: isPendingUpdate ? (finalTanggalPending || '') : '',
+            reporter_pending: isPendingUpdate ? (finalReporterPending || '') : '',
+            tanggal_pending: isPendingUpdate ? (finalTanggalPending || '') : '',
             issueKendala: isKendalaUpdate ? (updatePayload.issueKendala || '') : (isWaitingUpdate ? '' : (updatePayload.issueKendala || '')),
-            reporterKendala: isKendalaUpdate ? (updatePayload.reporterKendala || '') : '',
-            tanggalKendala: isKendalaUpdate ? (updatePayload.tanggalKendala || '') : '',
-            reporter_kendala: isKendalaUpdate ? (updatePayload.reporterKendala || '') : '',
-            tanggal_kendala: isKendalaUpdate ? (updatePayload.tanggalKendala || '') : ''
+            reporterKendala: isKendalaUpdate ? (finalReporterKendala || '') : '',
+            tanggalKendala: isKendalaUpdate ? (finalTanggalKendala || '') : '',
+            reporter_kendala: isKendalaUpdate ? (finalReporterKendala || '') : '',
+            tanggal_kendala: isKendalaUpdate ? (finalTanggalKendala || '') : ''
           };
           if (onLocalPelangganUpdate) onLocalPelangganUpdate([{ ...data, ...localPayload }]);
         } catch (e) { console.error(e); }
@@ -13096,11 +13168,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             petugas_ikr: updatePayload.petugasIkr,
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || null) : (updatePayload.catatan || null),
             catatan_pending: isPendingUpdate ? (updatePayload.catatanPending || null) : null,
-            reporter_pending: isPendingUpdate ? (updatePayload.reporterPending || null) : null,
-            tanggal_pending: isPendingUpdate ? (updatePayload.tanggalPending || null) : null,
+            reporter_pending: finalReporterPending,
+            tanggal_pending: finalTanggalPending,
             issue_kendala: isKendalaUpdate ? (updatePayload.issueKendala || null) : (isWaitingUpdate ? null : (updatePayload.issueKendala || null)),
-            tanggal_kendala: isKendalaUpdate ? (updatePayload.tanggalKendala || null) : null,
-            reporter_kendala: isKendalaUpdate ? (updatePayload.reporterKendala || null) : null,
+            tanggal_kendala: finalTanggalKendala,
+            reporter_kendala: finalReporterKendala,
             tanggal_dismantle: isDismantleStatus ? (updatePayload.tanggalDismantle || null) : null,
             reason_dismantle: isDismantleStatus ? (updatePayload.reasonDismantle || null) : null
           };
@@ -13618,16 +13690,28 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     {currentNormStatus === 'PENDING' ? (
                       <>
                         <div className="animate-fade">
-                          <label className="text-[11px] font-bold text-blue-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
-                            <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
-                          </label>
+                          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                            <label className="text-[11px] font-bold text-blue-600 flex items-center gap-1.5 uppercase tracking-wider">
+                              <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
+                            </label>
+                            {activeReporter && formData.reporterPending !== activeReporter && (
+                              <button
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, reporterPending: activeReporter, tanggalPending: todayDateStr }))}
+                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-100/70 hover:bg-blue-200 px-2 py-0.5 rounded transition-all cursor-pointer"
+                                title="Klik untuk memakai nama akun Anda yang sedang login"
+                              >
+                                Gunakan Akun Saya ({activeReporter})
+                              </button>
+                            )}
+                          </div>
                           <input
                             type="text"
                             name="reporterPending"
                             value={formData.reporterPending || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder="Cth: @nurrosyid_wp..."
+                            placeholder={`Cth: ${activeReporter}...`}
                             className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50"
                           />
                         </div>
@@ -13648,16 +13732,28 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     ) : currentNormStatus === 'KENDALA' ? (
                       <>
                         <div className="animate-fade">
-                          <label className="text-[11px] font-bold text-rose-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
-                            <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
-                          </label>
+                          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                            <label className="text-[11px] font-bold text-rose-600 flex items-center gap-1.5 uppercase tracking-wider">
+                              <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
+                            </label>
+                            {activeReporter && formData.reporterKendala !== activeReporter && (
+                              <button
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, reporterKendala: activeReporter, tanggalKendala: todayDateStr }))}
+                                className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-100/70 hover:bg-rose-200 px-2 py-0.5 rounded transition-all cursor-pointer"
+                                title="Klik untuk memakai nama akun Anda yang sedang login"
+                              >
+                                Gunakan Akun Saya ({activeReporter})
+                              </button>
+                            )}
+                          </div>
                           <input
                             type="text"
                             name="reporterKendala"
                             value={formData.reporterKendala || ''}
                             onChange={handleInputChange}
                             disabled={isSaving}
-                            placeholder="Cth: @tyyexo..."
+                            placeholder={`Cth: ${activeReporter}...`}
                             className="w-full p-2.5 bg-rose-50/70 border border-rose-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-rose-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50"
                           />
                         </div>
@@ -13740,7 +13836,21 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                             key={i}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setFormData(prev => ({ ...prev, aktivasi: opt.value }));
+                              setFormData(prev => {
+                                const updated = { ...prev, aktivasi: opt.value };
+                                if (opt.value === 'Pending') {
+                                  if (!updated.reporterPending || updated.reporterPending === '-') {
+                                    updated.reporterPending = activeReporter;
+                                  }
+                                  updated.tanggalPending = updated.tanggalPending || todayDateStr;
+                                } else if (opt.value === 'Kendala') {
+                                  if (!updated.reporterKendala || updated.reporterKendala === '-') {
+                                    updated.reporterKendala = activeReporter;
+                                  }
+                                  updated.tanggalKendala = updated.tanggalKendala || todayDateStr;
+                                }
+                                return updated;
+                              });
                               setIsStatusOpen(false);
                             }}
                             className="px-4 py-3 cursor-pointer transition-colors flex items-center justify-between hover:bg-slate-50 group/opt"
@@ -17814,7 +17924,7 @@ function MassDeleteModal({ selectedData, onClose, onLocalPelangganDelete }) {
 // ==========================================
 // HALAMAN 2: DATABASE & MANAJEMEN PELANGGAN
 // ==========================================
-function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], poReleaseData = [], onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, onLocalWoDispatchAdd, onLocalWoDispatchDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false }) {
+function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], poReleaseData = [], onRefresh, onGoToCoverage, onGoToHistory, onLocalPelangganUpdate, onLocalVisitUpdate, onLocalPelangganDelete, onLocalWoDispatchAdd, onLocalWoDispatchDelete, petugasList, initialStatusFilter = '', initialStationFilter = '', isLoading = false, currentUser }) {
   const isPageLoading = Boolean(isLoading || !pelangganData || (Array.isArray(pelangganData) && pelangganData.length === 0 && isLoading));
 
   // Map WO Dispatch aktif (belum selesai) per ID Pelanggan
@@ -20646,6 +20756,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             petugasList={petugasList}
             odpData={odpData}
             detailPoData={poReleaseData || []}
+            currentUser={currentUser}
           />
         )}
 
