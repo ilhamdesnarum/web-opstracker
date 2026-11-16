@@ -19985,9 +19985,15 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
                     const tglAkt = formatDateDisplay(rawAkt);
                     const repAkt = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                    const noteAkt = item.kabelPrecon
-                      ? `Kabel Precon: ${item.kabelPrecon}${String(item.kabelPrecon).toLowerCase().endsWith('m') ? '' : 'm'}`
-                      : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan aktif & terpasang');
+                    const rawOdp = (item.odpAktual || item.odp || item.kodeOdp || '').trim();
+                    const portOdp = String(item.portOdp || item.port || '').trim();
+                    let noteAkt = 'ODP: -';
+                    if (rawOdp && rawOdp !== '-') {
+                      const odpLabel = rawOdp.toUpperCase().startsWith('ODP') ? rawOdp : `ODP: ${rawOdp}`;
+                      noteAkt = portOdp && portOdp !== '-' ? `${odpLabel} (Port ${portOdp})` : odpLabel;
+                    } else if (item.catatan && item.catatan !== item.alamat) {
+                      noteAkt = `ODP: - • ${item.catatan}`;
+                    }
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-emerald-950 bg-emerald-50 border border-emerald-200 p-2 rounded-md ml-6" title={noteAkt}>
@@ -20589,9 +20595,15 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
                             const tglAkt = formatDateDisplay(rawAkt);
                             const repAkt = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                            const noteAkt = item.kabelPrecon
-                              ? `Kabel Precon: ${item.kabelPrecon}${String(item.kabelPrecon).toLowerCase().endsWith('m') ? '' : 'm'}`
-                              : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan aktif & terpasang');
+                            const rawOdp = (item.odpAktual || item.odp || item.kodeOdp || '').trim();
+                            const portOdp = String(item.portOdp || item.port || '').trim();
+                            let noteAkt = 'ODP: -';
+                            if (rawOdp && rawOdp !== '-') {
+                              const odpLabel = rawOdp.toUpperCase().startsWith('ODP') ? rawOdp : `ODP: ${rawOdp}`;
+                              noteAkt = portOdp && portOdp !== '-' ? `${odpLabel} (Port ${portOdp})` : odpLabel;
+                            } else if (item.catatan && item.catatan !== item.alamat) {
+                              noteAkt = `ODP: - • ${item.catatan}`;
+                            }
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
