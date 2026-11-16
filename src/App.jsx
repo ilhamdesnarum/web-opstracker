@@ -19810,34 +19810,59 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             let umurWoStr = '';
             let isWoLama = false;
             let waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
-            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
-              const stdDate = standardizeDate(item.tanggalRegistrasi);
-              if (stdDate) {
-                const regDate = new Date(stdDate);
-                if (!isNaN(regDate.getTime())) {
-                  const today = new Date();
-                  const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                  const regDateZero = new Date(regDate.getFullYear(), regDate.getMonth(), regDate.getDate());
-                  const diffMs = todayZero - regDateZero;
-                  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                  if (diffDays >= 0) {
-                    if (diffDays === 0) {
-                      const rawDate = new Date(item.tanggalRegistrasi);
-                      if (!isNaN(rawDate.getTime())) {
-                        const diffHours = Math.max(0, Math.floor((today - rawDate) / (1000 * 60 * 60)));
-                        umurWoStr = `${diffHours} Jam`;
-                      } else {
-                        umurWoStr = `0 Jam`;
-                      }
-                      waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
-                    } else if (diffDays <= 2) {
-                      umurWoStr = `${diffDays} Hari`;
-                      waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
-                    } else {
-                      umurWoStr = `${diffDays} Hari`;
-                      waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
-                    }
-                    isWoLama = diffDays >= 3;
+            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (item.tanggalRegistrasi || item.createdAt)) {
+              let rawDateObj = null;
+              const candidates = [item.tanggalRegistrasi, item.createdAt].filter(Boolean);
+              for (const c of candidates) {
+                const str = String(c).trim();
+                const mDmy = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                if (mDmy) {
+                  const [, d, mo, y, h = 0, mi = 0, sec = 0] = mDmy;
+                  const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h || 0), Number(mi || 0), Number(sec || 0));
+                  if (!isNaN(dt.getTime())) {
+                    rawDateObj = dt;
+                    if (mDmy[4] !== undefined) break;
+                  }
+                }
+                const mYmd = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                if (mYmd) {
+                  const [, y, mo, d, h = 0, mi = 0, sec = 0] = mYmd;
+                  const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h || 0), Number(mi || 0), Number(sec || 0));
+                  if (!isNaN(dt.getTime())) {
+                    rawDateObj = dt;
+                    if (mYmd[4] !== undefined) break;
+                  }
+                }
+                const dt = new Date(str);
+                if (!isNaN(dt.getTime())) {
+                  rawDateObj = dt;
+                  if (str.includes(':') || str.includes('T')) break;
+                }
+              }
+
+              if (rawDateObj) {
+                const now = new Date();
+                const elapsedMs = Math.max(0, now.getTime() - rawDateObj.getTime());
+                const totalHours = Math.floor(elapsedMs / (1000 * 60 * 60));
+
+                if (totalHours < 24) {
+                  // Kurang dari 1 hari (< 24 jam) -> HIJAU
+                  umurWoStr = `${totalHours} Jam`;
+                  waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
+                  isWoLama = false;
+                } else {
+                  // 24 jam ke atas -> tampil dalam Hari
+                  const totalDays = Math.floor(totalHours / 24);
+                  if (totalDays <= 2) {
+                    // 1 s/d 2 hari (24 - 71 jam) -> OREN
+                    umurWoStr = `${totalDays} Hari`;
+                    waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
+                    isWoLama = false;
+                  } else {
+                    // Lebih dari 2 hari (>= 72 jam / 3 hari ke atas) -> MERAH
+                    umurWoStr = `${totalDays} Hari`;
+                    waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
+                    isWoLama = true;
                   }
                 }
               }
@@ -20338,34 +20363,59 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 let umurWoStr = '';
                 let isWoLama = false;
                 let waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
-                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
-                  const stdDate = standardizeDate(item.tanggalRegistrasi);
-                  if (stdDate) {
-                    const regDate = new Date(stdDate);
-                    if (!isNaN(regDate.getTime())) {
-                      const today = new Date();
-                      const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                      const regDateZero = new Date(regDate.getFullYear(), regDate.getMonth(), regDate.getDate());
-                      const diffMs = todayZero - regDateZero;
-                      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                      if (diffDays >= 0) {
-                        if (diffDays === 0) {
-                          const rawDate = new Date(item.tanggalRegistrasi);
-                          if (!isNaN(rawDate.getTime())) {
-                            const diffHours = Math.max(0, Math.floor((today - rawDate) / (1000 * 60 * 60)));
-                            umurWoStr = `${diffHours} Jam`;
-                          } else {
-                            umurWoStr = `0 Jam`;
-                          }
-                          waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
-                        } else if (diffDays <= 2) {
-                          umurWoStr = `${diffDays} Hari`;
-                          waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
-                        } else {
-                          umurWoStr = `${diffDays} Hari`;
-                          waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
-                        }
-                        isWoLama = diffDays >= 3;
+                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (item.tanggalRegistrasi || item.createdAt)) {
+                  let rawDateObj = null;
+                  const candidates = [item.tanggalRegistrasi, item.createdAt].filter(Boolean);
+                  for (const c of candidates) {
+                    const str = String(c).trim();
+                    const mDmy = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                    if (mDmy) {
+                      const [, d, mo, y, h = 0, mi = 0, sec = 0] = mDmy;
+                      const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h || 0), Number(mi || 0), Number(sec || 0));
+                      if (!isNaN(dt.getTime())) {
+                        rawDateObj = dt;
+                        if (mDmy[4] !== undefined) break;
+                      }
+                    }
+                    const mYmd = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                    if (mYmd) {
+                      const [, y, mo, d, h = 0, mi = 0, sec = 0] = mYmd;
+                      const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h || 0), Number(mi || 0), Number(sec || 0));
+                      if (!isNaN(dt.getTime())) {
+                        rawDateObj = dt;
+                        if (mYmd[4] !== undefined) break;
+                      }
+                    }
+                    const dt = new Date(str);
+                    if (!isNaN(dt.getTime())) {
+                      rawDateObj = dt;
+                      if (str.includes(':') || str.includes('T')) break;
+                    }
+                  }
+
+                  if (rawDateObj) {
+                    const now = new Date();
+                    const elapsedMs = Math.max(0, now.getTime() - rawDateObj.getTime());
+                    const totalHours = Math.floor(elapsedMs / (1000 * 60 * 60));
+
+                    if (totalHours < 24) {
+                      // Kurang dari 1 hari (< 24 jam) -> HIJAU
+                      umurWoStr = `${totalHours} Jam`;
+                      waitingBadgeClass = 'bg-emerald-100/90 text-emerald-800 border-emerald-300';
+                      isWoLama = false;
+                    } else {
+                      // 24 jam ke atas -> tampil dalam Hari
+                      const totalDays = Math.floor(totalHours / 24);
+                      if (totalDays <= 2) {
+                        // 1 s/d 2 hari (24 - 71 jam) -> OREN
+                        umurWoStr = `${totalDays} Hari`;
+                        waitingBadgeClass = 'bg-amber-100/90 text-amber-800 border-amber-300';
+                        isWoLama = false;
+                      } else {
+                        // Lebih dari 2 hari (>= 72 jam / 3 hari ke atas) -> MERAH
+                        umurWoStr = `${totalDays} Hari`;
+                        waitingBadgeClass = 'bg-rose-100/90 text-rose-700 border-rose-200';
+                        isWoLama = true;
                       }
                     }
                   }
