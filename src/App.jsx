@@ -19868,87 +19868,22 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   </div>
 
                   <div className="flex flex-col items-end gap-1 shrink-0">
-                    {displayStatusStr === 'READY TO DISMANTLE' ? (
-                      (() => {
-                        const woInfo = getWoDismantleInfo(item);
-                        return (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                              {displayStatusStr}
-                            </span>
-                            {woInfo?.hasWo && (
-                              <span className="text-[8px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-0.5 max-w-[130px] truncate" title={`IKR : ${woInfo.teknisi}`}>
-                                <Icon name="wrench" size={8} className="text-blue-500 shrink-0" />
-                                IKR : {woInfo.teknisi}
-                              </span>
-                            )}
-                            {(Number(item.telatBayarHari) > 0) && (
-                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
-                                <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                          {displayStatusStr}
-                        </span>
-                        {umurWoStr && (
-                          <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>
-                            <Icon name="clock" size={8} /> {umurWoStr}
-                          </span>
-                        )}
-                        {displayStatusStr === 'SUSPEND' && (
-                          <>
-                            {(Number(item.telatBayarHari) > 0) && (
-                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
-                                <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
-                              </span>
-                            )}
-                            {item.tanggalBerakhir && (
-                              <span className="text-[8px] font-medium text-slate-400">
-                                Exp: {formatDateDisplay(item.tanggalBerakhir)}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </>
+                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
+                      {displayStatusStr}
+                    </span>
+
+                    {/* INDIKATOR UMUR WO */}
+                    {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING' || displayStatusStr === 'KENDALA') && (
+                      <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
+                        <Icon name="clock" size={8} /> {umurWoStr}
+                      </span>
                     )}
-                    {(displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') && (
-                      <div className="flex flex-col items-end gap-1 mt-0.5">
-                        {(() => {
-                          const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
-                          const tglAkt = formatDateDisplay(rawAkt);
-                          return tglAkt ? (
-                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded" title={`Tanggal Aktivasi: ${tglAkt}`}>
-                              <Icon name="calendar" size={8} className="text-emerald-500" /> Aktivasi: {tglAkt}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded" title="Tanggal Aktivasi tidak tercatat">
-                              <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Aktivasi: -
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    )}
-                    {displayStatusStr === 'WAITING' && (
-                      <div className="flex flex-col items-end gap-1 mt-0.5">
-                        {(() => {
-                          const rawReg = item.tanggalRegistrasi || item.createdAt;
-                          const tglReg = formatDateDisplay(rawReg);
-                          return tglReg ? (
-                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded" title={`Tanggal Registrasi: ${tglReg}`}>
-                              <Icon name="calendar" size={8} className="text-amber-500" /> Registrasi: {tglReg}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded" title="Tanggal Registrasi tidak tercatat">
-                              <Icon name="calendar" size={8} className="text-slate-400" /> Tgl Registrasi: -
-                            </span>
-                          );
-                        })()}
-                      </div>
+
+                    {/* INDIKATOR TELAT BAYAR */}
+                    {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && (Number(item.telatBayarHari) > 0) && (
+                      <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" title="Jumlah Hari Keterlambatan Bayar">
+                        <Icon name="clock" size={8} className="text-rose-500" /> Telat {item.telatBayarHari}h
+                      </span>
                     )}
                   </div>
                 </div>
@@ -19957,10 +19892,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   {item.alamat || 'Alamat tidak tersedia'}
                 </div>
 
-                {/* Pending, Waiting, Kendala & Dismantled Mobile Row */}
+                {/* UNIFIED STATUS CARD (MOBILE) */}
                 {(() => {
-                  if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
-
+                  // 1. PENDING
                   if (displayStatusStr === 'PENDING') {
                     const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
                     const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
@@ -19977,7 +19911,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-medium not-italic">
-                          <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repPending || '-'}`}>
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Pelapor: ${repPending || '-'}`}>
                             <Icon name="user" size={9} className="text-blue-500 shrink-0" />
                             <span className="truncate">{repPending || '-'}</span>
                           </span>
@@ -19990,21 +19924,40 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     );
                   }
 
-                  if (displayStatusStr === 'WAITING') {
-                    const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                    if (!noteWaiting) return null;
+                  // 2. KENDALA
+                  if (displayStatusStr === 'KENDALA') {
+                    const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
+                    const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
+                    const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
+                    const displayKendalaText = item.issueKendala || issue || 'Terkendala di lapangan';
+                    const cleanKendalaText = (displayKendalaText || '').replace(/^kendala\s*[:\-]\s*/i, '').trim();
+
                     return (
-                      <div className="flex items-start gap-1.5 text-[9px] font-medium text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded-md ml-6">
-                        <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
-                        <span className="whitespace-normal leading-tight italic">
-                          <span className="font-bold text-amber-800">CATATAN:</span> {noteWaiting}
-                        </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50 border border-rose-200 p-2 rounded-md ml-6">
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic text-rose-950 font-medium">
+                            {cleanKendalaText || 'Terkendala di lapangan'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70 text-[8.5px] text-rose-700 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Pelapor: ${repKendala || '-'}`}>
+                            <Icon name="user" size={9} className="text-rose-500 shrink-0" />
+                            <span className="truncate">{repKendala || '-'}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-rose-600" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
+                            <Icon name="calendar" size={9} className="text-rose-500 shrink-0" />
+                            <span>{tglKendalaFormatted || '-'}</span>
+                          </span>
+                        </div>
                       </div>
                     );
                   }
 
+                  // 3. DISMANTLED
                   if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') {
                     const tglDismantleFormatted = formatDateDisplay(dismantleDate);
+
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-slate-800 bg-slate-50 border border-slate-200 p-2 rounded-md ml-6" title={dismantleReason || 'Dismantled'}>
                         <div className="flex items-start gap-1.5">
@@ -20014,7 +19967,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 text-[8.5px] text-slate-600 font-medium not-italic">
-                          <span className="flex items-center gap-1 truncate" title={`Petugas / Teknisi: ${dismantleRep || '-'}`}>
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas / Teknisi: ${dismantleRep || '-'}`}>
                             <Icon name="user" size={9} className="text-slate-400 shrink-0" />
                             <span className="truncate">{dismantleRep || '-'}</span>
                           </span>
@@ -20027,72 +19980,140 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     );
                   }
 
-                  if (displayStatusStr === 'WAITING') {
-                    const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                    if (!noteWaiting) return null;
+                  // 4. AKTIF
+                  if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') {
+                    const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+                    const tglAkt = formatDateDisplay(rawAkt);
+                    const repAkt = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                    const noteAkt = item.kabelPrecon
+                      ? `Kabel Precon: ${item.kabelPrecon}${String(item.kabelPrecon).toLowerCase().endsWith('m') ? '' : 'm'}`
+                      : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan aktif & terpasang');
+
                     return (
-                      <div className="flex items-start gap-1.5 text-[9px] font-medium text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded-md ml-6">
-                        <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
-                        <span className="whitespace-normal leading-tight italic">
-                          <span className="font-bold text-amber-800">CATATAN:</span> {noteWaiting}
-                        </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-emerald-950 bg-emerald-50 border border-emerald-200 p-2 rounded-md ml-6" title={noteAkt}>
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="check-circle" size={10} className="text-emerald-600 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic text-emerald-950 font-medium">
+                            {noteAkt}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-emerald-200/70 text-[8.5px] text-emerald-700 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas: ${repAkt}`}>
+                            <Icon name="user" size={9} className="text-emerald-500 shrink-0" />
+                            <span className="truncate">{repAkt}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-emerald-600" title={`Tanggal Aktivasi: ${tglAkt || '-'}`}>
+                            <Icon name="calendar" size={9} className="text-emerald-500 shrink-0" />
+                            <span>{tglAkt ? `Akt: ${tglAkt}` : '-'}</span>
+                          </span>
+                        </div>
                       </div>
                     );
                   }
 
-                  const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
-                  const issueText = issue && issue !== item.alamat ? issue : '';
-                  const isKendala = displayStatusStr === 'KENDALA' || hasKendala || issueText;
-                  if (!isKendala) return null;
+                  // 5. SUSPEND
+                  if (displayStatusStr === 'SUSPEND') {
+                    const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                    const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                    const noteSuspend = Number(item.telatBayarHari) > 0
+                      ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
+                      : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan di-suspend / isolir');
 
-                  const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
-                  const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
-                  const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
-                  const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
-                  const cleanKendalaText = (displayKendalaText || '').replace(/^kendala\s*[:\-]\s*/i, '').trim();
+                    return (
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6" title={noteSuspend}>
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="pause-circle" size={10} className="text-orange-600 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic text-orange-950 font-medium">
+                            {noteSuspend}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-orange-200/70 text-[8.5px] text-orange-800 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas: ${repSuspend}`}>
+                            <Icon name="user" size={9} className="text-orange-500 shrink-0" />
+                            <span className="truncate">{repSuspend}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-orange-700" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                            <Icon name="calendar" size={9} className="text-orange-500 shrink-0" />
+                            <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // 6. READY TO DISMANTLE
+                  if (displayStatusStr === 'READY TO DISMANTLE') {
+                    const woDismantle = getWoDismantleInfo(item);
+                    const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                    const repRtd = woDismantle?.teknisi || item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                    const noteRtd = woDismantle?.hasWo
+                      ? `WO Dismantle: ${woDismantle.teknisi}`
+                      : 'Belum Ada WO Dismantle';
+
+                    return (
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteRtd}>
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="package-minus" size={10} className="text-amber-700 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic text-amber-950 font-medium">
+                            {noteRtd}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70 text-[8.5px] text-amber-800 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas / Teknisi: ${repRtd}`}>
+                            <Icon name="user" size={10} className="text-amber-600 shrink-0" />
+                            <span className="truncate">{repRtd}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-amber-800" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                            <Icon name="calendar" size={10} className="text-amber-600 shrink-0" />
+                            <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // 7. WAITING
+                  const rawReg = item.tanggalRegistrasi || item.createdAt;
+                  const tglReg = formatDateDisplay(rawReg);
+                  const repWaiting = item.petugasIkr || item.petugasAktivasi || (item.namaSales && item.namaSales !== '-' ? item.namaSales : 'Daftar Mandiri');
+                  const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || 'Menunggu jadwal pasang';
 
                   return (
-                    <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50 border border-rose-200 p-2 rounded-md ml-6">
+                    <div className="flex flex-col gap-1 text-[9px] font-medium text-amber-950 bg-amber-50 border border-amber-200 p-2 rounded-md ml-6" title={noteWaiting}>
                       <div className="flex items-start gap-1.5">
-                        <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                        <span className="whitespace-normal leading-tight italic text-rose-950 font-medium">
-                          {cleanKendalaText || 'Terkendala di lapangan'}
+                        <Icon name="clock" size={10} className="text-amber-600 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal leading-tight italic text-amber-950 font-medium">
+                          {noteWaiting}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70 text-[8.5px] text-rose-700 font-medium not-italic">
-                        <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repKendala || '-'}`}>
-                          <Icon name="user" size={9} className="text-rose-500 shrink-0" />
-                          <span className="truncate">{repKendala || '-'}</span>
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70 text-[8.5px] text-amber-800 font-medium not-italic">
+                        <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas / Sales: ${repWaiting}`}>
+                          <Icon name="user" size={10} className="text-amber-600 shrink-0" />
+                          <span className="truncate">{repWaiting}</span>
                         </span>
-                        <span className="flex items-center gap-1 shrink-0 font-semibold text-rose-600" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
-                          <Icon name="calendar" size={9} className="text-rose-500 shrink-0" />
-                          <span>{tglKendalaFormatted || '-'}</span>
+                        <span className="flex items-center gap-1 shrink-0 font-semibold text-amber-800" title={`Tanggal Registrasi: ${tglReg || '-'}`}>
+                          <Icon name="calendar" size={10} className="text-amber-600 shrink-0" />
+                          <span>{tglReg ? `Reg: ${tglReg}` : '-'}</span>
                         </span>
                       </div>
                     </div>
                   );
                 })()}
 
-                {/* Petugas / Active WO Badge (Mobile) */}
+                {/* Active WO Badge (Mobile) */}
                 {(() => {
                   const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
                   if (activeDispatch) {
                     const techUsername = activeDispatch.username || (activeDispatch.petugas?.startsWith('@') ? activeDispatch.petugas : `@${activeDispatch.petugas}`);
                     const badgeProps = getWoDispatchBadgeProps(activeDispatch, item);
-                    return (
-                      <div className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded ml-6 w-fit shadow-2xs border ${badgeProps.badgeClass}`} title={badgeProps.title}>
-                        <Icon name={badgeProps.icon} size={10} className={`${badgeProps.iconClass} shrink-0`} />
-                        <span>WO: {techUsername}</span>
-                      </div>
-                    );
-                  }
-                  if (item.petugasAktivasi || item.petugasIkr) {
-                    return (
-                      <div className="flex items-center text-[9px] text-slate-400 pl-6" title={`Petugas: ${item.petugasAktivasi || item.petugasIkr}`}>
-                        <Icon name="user" size={9} className="mr-1 shrink-0" />
-                        <span className="truncate max-w-[180px]">{item.petugasAktivasi || item.petugasIkr}</span>
-                      </div>
-                    );
+                    if (badgeProps) {
+                      return (
+                        <div className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded ml-6 w-fit shadow-2xs border ${badgeProps.badgeClass}`} title={badgeProps.title}>
+                          <Icon name={badgeProps.icon} size={10} className={`${badgeProps.iconClass} shrink-0`} />
+                          <span>WO: {techUsername}</span>
+                        </div>
+                      );
+                    }
                   }
                   return null;
                 })()}
@@ -20388,17 +20409,157 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 min-w-[200px] max-w-[260px]">
-                      {(displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') ? (
-                        <div className="flex flex-col items-start gap-1">
-                          {/* 1. STATUS DISMANTLED */}
+                    <td className="px-4 py-3 min-w-[220px] max-w-[290px]">
+                      <div className="flex flex-col items-start gap-1">
+                        {/* BARIS 1: BADGES STATUS & UMUR WO / TELAT / WO DISPATCH */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
                             {displayStatusStr}
                           </span>
 
-                          {/* 2. CARD DISMANTLED (STANDAR DENGAN PENDING & KENDALA) */}
+                          {/* INDIKATOR UMUR WO (Waiting, Pending, Kendala) */}
+                          {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING' || displayStatusStr === 'KENDALA') && (
+                            <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
+                              <Icon name="clock" size={10} />
+                              {umurWoStr}
+                            </span>
+                          )}
+
+                          {/* INDIKATOR TELAT BAYAR (Suspend & Ready to Dismantle) */}
+                          {(displayStatusStr === 'SUSPEND' || displayStatusStr === 'READY TO DISMANTLE') && Number(item.telatBayarHari) > 0 && (
+                            <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
+                              <Icon name="clock" size={9} className="text-rose-500" />
+                              Telat {item.telatBayarHari} Hari
+                            </span>
+                          )}
+
+                          {/* ACTIVE WO DISPATCH BADGE (Jika ada WO aktif yang sedang berjalan) */}
                           {(() => {
+                            const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
+                            if (!activeDispatch) return null;
+                            const techUsername = activeDispatch.username || (activeDispatch.petugas?.startsWith('@') ? activeDispatch.petugas : `@${activeDispatch.petugas}`);
+                            const badgeProps = getWoDispatchBadgeProps(activeDispatch, item);
+                            if (!badgeProps) return null;
+                            return (
+                              <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold border shadow-2xs ${badgeProps.badgeClass}`} title={badgeProps.title}>
+                                <Icon name={badgeProps.icon} size={9} className={`${badgeProps.iconClass} shrink-0`} />
+                                <span className="truncate max-w-[110px]">WO: {techUsername}</span>
+                              </div>
+                            );
+                          })()}
+
+                          {/* INDIKATOR KENDALA POPUP TRIGGER */}
+                          {displayStatusStr === 'KENDALA' && (
+                            <div className="relative flex items-center">
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenKendalaId(openKendalaId === item.idPelanggan ? null : item.idPelanggan);
+                                }}
+                                className={`p-1 rounded-full shadow-sm transition-colors cursor-pointer ${openKendalaId === item.idPelanggan ? 'bg-rose-500 text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-200 animate-pulse'}`}
+                                title="Lihat Rincian Kendala"
+                              >
+                                <Icon name="alert-triangle" size={12} />
+                              </div>
+
+                              {openKendalaId === item.idPelanggan && (
+                                <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-3 w-64 bg-white border border-rose-200 shadow-2xl rounded-xl p-4 z-50 animate-dropdown origin-right cursor-default">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setOpenKendalaId(null); }}
+                                    className="absolute top-2.5 right-2.5 p-1 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
+                                  >
+                                    <Icon name="x" size={14} />
+                                  </button>
+
+                                  <div className="text-xs font-bold text-rose-600 mb-2.5 flex items-center gap-1.5 border-b border-rose-50 pb-2 pr-6">
+                                    <Icon name="info" size={16} /> Laporan Kendala
+                                  </div>
+                                  <p className="text-xs text-slate-700 mb-4 leading-relaxed whitespace-normal break-words font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                    "{issue || 'Isi kendala tidak tercatat'}"
+                                  </p>
+                                  <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
+                                    <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
+                                    <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? formatDateDisplay(date) : '-'}</span>
+                                  </div>
+
+                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
+                                  <div className="absolute top-1/2 left-full transform -translate-y-1/2 ml-[1px] border-[6px] border-transparent border-l-rose-200 -z-10"></div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* BARIS 2: UNIFIED STATUS CARD (SERAGAM UNTUK SEMUA STATUS) */}
+                        {(() => {
+                          // 1. PENDING
+                          if (displayStatusStr === 'PENDING') {
+                            const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                            const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
+                            const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
+                            const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
+                            const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
+
+                            return (
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={cleanNotePending || 'Pending'}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-blue-950">
+                                      {cleanNotePending || 'Menunggu jadwal pasang'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-blue-200/70 text-[9px] text-blue-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repPending || '-'}`}>
+                                      <Icon name="user" size={10} className="text-blue-500 shrink-0" />
+                                      <span className="truncate">{repPending || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-blue-600 font-bold" title={`Tanggal: ${tglPendingFormatted || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-blue-500 shrink-0" />
+                                      <span>{tglPendingFormatted || '-'}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // 2. KENDALA
+                          if (displayStatusStr === 'KENDALA') {
+                            const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
+                            const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
+                            const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
+                            const displayKendalaText = item.issueKendala || issue || 'Terkendala di lapangan';
+                            const cleanKendalaText = (displayKendalaText || '').replace(/^kendala\s*[:\-]\s*/i, '').trim();
+
+                            return (
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg" title={cleanKendalaText || 'Terkendala'}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-rose-950">
+                                      {cleanKendalaText || 'Terkendala di lapangan'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-rose-200/70 text-[9px] text-rose-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repKendala || '-'}`}>
+                                      <Icon name="user" size={10} className="text-rose-500 shrink-0" />
+                                      <span className="truncate">{repKendala || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-rose-600 font-bold" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-rose-500 shrink-0" />
+                                      <span>{tglKendalaFormatted || '-'}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // 3. DISMANTLED
+                          if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE') {
                             const tglDismantleFormatted = formatDateDisplay(dismantleDate);
+
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
                                 <div className="flex flex-col gap-1 text-[10px] font-medium text-slate-800 bg-slate-50/90 border border-slate-200/80 p-2 rounded-lg" title={dismantleReason || 'Dismantled'}>
@@ -20421,281 +20582,136 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 </div>
                               </div>
                             );
-                          })()}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-start gap-1">
-                          {/* BARIS 1: BADGES STATUS & UMUR WO */}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {displayStatusStr === 'READY TO DISMANTLE' ? (
-                              <>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                                  READY TO DISMANTLE
-                                </span>
-                                {Number(item.telatBayarHari) > 0 && (
-                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                                    <Icon name="clock" size={9} className="text-rose-500" />
-                                    Telat {item.telatBayarHari} Hari
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                                  {displayStatusStr}
-                                </span>
+                          }
 
-                                {/* INDIKATOR UMUR WO */}
-                                {umurWoStr && (
-                                  <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
-                                    <Icon name="clock" size={10} />
-                                    {umurWoStr}
-                                  </span>
-                                )}
-
-                                {/* INDIKATOR TELAT BAYAR (Hanya untuk Suspend) */}
-                                {displayStatusStr === 'SUSPEND' && (
-                                  <>
-                                    {(Number(item.telatBayarHari) > 0) && (
-                                      <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold uppercase border bg-rose-50 text-rose-700 border-rose-200" title="Jumlah Hari Keterlambatan Bayar">
-                                        <Icon name="clock" size={9} className="text-rose-500" />
-                                        Telat {item.telatBayarHari} Hari
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                              </>
-                            )}
-
-                            {/* INDIKATOR KENDALA */}
-                            {displayStatusStr === 'KENDALA' && (
-                              <div className="relative flex items-center">
-                                <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenKendalaId(openKendalaId === item.idPelanggan ? null : item.idPelanggan);
-                                  }}
-                                  className={`p-1 rounded-full shadow-sm transition-colors cursor-pointer ${openKendalaId === item.idPelanggan ? 'bg-rose-500 text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-200 animate-pulse'}`}
-                                >
-                                  <Icon name="alert-triangle" size={12} />
-                                </div>
-
-                                {openKendalaId === item.idPelanggan && (
-                                  <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-3 w-64 bg-white border border-rose-200 shadow-2xl rounded-xl p-4 z-50 animate-dropdown origin-right cursor-default">
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setOpenKendalaId(null); }}
-                                      className="absolute top-2.5 right-2.5 p-1 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
-                                    >
-                                      <Icon name="x" size={14} />
-                                    </button>
-
-                                    <div className="text-xs font-bold text-rose-600 mb-2.5 flex items-center gap-1.5 border-b border-rose-50 pb-2 pr-6">
-                                      <Icon name="info" size={16} /> Laporan Kendala
-                                    </div>
-                                    <p className="text-xs text-slate-700 mb-4 leading-relaxed whitespace-normal break-words font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                                      "{issue || 'Isi kendala tidak tercatat'}"
-                                    </p>
-                                    <div className="text-[10px] text-slate-500 font-bold flex justify-between pt-1">
-                                      <span className="flex items-center truncate max-w-[120px]"><Icon name="user" size={12} className="mr-1.5 text-slate-400" /> {reporter || 'Sistem'}</span>
-                                      <span className="flex items-center"><Icon name="calendar" size={12} className="mr-1.5 text-slate-400" /> {date ? formatDateDisplay(date) : '-'}</span>
-                                    </div>
-
-                                    <div className="absolute top-1/2 left-full transform -translate-y-1/2 border-[6px] border-transparent border-l-white"></div>
-                                    <div className="absolute top-1/2 left-full transform -translate-y-1/2 ml-[1px] border-[6px] border-transparent border-l-rose-200 -z-10"></div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* BARIS 2: EXP & STATUS WO (IKR / Belum Ada WO Side by Side) */}
-                          {(displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'SUSPEND') && (() => {
-                            const isReadyToDismantle = displayStatusStr === 'READY TO DISMANTLE';
-                            const woDismantle = isReadyToDismantle ? getWoDismantleInfo(item) : null;
-                            const hasExp = Boolean(item.tanggalBerakhir);
-                            const hasWo = Boolean(woDismantle?.hasWo);
-
-                            if (!hasExp && !isReadyToDismantle) return null;
+                          // 4. AKTIF
+                          if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') {
+                            const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
+                            const tglAkt = formatDateDisplay(rawAkt);
+                            const repAkt = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                            const noteAkt = item.kabelPrecon
+                              ? `Kabel Precon: ${item.kabelPrecon}${String(item.kabelPrecon).toLowerCase().endsWith('m') ? '' : 'm'}`
+                              : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan aktif & terpasang');
 
                             return (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {hasExp && (
-                                  <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200 shrink-0" title="Tanggal Berakhir / Jatuh Tempo">
-                                    <Icon name="calendar" size={9} className="text-slate-400" />
-                                    Exp: {formatDateDisplay(item.tanggalBerakhir)}
-                                  </span>
-                                )}
-
-                                {isReadyToDismantle && (
-                                  hasWo ? (
-                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0" title={`IKR : ${woDismantle.teknisi}`}>
-                                      <Icon name="package-minus" size={9} className="text-blue-500 shrink-0" />
-                                      <span className="truncate max-w-[130px]">IKR : {woDismantle.teknisi}</span>
-                                    </div>
-                                  ) : (
-                                    <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold text-slate-600 bg-slate-100 border border-slate-200 shrink-0" title="Belum ada teknisi / WO dismantle">
-                                      Belum Ada WO
-                                    </span>
-                                  )
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          {/* BARIS 1.5: TANGGAL AKTIVASI (Untuk Pelanggan Aktif) */}
-                          {(displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') && (
-                            (() => {
-                              const rawAkt = item.tglAktivasi || item.timestampAktivasi || item.tglIkr;
-                              const tglAkt = formatDateDisplay(rawAkt);
-                              return tglAkt ? (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200" title={`Tanggal Aktivasi: ${tglAkt}`}>
-                                  <Icon name="calendar" size={9} className="text-emerald-500" />
-                                  Aktivasi: {tglAkt}
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Aktivasi tidak tercatat">
-                                  <Icon name="calendar" size={9} className="text-slate-400" />
-                                  Tgl Aktivasi: -
-                                </span>
-                              );
-                            })()
-                          )}
-
-                          {/* BARIS 1.6: TANGGAL REGISTRASI (Untuk Pelanggan Waiting / Belum Terpasang) */}
-                          {displayStatusStr === 'WAITING' && (
-                            (() => {
-                              const rawReg = item.tanggalRegistrasi || item.createdAt;
-                              const tglReg = formatDateDisplay(rawReg);
-                              return tglReg ? (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-amber-800 bg-amber-50 border border-amber-200" title={`Tanggal Registrasi: ${tglReg}`}>
-                                  <Icon name="calendar" size={9} className="text-amber-500" />
-                                  Registrasi: {tglReg}
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 flex items-center gap-1 rounded text-[8.5px] font-bold text-slate-500 bg-slate-50 border border-slate-200" title="Tanggal Registrasi tidak tercatat">
-                                  <Icon name="calendar" size={9} className="text-slate-400" />
-                                  Tgl Registrasi: -
-                                </span>
-                              );
-                            })()
-                          )}
-
-                          {/* BARIS 2: NOTE PENDING, WAITING, ATAU KENDALA DI BAWAH BADGE */}
-                          {(() => {
-                            if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
-
-                            // 1. Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass) beserta Pelapor & Tanggal
-                            if (displayStatusStr === 'PENDING') {
-                              const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                              const cleanNotePending = (notePending || '').replace(/^pending\s*[:\-]\s*/i, '').trim();
-                              const repPending = pendingRep || item.reporterPending || item.reporter_pending || '';
-                              const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || '';
-                              const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
-
-                              return (
-                                <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px]">
-                                  <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={cleanNotePending || 'Pending'}>
-                                    <div className="flex items-start gap-1.5">
-                                      <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
-                                      <span className="leading-snug font-medium italic line-clamp-2 break-words text-blue-950">
-                                        {cleanNotePending || 'Menunggu jadwal pasang'}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-blue-200/70 text-[9px] text-blue-700 font-semibold not-italic">
-                                      <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repPending || '-'}`}>
-                                        <Icon name="user" size={10} className="text-blue-500 shrink-0" />
-                                        <span className="truncate">{repPending || '-'}</span>
-                                      </span>
-                                      <span className="flex items-center gap-1 shrink-0 text-blue-600 font-bold" title={`Tanggal: ${tglPendingFormatted || '-'}`}>
-                                        <Icon name="calendar" size={10} className="text-blue-500 shrink-0" />
-                                        <span>{tglPendingFormatted || '-'}</span>
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            }
-
-                            // 2. Jika Status WAITING: Tampilkan Catatan Waiting (Warna Amber / Clock)
-                            if (displayStatusStr === 'WAITING') {
-                              const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                              if (!noteWaiting) return null;
-                              return (
-                                <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[260px]">
-                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-amber-900 bg-amber-50/90 border border-amber-200/80 px-2 py-1 rounded-md" title={noteWaiting}>
-                                    <Icon name="clock" size={12} className="text-amber-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-bold italic line-clamp-2 break-words">
-                                      <span className="font-extrabold text-amber-800">CATATAN:</span> {noteWaiting}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            }
-
-                            // 3. Jika Bukan PENDING & Bukan WAITING: Tampilkan Catatan Kendala (Warna Merah) beserta Pelapor & Tanggal
-                            const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
-                            const issueText = issue && issue !== item.alamat ? issue : '';
-                            const isKendala = displayStatusStr === 'KENDALA' || hasKendala || issueText;
-
-                            if (!isKendala || displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'SUSPEND') return null;
-
-                            const repKendala = reporter || item.reporterKendala || item.reporter_kendala || '';
-                            const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || '';
-                            const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
-                            const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
-                            const cleanKendalaText = (displayKendalaText || '').replace(/^kendala\s*[:\-]\s*/i, '').trim();
-
-                            return (
-                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px]">
-                                <div className="flex flex-col gap-1 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg" title={cleanKendalaText || 'Terkendala'}>
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-emerald-950 bg-emerald-50/90 border border-emerald-200/80 p-2 rounded-lg" title={noteAkt}>
                                   <div className="flex items-start gap-1.5">
-                                    <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-rose-950">
-                                      {cleanKendalaText || 'Terkendala di lapangan'}
+                                    <Icon name="check-circle" size={12} className="text-emerald-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-emerald-950">
+                                      {noteAkt}
                                     </span>
                                   </div>
-                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-rose-200/70 text-[9px] text-rose-700 font-semibold not-italic">
-                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repKendala || '-'}`}>
-                                      <Icon name="user" size={10} className="text-rose-500 shrink-0" />
-                                      <span className="truncate">{repKendala || '-'}</span>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-emerald-200/70 text-[9px] text-emerald-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas: ${repAkt}`}>
+                                      <Icon name="user" size={10} className="text-emerald-500 shrink-0" />
+                                      <span className="truncate">{repAkt}</span>
                                     </span>
-                                    <span className="flex items-center gap-1 shrink-0 text-rose-600 font-bold" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
-                                      <Icon name="calendar" size={10} className="text-rose-500 shrink-0" />
-                                      <span>{tglKendalaFormatted || '-'}</span>
+                                    <span className="flex items-center gap-1 shrink-0 text-emerald-600 font-bold" title={`Tanggal Aktivasi: ${tglAkt || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-emerald-500 shrink-0" />
+                                      <span>{tglAkt ? `Akt: ${tglAkt}` : '-'}</span>
                                     </span>
                                   </div>
                                 </div>
                               </div>
                             );
-                          })()}
+                          }
 
-                          {/* BARIS 3: PETUGAS (JIKA ADA) ATAU WO DISPATCH */}
-                          {(() => {
-                            const activeDispatch = item.activeWo || (activeWoMap && activeWoMap.get(String(item.idPelanggan || '').trim().toUpperCase()));
-                            const techUsername = activeDispatch ? (activeDispatch.username || (activeDispatch.petugas?.startsWith('@') ? activeDispatch.petugas : `@${activeDispatch.petugas}`)) : '';
-                            const badgeProps = activeDispatch ? getWoDispatchBadgeProps(activeDispatch, item) : null;
+                          // 5. SUSPEND
+                          if (displayStatusStr === 'SUSPEND') {
+                            const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                            const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                            const noteSuspend = Number(item.telatBayarHari) > 0
+                              ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
+                              : (item.catatan && item.catatan !== item.alamat ? item.catatan : 'Layanan di-suspend / isolir');
 
                             return (
-                              <div className="flex flex-col gap-1 mt-0.5">
-                                {activeDispatch && badgeProps && (
-                                  <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold border shadow-2xs w-fit ${badgeProps.badgeClass}`} title={badgeProps.title}>
-                                    <Icon name={badgeProps.icon} size={9} className={`${badgeProps.iconClass} shrink-0`} />
-                                    <span className="truncate max-w-[130px]">WO: {techUsername}</span>
-                                  </div>
-                                )}
-                                {!activeDispatch && (item.petugasAktivasi || item.petugasIkr) && (
-                                  <div className="flex items-center text-[10px] text-slate-400" title={`Petugas: ${item.petugasAktivasi || item.petugasIkr}`}>
-                                    <Icon name="user" size={10} className="mr-1 shrink-0" />
-                                    <span className="truncate max-w-[140px]">
-                                      {item.petugasAktivasi || item.petugasIkr}
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-orange-950 bg-orange-50/90 border border-orange-200/80 p-2 rounded-lg" title={noteSuspend}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="pause-circle" size={12} className="text-orange-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-orange-950">
+                                      {noteSuspend}
                                     </span>
                                   </div>
-                                )}
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-orange-200/70 text-[9px] text-orange-800 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas: ${repSuspend}`}>
+                                      <Icon name="user" size={10} className="text-orange-500 shrink-0" />
+                                      <span className="truncate">{repSuspend}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-orange-700 font-bold" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-orange-500 shrink-0" />
+                                      <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
                             );
-                          })()}
-                        </div>
-                      )}
+                          }
+
+                          // 6. READY TO DISMANTLE
+                          if (displayStatusStr === 'READY TO DISMANTLE') {
+                            const woDismantle = getWoDismantleInfo(item);
+                            const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                            const repRtd = woDismantle?.teknisi || item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
+                            const noteRtd = woDismantle?.hasWo
+                              ? `WO Dismantle: ${woDismantle.teknisi}`
+                              : 'Belum Ada WO Dismantle';
+
+                            return (
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteRtd}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="package-minus" size={12} className="text-amber-700 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                      {noteRtd}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-amber-200/70 text-[9px] text-amber-800 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas / Teknisi: ${repRtd}`}>
+                                      <Icon name="user" size={10} className="text-amber-600 shrink-0" />
+                                      <span className="truncate">{repRtd}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-amber-800 font-bold" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-amber-600 shrink-0" />
+                                      <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // 7. WAITING (Default / Fallback)
+                          const rawReg = item.tanggalRegistrasi || item.createdAt;
+                          const tglReg = formatDateDisplay(rawReg);
+                          const repWaiting = item.petugasIkr || item.petugasAktivasi || (item.namaSales && item.namaSales !== '-' ? item.namaSales : 'Daftar Mandiri');
+                          const noteWaiting = item.catatanWaiting || (item.catatan && item.catatan !== item.alamat ? item.catatan : '') || 'Menunggu jadwal pasang';
+
+                          return (
+                            <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
+                              <div className="flex flex-col gap-1 text-[10px] font-medium text-amber-950 bg-amber-50/90 border border-amber-200/80 p-2 rounded-lg" title={noteWaiting}>
+                                <div className="flex items-start gap-1.5">
+                                  <Icon name="clock" size={12} className="text-amber-600 shrink-0 mt-0.5" />
+                                  <span className="leading-snug font-medium italic line-clamp-2 break-words text-amber-950">
+                                    {noteWaiting}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-amber-200/70 text-[9px] text-amber-800 font-semibold not-italic">
+                                  <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas / Sales: ${repWaiting}`}>
+                                    <Icon name="user" size={10} className="text-amber-600 shrink-0" />
+                                    <span className="truncate">{repWaiting}</span>
+                                  </span>
+                                  <span className="flex items-center gap-1 shrink-0 text-amber-800 font-bold" title={`Tanggal Registrasi: ${tglReg || '-'}`}>
+                                    <Icon name="calendar" size={10} className="text-amber-600 shrink-0" />
+                                    <span>{tglReg ? `Reg: ${tglReg}` : '-'}</span>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-center w-28 shrink-0 whitespace-nowrap">
                       <div className="flex justify-center items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
