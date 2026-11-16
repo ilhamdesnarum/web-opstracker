@@ -13,7 +13,7 @@ import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
-import { isPercepatanCustomer, isPoInnercity, isInnercityCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
+import { isPercepatanCustomer, isPoPercepatan, isPoInnercity, isInnercityCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import { fetchLiveCoverageBoundaries } from './services/coverageService.js';
 import CustomerMapView from './components/CustomerMapView';
