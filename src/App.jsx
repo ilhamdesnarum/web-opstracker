@@ -19797,7 +19797,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
             let umurWoStr = '';
             let isWoLama = false;
-            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
+            if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
               const stdDate = standardizeDate(item.tanggalRegistrasi);
               if (stdDate) {
                 const regDate = new Date(stdDate);
@@ -19891,7 +19891,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     </span>
 
                     {/* INDIKATOR UMUR WO */}
-                    {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING' || displayStatusStr === 'KENDALA') && (
+                    {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (
                       <span className={`px-1.5 py-0.5 flex items-center gap-1 rounded text-[8px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
                         <Icon name="clock" size={8} /> {umurWoStr}
                       </span>
@@ -20303,7 +20303,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                 let umurWoStr = '';
                 let isWoLama = false;
-                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'KENDALA' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
+                if ((displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && item.tanggalRegistrasi) {
                   const stdDate = standardizeDate(item.tanggalRegistrasi);
                   if (stdDate) {
                     const regDate = new Date(stdDate);
@@ -20440,8 +20440,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                             {displayStatusStr}
                           </span>
 
-                          {/* INDIKATOR UMUR WO (Waiting, Pending, Kendala) */}
-                          {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING' || displayStatusStr === 'KENDALA') && (
+                          {/* INDIKATOR UMUR WO (Waiting, Pending) */}
+                          {umurWoStr && (displayStatusStr === 'WAITING' || displayStatusStr === 'PENDING') && (
                             <span className={`px-2 py-1 flex items-center gap-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isWoLama ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`} title="Umur WO dari Tanggal Registrasi">
                               <Icon name="clock" size={10} />
                               {umurWoStr}
