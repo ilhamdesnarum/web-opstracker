@@ -13,7 +13,7 @@ import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
-import { isPercepatanCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
+import { isPercepatanCustomer, isPoInnercity, isInnercityCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import { fetchLiveCoverageBoundaries } from './services/coverageService.js';
 import CustomerMapView from './components/CustomerMapView';
@@ -8142,21 +8142,25 @@ function DashboardView({
       const isDis = akt === 'DISMANTLED' || akt === 'DISMANTLE';
       const isAktivasi = isAktif || isSuspend || isReady || isDis || ikr === 'SUDAH';
 
-      const isPerc = isPercepatanCustomer(p, odpLookupMap);
+      const isInner = isInnercityCustomer(p, odpLookupMap);
+      const isPerc = !isInner && isPercepatanCustomer(p, odpLookupMap);
 
       if (isSuspend) {
         m.liveSuspend++;
-        if (isPerc) m.liveSuspendPerc++;
+        if (isInner) m.liveSuspendInner = (m.liveSuspendInner || 0) + 1;
+        else if (isPerc) m.liveSuspendPerc++;
         else m.liveSuspendReg++;
       }
       if (isReady) {
         m.liveReady++;
-        if (isPerc) m.liveReadyPerc++;
+        if (isInner) m.liveReadyInner = (m.liveReadyInner || 0) + 1;
+        else if (isPerc) m.liveReadyPerc++;
         else m.liveReadyReg++;
       }
       if (isDis) {
         m.liveDismantled++;
-        if (isPerc) m.liveDismantledPerc++;
+        if (isInner) m.liveDismantledInner = (m.liveDismantledInner || 0) + 1;
+        else if (isPerc) m.liveDismantledPerc++;
         else m.liveDismantledReg++;
       }
 
@@ -8164,7 +8168,10 @@ function DashboardView({
         m.liveTotAkt++;
         if (isAktif) m.liveTotHcAkt++;
 
-        if (isPerc) {
+        if (isInner) {
+          m.liveAktInner = (m.liveAktInner || 0) + 1;
+          if (isAktif) m.liveHcAktInner = (m.liveHcAktInner || 0) + 1;
+        } else if (isPerc) {
           m.liveAktPerc++;
           if (isAktif) m.liveHcAktPerc++;
         } else {
@@ -8187,18 +8194,26 @@ function DashboardView({
 
       let poHpReg = 0;
       let poHpPerc = 0;
+      let poHpInner = 0;
       poForStation.forEach(po => {
-        poHpReg += Number(po.hpReguler || 0);
-        poHpPerc += Number(po.hpPercepatan || 0);
+        if (isPoInnercity(po)) {
+          poHpInner += Number(po.hpReguler || po.hp_reguler || po.hpInnercity || 0);
+        } else if (isPoPercepatan(po)) {
+          poHpPerc += Number(po.hpPercepatan || po.hp_percepatan || 0);
+        } else {
+          poHpReg += Number(po.hpReguler || po.hp_reguler || 0);
+        }
       });
-      const totalHpStation = poHpReg + poHpPerc;
+      const totalHpStation = poHpReg + poHpPerc + poHpInner;
 
       const m = metricsByStation[stKey] || {
         aktifPadaTanggalIni: 0,
         liveAktReg: 0,
         liveAktPerc: 0,
+        liveAktInner: 0,
         liveHcAktReg: 0,
         liveHcAktPerc: 0,
+        liveHcAktInner: 0,
         liveTotAkt: 0,
         liveTotHcAkt: 0,
         liveSuspend: 0,
@@ -8206,32 +8221,44 @@ function DashboardView({
         liveDismantled: 0,
         liveSuspendReg: 0,
         liveSuspendPerc: 0,
+        liveSuspendInner: 0,
         liveReadyReg: 0,
         liveReadyPerc: 0,
+        liveReadyInner: 0,
         liveDismantledReg: 0,
         liveDismantledPerc: 0,
+        liveDismantledInner: 0,
       };
 
-      let liveAktReg = m.liveAktReg;
-      let liveAktPerc = m.liveAktPerc;
-      let liveHcAktReg = m.liveHcAktReg;
-      let liveHcAktPerc = m.liveHcAktPerc;
-      let liveTotAkt = m.liveTotAkt;
-      let liveTotHcAkt = m.liveTotHcAkt;
-      let liveSuspend = m.liveSuspend;
-      let liveReady = m.liveReady;
-      let liveDismantled = m.liveDismantled;
-      let liveSuspendReg = m.liveSuspendReg;
-      let liveSuspendPerc = m.liveSuspendPerc;
-      let liveReadyReg = m.liveReadyReg;
-      let liveReadyPerc = m.liveReadyPerc;
-      let liveDismantledReg = m.liveDismantledReg;
-      let liveDismantledPerc = m.liveDismantledPerc;
+      let liveAktReg = m.liveAktReg || 0;
+      let liveAktPerc = m.liveAktPerc || 0;
+      let liveAktInner = m.liveAktInner || 0;
+      let liveHcAktReg = m.liveHcAktReg || 0;
+      let liveHcAktPerc = m.liveHcAktPerc || 0;
+      let liveHcAktInner = m.liveHcAktInner || 0;
+      let liveTotAkt = m.liveTotAkt || 0;
+      let liveTotHcAkt = m.liveTotHcAkt || 0;
+      let liveSuspend = m.liveSuspend || 0;
+      let liveReady = m.liveReady || 0;
+      let liveDismantled = m.liveDismantled || 0;
+      let liveSuspendReg = m.liveSuspendReg || 0;
+      let liveSuspendPerc = m.liveSuspendPerc || 0;
+      let liveSuspendInner = m.liveSuspendInner || 0;
+      let liveReadyReg = m.liveReadyReg || 0;
+      let liveReadyPerc = m.liveReadyPerc || 0;
+      let liveReadyInner = m.liveReadyInner || 0;
+      let liveDismantledReg = m.liveDismantledReg || 0;
+      let liveDismantledPerc = m.liveDismantledPerc || 0;
+      let liveDismantledInner = m.liveDismantledInner || 0;
 
       // Fallback ke PO release table jika pelangganData belum selesai load di latar belakang
       if (liveTotAkt === 0 && poForStation.length > 0) {
-        let fbTotAkt = 0, fbHcAkt = 0, fbSusp = 0, fbReady = 0, fbDism = 0, fbAktReg = 0, fbAktPerc = 0, fbHcAktReg = 0, fbHcAktPerc = 0;
-        let fbSuspReg = 0, fbSuspPerc = 0, fbReadyReg = 0, fbReadyPerc = 0, fbDismReg = 0, fbDismPerc = 0;
+        let fbTotAkt = 0, fbHcAkt = 0, fbSusp = 0, fbReady = 0, fbDism = 0;
+        let fbAktReg = 0, fbAktPerc = 0, fbAktInner = 0;
+        let fbHcAktReg = 0, fbHcAktPerc = 0, fbHcAktInner = 0;
+        let fbSuspReg = 0, fbSuspPerc = 0, fbSuspInner = 0;
+        let fbReadyReg = 0, fbReadyPerc = 0, fbReadyInner = 0;
+        let fbDismReg = 0, fbDismPerc = 0, fbDismInner = 0;
         poForStation.forEach(po => {
           const tAkt = Number(po.totalAktivasiHc || 0);
           const hAkt = Number(po.hcAktif || 0);
@@ -8243,8 +8270,13 @@ function DashboardView({
           fbSusp += susp;
           fbReady += rdy;
           fbDism += dism;
-          const isP = String(po.segmen || po.tahapPembangunan || '').toLowerCase().includes('percepatan') || Number(po.hpPercepatan || 0) > 0;
-          if (isP) {
+          if (isPoInnercity(po)) {
+            fbAktInner += tAkt;
+            fbHcAktInner += hAkt;
+            fbSuspInner += susp;
+            fbReadyInner += rdy;
+            fbDismInner += dism;
+          } else if (isPoPercepatan(po)) {
             fbAktPerc += tAkt;
             fbHcAktPerc += hAkt;
             fbSuspPerc += susp;
@@ -8266,14 +8298,19 @@ function DashboardView({
           liveDismantled = fbDism;
           liveAktReg = fbAktReg;
           liveAktPerc = fbAktPerc;
+          liveAktInner = fbAktInner;
           liveHcAktReg = fbHcAktReg;
           liveHcAktPerc = fbHcAktPerc;
+          liveHcAktInner = fbHcAktInner;
           liveSuspendReg = fbSuspReg;
           liveSuspendPerc = fbSuspPerc;
+          liveSuspendInner = fbSuspInner;
           liveReadyReg = fbReadyReg;
           liveReadyPerc = fbReadyPerc;
+          liveReadyInner = fbReadyInner;
           liveDismantledReg = fbDismReg;
           liveDismantledPerc = fbDismPerc;
+          liveDismantledInner = fbDismInner;
         }
       }
 
@@ -8284,11 +8321,14 @@ function DashboardView({
         stasiun: rawSt,
         hpReguler: poHpReg,
         hpPercepatan: poHpPerc,
+        hpInnercity: poHpInner,
         hpTerbangun: totalHpStation,
         aktivasiReguler: liveAktReg,
         aktivasiPercepatan: liveAktPerc,
+        aktivasiInnercity: liveAktInner,
         hcAktifReguler: liveHcAktReg,
         hcAktifPercepatan: liveHcAktPerc,
+        hcAktifInnercity: liveHcAktInner,
         totalAktivasiHc: liveTotAkt,
         hcAktif: liveTotHcAkt,
         suspend: liveSuspend,
@@ -8296,12 +8336,16 @@ function DashboardView({
         dismantled: liveDismantled,
         suspendReguler: liveSuspendReg,
         suspendPercepatan: liveSuspendPerc,
+        suspendInnercity: liveSuspendInner,
         readyReguler: liveReadyReg,
         readyPercepatan: liveReadyPerc,
+        readyInnercity: liveReadyInner,
         dismantledReguler: liveDismantledReg,
         dismantledPercepatan: liveDismantledPerc,
+        dismantledInnercity: liveDismantledInner,
         performaHc: perfStation,
         hpPercepatanVal: poHpPerc,
+        hpInnercityVal: poHpInner,
         aktifHariIniVal: Number(m.aktifPadaTanggalIni || 0),
       };
     });
@@ -8316,40 +8360,49 @@ function DashboardView({
   const totals = useMemo(() => {
     let totalHpReguler = 0;
     let totalHpPercepatan = 0;
+    let totalHpInnercity = 0;
     let totalAktivasiReguler = 0;
     let totalAktivasiPercepatan = 0;
+    let totalAktivasiInnercity = 0;
     let totalHcAktifReguler = 0;
     let totalHcAktifPercepatan = 0;
+    let totalHcAktifInnercity = 0;
     let totalAktifHariIni = 0;
     let totalAktivasiHc = 0;
     let totalDismantledPo = 0;
 
     dynamicStationData.forEach(row => {
-      const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
-      const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
+      const hpReg = Number(row.hpReguler || 0);
+      const hpPerc = Number(row.hpPercepatan || row.hpPercepatanVal || 0);
+      const hpInner = Number(row.hpInnercity || row.hpInnercityVal || 0);
 
-      const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
-      const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
+      const aktReg = Number(row.aktivasiReguler || 0);
+      const aktPerc = Number(row.aktivasiPercepatan || 0);
+      const aktInner = Number(row.aktivasiInnercity || 0);
 
-      const hcAktReg = row.hcAktifReguler !== undefined ? Number(row.hcAktifReguler) : Number(row.performaHc || 0);
-      const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
+      const hcAktReg = Number(row.hcAktifReguler || 0);
+      const hcAktPerc = Number(row.hcAktifPercepatan || 0);
+      const hcAktInner = Number(row.hcAktifInnercity || 0);
 
-      const totAkt = aktReg + aktPerc;
+      const totAkt = row.totalAktivasiHc !== undefined ? Number(row.totalAktivasiHc) : (aktReg + aktPerc + aktInner);
       const aktToday = Number(row.aktifHariIniVal || 0);
 
       totalHpReguler += hpReg;
       totalHpPercepatan += hpPerc;
+      totalHpInnercity += hpInner;
       totalAktivasiReguler += aktReg;
       totalAktivasiPercepatan += aktPerc;
+      totalAktivasiInnercity += aktInner;
       totalHcAktifReguler += hcAktReg;
       totalHcAktifPercepatan += hcAktPerc;
+      totalHcAktifInnercity += hcAktInner;
       totalAktifHariIni += aktToday;
       totalAktivasiHc += totAkt;
       totalDismantledPo += Number(row.dismantled || 0);
     });
 
-    const totalHpTerbangun = totalHpReguler + totalHpPercepatan;
-    const totalHcAktif = totalHcAktifReguler + totalHcAktifPercepatan;
+    const totalHpTerbangun = totalHpReguler + totalHpPercepatan + totalHpInnercity;
+    const totalHcAktif = totalHcAktifReguler + totalHcAktifPercepatan + totalHcAktifInnercity;
     const totalPerforma = totalHpTerbangun > 0
       ? ((totalAktivasiHc / totalHpTerbangun) * 100).toFixed(2)
       : "0.00";
@@ -8359,22 +8412,29 @@ function DashboardView({
     const performaPercepatan = totalHpPercepatan > 0
       ? ((totalAktivasiPercepatan / totalHpPercepatan) * 100).toFixed(2)
       : "0.00";
+    const performaInnercity = totalHpInnercity > 0
+      ? ((totalAktivasiInnercity / totalHpInnercity) * 100).toFixed(2)
+      : "0.00";
 
     return {
       hpReguler: totalHpReguler,
       hpPercepatan: totalHpPercepatan,
+      hpInnercity: totalHpInnercity,
       hpTerbangun: totalHpTerbangun,
       aktivasiReguler: totalAktivasiReguler,
       aktivasiPercepatan: totalAktivasiPercepatan,
+      aktivasiInnercity: totalAktivasiInnercity,
       hcAktifReguler: totalHcAktifReguler,
       hcAktifPercepatan: totalHcAktifPercepatan,
+      hcAktifInnercity: totalHcAktifInnercity,
       aktifHariIni: totalAktifHariIni,
       totalAktivasiHc: totalAktivasiHc,
       hcAktif: totalHcAktif,
       dismantled: totalDismantledPo,
       performaHc: totalPerforma,
       performaReguler: performaReguler,
-      performaPercepatan: performaPercepatan
+      performaPercepatan: performaPercepatan,
+      performaInnercity: performaInnercity
     };
   }, [dynamicStationData]);
 

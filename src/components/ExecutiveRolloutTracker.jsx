@@ -18,7 +18,7 @@ import {
   Clock,
   XCircle
 } from 'lucide-react';
-import { toProperCase, buildOdpLookupMap, isPoPercepatan } from '../utils';
+import { toProperCase, buildOdpLookupMap, isPoPercepatan, isPoInnercity } from '../utils';
 import { matchCustomerToPo } from './PoReleaseModal';
 import { CustomerStatusDrilldownModal } from './CustomerStatusDrilldownModal';
 import { ManagePoFormModal } from './ManagePoFormModal';
@@ -340,11 +340,18 @@ export const ExecutiveRolloutTracker = ({
                   style={{ width: `${(totals.hpPercepatan / totals.hpTerbangun) * 100}%` }}
                   title={`Percepatan: ${(totals.hpPercepatan || 0).toLocaleString('id-ID')} HP`}
                 ></div>
+                {(totals.hpInnercity || 0) > 0 && (
+                  <div
+                    className="h-full bg-amber-500"
+                    style={{ width: `${((totals.hpInnercity || 0) / totals.hpTerbangun) * 100}%` }}
+                    title={`Innercity: ${(totals.hpInnercity || 0).toLocaleString('id-ID')} HP`}
+                  ></div>
+                )}
               </>
             )}
           </div>
 
-          <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+          <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 flex-wrap gap-1">
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
               Reg: <strong>{(totals.hpReguler || 0).toLocaleString('id-ID')}</strong>
@@ -353,6 +360,12 @@ export const ExecutiveRolloutTracker = ({
               <span className="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
               Perc: <strong>{(totals.hpPercepatan || 0).toLocaleString('id-ID')}</strong>
             </span>
+            {(totals.hpInnercity || 0) > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                Inner: <strong>{(totals.hpInnercity || 0).toLocaleString('id-ID')}</strong>
+              </span>
+            )}
           </div>
         </div>
 
@@ -388,9 +401,12 @@ export const ExecutiveRolloutTracker = ({
             ></div>
           </div>
 
-          <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
-            <span>Reguler: <strong className="text-slate-700">{totals.performaReguler || 0}%</strong></span>
-            <span>Percepatan: <strong className="text-slate-700">{totals.performaPercepatan || 0}%</strong></span>
+          <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 flex-wrap gap-1">
+            <span>Reg: <strong className="text-slate-700">{totals.performaReguler || 0}%</strong></span>
+            <span>Perc: <strong className="text-slate-700">{totals.performaPercepatan || 0}%</strong></span>
+            {(totals.hpInnercity || 0) > 0 && (
+              <span>Inner: <strong className="text-slate-700">{totals.performaInnercity || 0}%</strong></span>
+            )}
           </div>
         </div>
 
@@ -578,36 +594,41 @@ export const ExecutiveRolloutTracker = ({
               // Kapasitas HP
               const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
               const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
-              const totalHp = hpReg + hpPerc;
+              const hpInner = row.hpInnercity !== undefined ? Number(row.hpInnercity) : Number(row.hpInnercityVal || 0);
+              const totalHp = hpReg + hpPerc + hpInner;
 
               // Aktivasi HC
-              const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
-              const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
-              const totAkt = row.totalAktivasiHc !== undefined && row.hpPercepatan !== undefined
-                ? Number(row.totalAktivasiHc)
-                : (aktReg + aktPerc);
+              const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : 0;
+              const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : 0;
+              const aktInner = row.aktivasiInnercity !== undefined ? Number(row.aktivasiInnercity) : 0;
+              const totAkt = row.totalAktivasiHc !== undefined ? Number(row.totalAktivasiHc) : (aktReg + aktPerc + aktInner);
 
               // HC Aktif
-              const hcAktReg = row.hcAktifReguler !== undefined ? Number(row.hcAktifReguler) : Number(row.performaHc || 0);
-              const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : Number(row.tieringHc || 0);
-              const totHcAktif = hcAktReg + hcAktPerc;
+              const hcAktReg = row.hcAktifReguler !== undefined ? Number(row.hcAktifReguler) : 0;
+              const hcAktPerc = row.hcAktifPercepatan !== undefined ? Number(row.hcAktifPercepatan) : 0;
+              const hcAktInner = row.hcAktifInnercity !== undefined ? Number(row.hcAktifInnercity) : 0;
+              const totHcAktif = hcAktReg + hcAktPerc + hcAktInner;
 
               // Other Statuses (with segment separation)
               const stSuspend = Number(row.suspend || 0);
               const stReady = Number(row.readyToDismantle || row.readyDismantle || 0);
               const stDismantled = Number(row.dismantled || 0);
 
-              const stSuspendReg = row.suspendReguler !== undefined ? Number(row.suspendReguler) : (totalHp > 0 && hpPerc === 0 ? stSuspend : Math.round(stSuspend * (hpReg / (totalHp || 1))));
-              const stSuspendPerc = row.suspendPercepatan !== undefined ? Number(row.suspendPercepatan) : Math.max(0, stSuspend - stSuspendReg);
+              const stSuspendReg = Number(row.suspendReguler || 0);
+              const stSuspendPerc = Number(row.suspendPercepatan || 0);
+              const stSuspendInner = Number(row.suspendInnercity || 0);
 
-              const stReadyReg = row.readyReguler !== undefined ? Number(row.readyReguler) : (totalHp > 0 && hpPerc === 0 ? stReady : Math.round(stReady * (hpReg / (totalHp || 1))));
-              const stReadyPerc = row.readyPercepatan !== undefined ? Number(row.readyPercepatan) : Math.max(0, stReady - stReadyReg);
+              const stReadyReg = Number(row.readyReguler || 0);
+              const stReadyPerc = Number(row.readyPercepatan || 0);
+              const stReadyInner = Number(row.readyInnercity || 0);
 
-              const stDismantledReg = row.dismantledReguler !== undefined ? Number(row.dismantledReguler) : (totalHp > 0 && hpPerc === 0 ? stDismantled : Math.round(stDismantled * (hpReg / (totalHp || 1))));
-              const stDismantledPerc = row.dismantledPercepatan !== undefined ? Number(row.dismantledPercepatan) : Math.max(0, stDismantled - stDismantledReg);
+              const stDismantledReg = Number(row.dismantledReguler || 0);
+              const stDismantledPerc = Number(row.dismantledPercepatan || 0);
+              const stDismantledInner = Number(row.dismantledInnercity || 0);
 
               const stLainnyaReg = Math.max(0, aktReg - (hcAktReg + stSuspendReg + stReadyReg + stDismantledReg));
               const stLainnyaPerc = Math.max(0, aktPerc - (hcAktPerc + stSuspendPerc + stReadyPerc + stDismantledPerc));
+              const stLainnyaInner = Math.max(0, aktInner - (hcAktInner + stSuspendInner + stReadyInner + stDismantledInner));
 
               // Aktivasi Hari Ini
               const aktToday = Number(row.aktifHariIniVal || 0);
@@ -630,9 +651,11 @@ export const ExecutiveRolloutTracker = ({
               const takeUpRate = baseStationHp > 0 ? ((totAkt / baseStationHp) * 100).toFixed(2) : "0.00";
               const takeUpRateReg = hpReg > 0 ? ((aktReg / hpReg) * 100).toFixed(2) : "0.00";
               const takeUpRatePerc = hpPerc > 0 ? ((aktPerc / hpPerc) * 100).toFixed(2) : "0.00";
+              const takeUpRateInner = hpInner > 0 ? ((aktInner / hpInner) * 100).toFixed(2) : "0.00";
 
               const activeRateReg = hpReg > 0 ? ((hcAktReg / hpReg) * 100).toFixed(2) : "0.00";
               const activeRatePerc = hpPerc > 0 ? ((hcAktPerc / hpPerc) * 100).toFixed(2) : "0.00";
+              const activeRateInner = hpInner > 0 ? ((hcAktInner / hpInner) * 100).toFixed(2) : "0.00";
               const activeRateTotal = baseStationHp > 0 ? ((totHcAktif / baseStationHp) * 100).toFixed(2) : "0.00";
 
               const numTakeUp = Number(takeUpRate);
@@ -858,8 +881,82 @@ export const ExecutiveRolloutTracker = ({
                         </div>
                       )}
 
+                      {/* Track 3: HC Innercity (hanya ditampilkan jika ada kapasitas Innercity) */}
+                      {hpInner > 0 && (
+                        <div className="px-2.5 py-1.5 rounded-lg border bg-white/90 border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase shrink-0 bg-amber-50 text-amber-700 border border-amber-200/60">
+                                Innercity
+                              </span>
+                              <span className="font-bold text-slate-700 text-[11px] truncate">
+                                {aktInner.toLocaleString('id-ID')} HC <span className="font-normal text-slate-400">/</span> {hpInner.toLocaleString('id-ID')} HP
+                                <span className="text-slate-300 mx-1.5">•</span>
+                                <span className="text-[10px] font-semibold text-emerald-700">
+                                  Aktif: <strong className="font-bold">{hcAktInner.toLocaleString('id-ID')} HC </strong>
+                                </span>
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                              <span
+                                className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1"
+                                title="Rasio pelanggan HC Aktif terhadap Kapasitas HP Innercity"
+                              >
+                                <span className="text-[9px] font-medium text-emerald-600/80 uppercase">Aktif:</span> {activeRateInner}%
+                              </span>
+                              <span
+                                className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60 flex items-center gap-1"
+                                title="Take-Up Rate: Total realisasi aktivasi HC terhadap Kapasitas HP Innercity"
+                              >
+                                <span className="text-[9px] font-medium text-amber-600/80 uppercase">Take-Up:</span> {takeUpRateInner}%
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar Innercity */}
+                          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
+                            {hcAktInner > 0 && (
+                              <div
+                                className="h-full bg-emerald-500 transition-all duration-500"
+                                style={{ width: `${Math.min((hcAktInner / hpInner) * 100, 100)}%` }}
+                                title={`Innercity Aktif: ${hcAktInner.toLocaleString('id-ID')} HC (${activeRateInner}%)`}
+                              ></div>
+                            )}
+                            {stSuspendInner > 0 && (
+                              <div
+                                className="h-full bg-amber-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stSuspendInner / hpInner) * 100, 100)}%` }}
+                                title={`Innercity Suspend: ${stSuspendInner.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stReadyInner > 0 && (
+                              <div
+                                className="h-full bg-orange-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stReadyInner / hpInner) * 100, 100)}%` }}
+                                title={`Innercity Ready Dismantle: ${stReadyInner.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stDismantledInner > 0 && (
+                              <div
+                                className="h-full bg-rose-500 transition-all duration-500"
+                                style={{ width: `${Math.min((stDismantledInner / hpInner) * 100, 100)}%` }}
+                                title={`Innercity Dismantled: ${stDismantledInner.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                            {stLainnyaInner > 0 && (
+                              <div
+                                className="h-full bg-amber-400 transition-all duration-500"
+                                style={{ width: `${Math.min((stLainnyaInner / hpInner) * 100, 100)}%` }}
+                                title={`Innercity Lainnya: ${stLainnyaInner.toLocaleString('id-ID')} HC`}
+                              ></div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Fallback jika stasiun belum ada alokasi HP sama sekali */}
-                      {hpReg === 0 && hpPerc === 0 && (
+                      {hpReg === 0 && hpPerc === 0 && hpInner === 0 && (
                         <div className="px-3 py-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-center">
                           <span className="text-[11px] text-slate-400 font-medium italic">Belum ada alokasi kapasitas Homepass</span>
                         </div>
@@ -939,12 +1036,17 @@ export const ExecutiveRolloutTracker = ({
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                           {stationPoList.map((po, pIdx) => {
-                            const poHpReg = Number(po.hpReguler || 0);
-                            const poHpPerc = Number(po.hpPercepatan || 0);
-                            const poTotalHp = poHpReg + poHpPerc;
+                            const isPoInner = isPoInnercity(po);
+                            const isPoPerc = !isPoInner && isPoPercepatan(po);
+                            const poHpReg = Number(po.hpReguler || po.hp_reguler || 0);
+                            const poHpPerc = Number(po.hpPercepatan || po.hp_percepatan || 0);
+                            const poHpInner = Number(po.hpInnercity || po.hp_innercity || 0);
+                            const poTotalHp = isPoInner 
+                              ? (poHpInner || poHpReg || 0)
+                              : (isPoPerc ? (poHpPerc || 0) : (poHpReg || 0));
+                            const finalPoTotalHp = poTotalHp > 0 ? poTotalHp : (poHpReg + poHpPerc + poHpInner);
                             const poRfs = Number(po.hp_rfs || po.hpRfs || 0);
-                            const basePoHp = poRfs > 0 ? poRfs : poTotalHp;
-                            const isPoPerc = isPoPercepatan(po);
+                            const basePoHp = poRfs > 0 ? poRfs : finalPoTotalHp;
 
                             const poKey = po.id || po.noPoRelease || `${stName}_${po.tahapPembangunan || ''}_${po.noPoRelease || ''}`;
                             const poStats = poCustomerStatsMap.get(poKey) || {
@@ -969,7 +1071,11 @@ export const ExecutiveRolloutTracker = ({
                               <div
                                 key={pIdx}
                                 className={`bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm ${
-                                  isPoPerc ? 'hover:border-purple-300' : 'hover:border-blue-300'
+                                  isPoInner 
+                                    ? 'hover:border-amber-300' 
+                                    : isPoPerc 
+                                      ? 'hover:border-purple-300' 
+                                      : 'hover:border-blue-300'
                                 } hover:shadow transition-all flex flex-col justify-between`}
                               >
                                 <div>
@@ -978,11 +1084,13 @@ export const ExecutiveRolloutTracker = ({
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1 flex-wrap mb-0.5">
                                         <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
-                                          isPoPerc 
-                                            ? 'bg-purple-50 text-purple-700 border-purple-200/60' 
-                                            : 'bg-blue-50 text-blue-700 border-blue-200/60'
+                                          isPoInner 
+                                            ? 'bg-amber-50 text-amber-700 border-amber-200/60'
+                                            : isPoPerc 
+                                              ? 'bg-purple-50 text-purple-700 border-purple-200/60' 
+                                              : 'bg-blue-50 text-blue-700 border-blue-200/60'
                                         }`}>
-                                          {po.tahapPembangunan || (isPoPerc ? 'Percepatan' : 'Reguler')}
+                                          {po.tahapPembangunan || (isPoInner ? 'Innercity' : (isPoPerc ? 'Percepatan' : 'Reguler'))}
                                         </span>
                                         <span className="text-[9px] font-bold px-1 py-0.2 bg-slate-100 text-slate-600 rounded">
                                           {po.jenisPo || 'Direct'}
@@ -1000,7 +1108,11 @@ export const ExecutiveRolloutTracker = ({
                                         setIsManageModalOpen(true);
                                       }}
                                       className={`p-1 rounded text-slate-400 ${
-                                        isPoPerc ? 'hover:text-purple-600 hover:bg-purple-50' : 'hover:text-blue-600 hover:bg-blue-50'
+                                        isPoInner 
+                                          ? 'hover:text-amber-600 hover:bg-amber-50' 
+                                          : isPoPerc 
+                                            ? 'hover:text-purple-600 hover:bg-purple-50' 
+                                            : 'hover:text-blue-600 hover:bg-blue-50'
                                       } transition-colors cursor-pointer`}
                                       title="Edit data PO ini"
                                     >
@@ -1013,7 +1125,7 @@ export const ExecutiveRolloutTracker = ({
                                     <div className="flex items-center justify-between text-[10px] mb-1">
                                       <div className="flex items-center gap-2">
                                         <span className="text-slate-500 font-medium">
-                                          Aktivasi: <strong className="text-slate-700">{poAkt} HC / {poTotalHp} HP</strong>
+                                          Aktivasi: <strong className="text-slate-700">{poAkt} HC / {finalPoTotalHp} HP</strong>
                                         </span>
                                         {Number(po.hp_rfs || po.hpRfs || 0) > 0 && (
                                           <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
@@ -1026,7 +1138,13 @@ export const ExecutiveRolloutTracker = ({
                                           {basePoHp > 0 ? ((poAktif / basePoHp) * 100).toFixed(2) : "0.00"}%
                                         </span>
                                         <span className="text-slate-300 text-[10px]">|</span>
-                                        <span className={`font-black text-[11px] ${isPoPerc ? 'text-purple-700' : 'text-blue-700'}`} title="Persentase Total Aktivasi">
+                                        <span className={`font-black text-[11px] ${
+                                          isPoInner 
+                                            ? 'text-amber-700' 
+                                            : isPoPerc 
+                                              ? 'text-purple-700' 
+                                              : 'text-blue-700'
+                                        }`} title="Persentase Total Aktivasi">
                                           {poTakeUp}%
                                         </span>
                                       </div>
@@ -1062,7 +1180,13 @@ export const ExecutiveRolloutTracker = ({
                                       )}
                                       {Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) > 0 && (
                                         <div
-                                          className={`h-full ${isPoPerc ? 'bg-purple-500' : 'bg-blue-500'} transition-all duration-500`}
+                                          className={`h-full ${
+                                            isPoInner 
+                                              ? 'bg-amber-500' 
+                                              : isPoPerc 
+                                                ? 'bg-purple-500' 
+                                                : 'bg-blue-500'
+                                          } transition-all duration-500`}
                                           style={{ width: `${Math.min((Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled)) / basePoHp) * 100, 100)}%` }}
                                           title={`Lainnya: ${Math.max(0, poAkt - (poAktif + poSuspend + poReady + poDismantled))}`}
                                         ></div>

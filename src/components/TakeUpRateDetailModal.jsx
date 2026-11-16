@@ -61,20 +61,22 @@ export const TakeUpRateDetailModal = ({
       // Kapasitas RFS stasiun (HP yang sudah Ready For Sale)
       const stationRfs = stationPoList.reduce((acc, po) => acc + Number(po.hp_rfs || po.hpRfs || 0), 0);
 
-      // Total HP Terbangun (Reguler + Percepatan)
-      const hpReg = row.hpReguler !== undefined ? Number(row.hpReguler) : Number(row.hpTerbangun || 0);
-      const hpPerc = row.hpPercepatan !== undefined ? Number(row.hpPercepatan) : Number(row.hpPercepatanVal || 0);
-      const totalHp = hpReg + hpPerc;
+      // Total HP Terbangun (Reguler + Percepatan + Innercity)
+      const hpReg = Number(row.hpReguler || 0);
+      const hpPerc = Number(row.hpPercepatan || row.hpPercepatanVal || 0);
+      const hpInner = Number(row.hpInnercity || row.hpInnercityVal || 0);
+      const totalHp = hpReg + hpPerc + hpInner;
 
       // Basis acuan perhitungan Take-Up: Prioritaskan HP RFS (Siap Jual)
       const baseHp = stationRfs > 0 ? stationRfs : totalHp;
 
       // Aktivasi Homeconnect (Total Realisasi)
-      const aktReg = row.aktivasiReguler !== undefined ? Number(row.aktivasiReguler) : Number(row.totalAktivasiHc || 0);
-      const aktPerc = row.aktivasiPercepatan !== undefined ? Number(row.aktivasiPercepatan) : Number(row.hcAktif || 0);
-      const totAkt = row.totalAktivasiHc !== undefined && row.hpPercepatan !== undefined
+      const aktReg = Number(row.aktivasiReguler || 0);
+      const aktPerc = Number(row.aktivasiPercepatan || 0);
+      const aktInner = Number(row.aktivasiInnercity || 0);
+      const totAkt = row.totalAktivasiHc !== undefined
         ? Number(row.totalAktivasiHc)
-        : (aktReg + aktPerc);
+        : (aktReg + aktPerc + aktInner);
 
       // Pelanggan Aktif saat ini
       const hcAktif = Number(row.hcAktif || 0);
@@ -368,9 +370,12 @@ export const TakeUpRateDetailModal = ({
                 <strong className="text-slate-800 font-bold">{globalSummary.totalAktivasi.toLocaleString('id-ID')}</strong> dari {globalSummary.totalRfsCapacity.toLocaleString('id-ID')} HP RFS
               </p>
             </div>
-            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-200/60 mt-1 font-semibold text-slate-500">
+            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-200/60 mt-1 font-semibold text-slate-500 flex-wrap gap-1">
               <span>Reg: <strong className="text-blue-700">{totals.performaReguler || 0}%</strong></span>
               <span>Perc: <strong className="text-purple-700">{totals.performaPercepatan || 0}%</strong></span>
+              {(totals.hpInnercity || 0) > 0 && (
+                <span>Inner: <strong className="text-amber-700">{totals.performaInnercity || 0}%</strong></span>
+              )}
             </div>
           </div>
 
