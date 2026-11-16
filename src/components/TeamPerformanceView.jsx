@@ -433,6 +433,20 @@ export default function TeamPerformanceView({
     }
   };
 
+  // Helper: Kelas styling kolom vertikal Sektor (Desain Vertikal Merged)
+  const getSektorVerticalClass = (sektor) => {
+    switch (sektor) {
+      case 'Barat':
+        return 'bg-emerald-50/75 text-emerald-950 border-r border-emerald-200/80';
+      case 'Tengah':
+        return 'bg-blue-50/75 text-blue-950 border-r border-blue-200/80';
+      case 'Timur':
+        return 'bg-amber-50/75 text-amber-950 border-r border-amber-200/80';
+      default:
+        return 'bg-slate-50 text-slate-800 border-r border-slate-200';
+    }
+  };
+
   // Handler Buka Modal Kelola Tim
   const handleOpenManageModal = () => {
     const list = JSON.parse(JSON.stringify(stationClusters || []));
@@ -1487,15 +1501,32 @@ export default function TeamPerformanceView({
       );
     }
 
+    // Kelompokkan cluster berurutan berdasarkan wilayah sektor (untuk tampilan vertikal merged seperti spreadsheet)
+    const sectorGroups = [];
+    activeClusters.forEach(sc => {
+      const sektor = sc.resolvedSektor || getClusterSektor(sc) || 'Lainnya';
+      const lastGroup = sectorGroups[sectorGroups.length - 1];
+      const clusterRowCount = (sc.filteredTeams || []).length + 1; // baris tim + 1 baris subtotal
+
+      if (lastGroup && lastGroup.sektor === sektor) {
+        lastGroup.clusters.push(sc);
+        lastGroup.totalRows += clusterRowCount;
+      } else {
+        sectorGroups.push({
+          sektor,
+          clusters: [sc],
+          totalRows: clusterRowCount
+        });
+      }
+    });
+
     return (
       <div className="overflow-x-auto custom-scrollbar">
         <table className={`w-full text-left border-collapse text-xs font-sans ${isTwoCol ? 'min-w-[480px]' : 'min-w-[620px]'}`}>
           {/* THEAD LIGHT STASIUN */}
           <thead className="sticky top-0 z-10 select-none bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider border-b border-slate-200">
             <tr>
-              <th className="px-2 py-2.5 w-24 min-w-[85px] text-center border-r border-slate-200/70 rounded-tl-xl">
-                Sektor
-              </th>
+              <th className="w-9 min-w-[36px] max-w-[42px] px-1 py-2.5 text-center border-r border-slate-200/70 rounded-tl-xl" title="Wilayah Sektor"></th>
               {isTwoCol ? (
                 <th className="px-2.5 py-2.5 w-28 min-w-[95px] text-left border-r border-slate-200/70">
                   Stasiun / TL
@@ -1542,218 +1573,219 @@ export default function TeamPerformanceView({
 
           {/* TBODY DATA */}
           <tbody className="text-slate-800 font-medium text-xs divide-y divide-slate-100">
-            {activeClusters.map((sc, scIdx) => {
-              const teams = sc.filteredTeams;
-              const sektor = sc.resolvedSektor || getClusterSektor(sc);
-
-              // Hitung Subtotal per Stasiun
-              let subWO = 0, subAkt = 0, subVis = 0, subDis = 0, subPnd = 0, subKdl = 0, subOut = 0, subSel = 0;
-              teams.forEach(tm => {
-                const m = teamMetricsMap[tm.id] || { totalWO: 0, aktivasi: 0, visit: 0, dismantle: 0, pending: 0, kendala: 0, outstanding: 0, selesai: 0 };
-                subWO += m.totalWO;
-                subAkt += m.aktivasi;
-                subVis += m.visit;
-                subDis += m.dismantle;
-                subPnd += m.pending;
-                subKdl += (m.kendala || 0);
-                subOut += m.outstanding;
-                subSel += m.selesai;
-              });
-              const subAvgProd = subWO > 0 ? (subSel / subWO) * 100 : 0;
+            {sectorGroups.map((group, gIdx) => {
+              const sektor = group.sektor;
 
               return (
-                <React.Fragment key={sc.stasiun || scIdx}>
-                  {teams.map((tm, tmIdx) => {
-                    const m = teamMetricsMap[tm.id] || { totalWO: 0, aktivasi: 0, visit: 0, dismantle: 0, pending: 0, kendala: 0, outstanding: 0, prodVal: 0, prodStr: '-' };
-                    const isHighProd = m.prodVal > 0;
+                <React.Fragment key={`${sektor}_${gIdx}`}>
+                  {group.clusters.map((sc, scIdx) => {
+                    const teams = sc.filteredTeams;
+
+                    // Hitung Subtotal per Stasiun
+                    let subWO = 0, subAkt = 0, subVis = 0, subDis = 0, subPnd = 0, subKdl = 0, subOut = 0, subSel = 0;
+                    teams.forEach(tm => {
+                      const m = teamMetricsMap[tm.id] || { totalWO: 0, aktivasi: 0, visit: 0, dismantle: 0, pending: 0, kendala: 0, outstanding: 0, selesai: 0 };
+                      subWO += m.totalWO;
+                      subAkt += m.aktivasi;
+                      subVis += m.visit;
+                      subDis += m.dismantle;
+                      subPnd += m.pending;
+                      subKdl += (m.kendala || 0);
+                      subOut += m.outstanding;
+                      subSel += m.selesai;
+                    });
+                    const subAvgProd = subWO > 0 ? (subSel / subWO) * 100 : 0;
 
                     return (
-                      <tr key={tm.id || tmIdx} className="hover:bg-slate-50/70 transition-colors">
+                      <React.Fragment key={sc.stasiun || scIdx}>
+                        {teams.map((tm, tmIdx) => {
+                          const m = teamMetricsMap[tm.id] || { totalWO: 0, aktivasi: 0, visit: 0, dismantle: 0, pending: 0, kendala: 0, outstanding: 0, prodVal: 0, prodStr: '-' };
+                          const isHighProd = m.prodVal > 0;
+                          const isFirstRowOfGroup = scIdx === 0 && tmIdx === 0;
+                          const isFirstRowOfCluster = tmIdx === 0;
 
-                        {/* KOLOM 1: SEKTOR (ROWSPAN SEBANYAK JUMLAH TIM DALAM CLUSTER) */}
-                        {tmIdx === 0 && (
-                          <td
-                            rowSpan={teams.length}
-                            className="px-2 py-2 border-r border-slate-100 bg-slate-50/40 align-middle text-center"
-                          >
-                            {sektor ? (
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2 py-1 text-[9.5px] font-extrabold rounded-lg border uppercase tracking-wider whitespace-nowrap shadow-2xs ${getSektorBadgeClass(sektor)}`}
-                              >
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sektor.includes('Barat') ? 'bg-emerald-500' : sektor.includes('Tengah') ? 'bg-blue-500' : sektor.includes('Timur') ? 'bg-orange-500' : 'bg-slate-400'}`}></span>
-                                Sektor {sektor}
-                              </span>
-                            ) : (
-                              <span className="text-slate-300 font-normal">-</span>
-                            )}
+                          return (
+                            <tr key={tm.id || tmIdx} className="hover:bg-slate-50/70 transition-colors">
+
+                              {/* KOLOM 1: SEKTOR VERTIKAL (ROWSPAN MENG-COVER SELURUH CLUSTER & SUBTOTAL DALAM SEKTOR INI) */}
+                              {isFirstRowOfGroup && (
+                                <td
+                                  rowSpan={group.totalRows}
+                                  className={`w-9 min-w-[36px] max-w-[42px] px-1 py-3 border-r border-slate-200/80 align-middle text-center select-none ${getSektorVerticalClass(sektor)}`}
+                                >
+                                  <div className="flex items-center justify-center h-full min-h-[90px] mx-auto py-2">
+                                    <span className="[writing-mode:vertical-rl] rotate-180 uppercase tracking-[0.25em] font-black text-[10.5px] whitespace-nowrap">
+                                      SEKTOR {sektor}
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {/* KOLOM 2: JIKA 2 KOLOM: STASIUN & TL DIGABUNG JADI 1 KOLOM */}
+                              {isTwoCol ? (
+                                isFirstRowOfCluster && (
+                                  <td
+                                    rowSpan={teams.length}
+                                    className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
+                                  >
+                                    <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
+                                      {sc.stasiun}
+                                    </div>
+                                    <div className="mt-1">
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
+                                        title={`Team Leader: ${sc.teamLeader || '-'}`}
+                                      >
+                                        <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
+                                        <span className="truncate">{sc.teamLeader || '-'}</span>
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                      <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                        {getStationList(sc).length} Stasiun
+                                      </span>
+                                      <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                        {teams.length} Tim
+                                      </span>
+                                    </div>
+                                  </td>
+                                )
+                              ) : (
+                                /* JIKA 1 KOLOM: TL & STASIUN TERPISAH */
+                                <>
+                                  {isFirstRowOfCluster && (
+                                    <td
+                                      rowSpan={teams.length}
+                                      className="px-2.5 py-2 border-r border-slate-100 bg-slate-50/40 align-top"
+                                    >
+                                      <span
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70"
+                                        title={`Team Leader: ${sc.teamLeader || '-'}`}
+                                      >
+                                        <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
+                                        <span>{sc.teamLeader || '-'}</span>
+                                      </span>
+                                    </td>
+                                  )}
+
+                                  {isFirstRowOfCluster && (
+                                    <td
+                                      rowSpan={teams.length}
+                                      className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
+                                    >
+                                      <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
+                                        {sc.stasiun}
+                                      </div>
+                                      <div className="mt-0.5 flex items-center gap-1 flex-wrap">
+                                        <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
+                                          {getStationList(sc).length} Stasiun
+                                        </span>
+                                        <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
+                                          {teams.length} Tim
+                                        </span>
+                                      </div>
+                                    </td>
+                                  )}
+                                </>
+                              )}
+
+                              {/* TIM TEKNISI - USERNAME TEKNISI */}
+                              <td className="px-2.5 py-2 border-r border-slate-100">
+                                <div className="font-bold text-slate-800 text-[11px] uppercase tracking-tight break-words" title={tm.nama}>
+                                  {tm.nama}
+                                </div>
+                                <div
+                                  className="text-[9.5px] font-medium text-slate-400 leading-snug mt-0.5 break-words"
+                                  title={(tm.anggota || []).map(a => a.nama).filter(Boolean).join(' • ')}
+                                >
+                                  {(tm.anggota || []).map(getMemberUsername).filter(Boolean).join(' • ')}
+                                </div>
+                              </td>
+
+                              {/* TOTAL WO (KLIK UNTUK LIHAT RINCIAN TUGAS) */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-xs">
+                                {m.totalWO > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailModal({ isOpen: true, teamData: { ...tm, ...m, stasiun: sc.stasiun, teamLeader: sc.teamLeader, sektor }, activeTab: 'semua' })}
+                                    className="inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-md bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white font-black text-[10px] border border-blue-200 hover:border-blue-600 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
+                                    title="Klik untuk melihat rincian tugas / WO hari ini"
+                                  >
+                                    {m.totalWO}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">-</span>
+                                )}
+                              </td>
+
+                              {/* AKTIVASI */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-emerald-600 text-xs">
+                                {m.aktivasi > 0 ? m.aktivasi : <span className="text-slate-300 font-normal">-</span>}
+                              </td>
+
+                              {/* VISIT */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-indigo-600 text-xs">
+                                {m.visit > 0 ? m.visit : <span className="text-slate-300 font-normal">-</span>}
+                              </td>
+
+                              {/* DISMANTLE */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-rose-600 text-xs">
+                                {m.dismantle > 0 ? m.dismantle : <span className="text-slate-300 font-normal">-</span>}
+                              </td>
+
+                              {/* PENDING */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-amber-600 text-xs">
+                                {m.pending > 0 ? (
+                                  <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-amber-50 text-amber-700 font-bold text-[10px] border border-amber-200/60">
+                                    {m.pending}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">-</span>
+                                )}
+                              </td>
+
+                              {/* KENDALA (KDL) */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-rose-600 text-xs">
+                                {m.kendala > 0 ? (
+                                  <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200/60">
+                                    {m.kendala}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">-</span>
+                                )}
+                              </td>
+
+                              {/* OUTSTANDING */}
+                              <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-slate-700 text-xs">
+                                {m.outstanding > 0 ? (
+                                  <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-slate-100 text-slate-700 font-bold text-[10px] border border-slate-200/60">
+                                    {m.outstanding}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">-</span>
+                                )}
+                              </td>
+
+                              {/* PERFORMANSI */}
+                              <td className="px-1 py-2 text-center font-bold text-xs">
+                                {isHighProd ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/70">
+                                    {m.prodStr}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-medium text-[10px]">{m.prodStr}</span>
+                                )}
+                              </td>
+
+                            </tr>
+                          );
+                        })}
+
+                        {/* BARIS SUBTOTAL PER STASIUN */}
+                        <tr className="bg-slate-50/80 text-slate-700 font-bold text-[11px] border-y border-slate-200/80">
+                          <td colSpan={isTwoCol ? 2 : 3} className="px-2.5 py-1.5 font-bold text-slate-700 text-left border-r border-slate-200/60 uppercase tracking-tight">
+                            Subtotal {sc.stasiun}
                           </td>
-                        )}
-
-                        {/* KOLOM 2: JIKA 2 KOLOM: STASIUN & TL DIGABUNG JADI 1 KOLOM */}
-                        {isTwoCol ? (
-                          tmIdx === 0 && (
-                            <td
-                              rowSpan={teams.length}
-                              className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
-                            >
-                              <div className="font-bold text-slate-800 text-[11px] leading-tight break-words" title={sc.stasiun}>
-                                {sc.stasiun}
-                              </div>
-                              <div className="mt-1">
-                                <span
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9.5px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 max-w-full"
-                                  title={`Team Leader: ${sc.teamLeader || '-'}`}
-                                >
-                                  <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
-                                  <span className="truncate">{sc.teamLeader || '-'}</span>
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center gap-1 flex-wrap">
-                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                  {getStationList(sc).length} Stasiun
-                                </span>
-                                <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                  {teams.length} Tim
-                                </span>
-                              </div>
-                            </td>
-                          )
-                        ) : (
-                          /* JIKA 1 KOLOM: TL & STASIUN TERPISAH */
-                          <>
-                            {tmIdx === 0 && (
-                              <td
-                                rowSpan={teams.length}
-                                className="px-2.5 py-2 border-r border-slate-100 bg-slate-50/40 align-top"
-                              >
-                                <span
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70"
-                                  title={`Team Leader: ${sc.teamLeader || '-'}`}
-                                >
-                                  <span className="text-[8.5px] uppercase tracking-wider font-black text-indigo-500 shrink-0">TL:</span>
-                                  <span>{sc.teamLeader || '-'}</span>
-                                </span>
-                              </td>
-                            )}
-
-                            {tmIdx === 0 && (
-                              <td
-                                rowSpan={teams.length}
-                                className="px-2.5 py-2 border-r border-slate-100 bg-white align-top"
-                              >
-                                <div className="font-bold text-slate-800 text-[11px] break-words" title={sc.stasiun}>
-                                  {sc.stasiun}
-                                </div>
-                                <div className="mt-0.5 flex items-center gap-1 flex-wrap">
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-50 text-blue-700 border border-blue-200/60" title={`Mencakup ${getStationList(sc).join(', ')}`}>
-                                    {getStationList(sc).length} Stasiun
-                                  </span>
-                                  <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-slate-100 text-slate-600 border border-slate-200/50">
-                                    {teams.length} Tim
-                                  </span>
-                                </div>
-                              </td>
-                            )}
-                          </>
-                        )}
-
-                        {/* TIM TEKNISI - USERNAME TEKNISI */}
-                        <td className="px-2.5 py-2 border-r border-slate-100">
-                          <div className="font-bold text-slate-800 text-[11px] uppercase tracking-tight break-words" title={tm.nama}>
-                            {tm.nama}
-                          </div>
-                          <div
-                            className="text-[9.5px] font-medium text-slate-400 leading-snug mt-0.5 break-words"
-                            title={(tm.anggota || []).map(a => a.nama).filter(Boolean).join(' • ')}
-                          >
-                            {(tm.anggota || []).map(getMemberUsername).filter(Boolean).join(' • ')}
-                          </div>
-                        </td>
-
-                        {/* TOTAL WO (KLIK UNTUK LIHAT RINCIAN TUGAS) */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-xs">
-                          {m.totalWO > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => setDetailModal({ isOpen: true, teamData: { ...tm, ...m, stasiun: sc.stasiun, teamLeader: sc.teamLeader, sektor }, activeTab: 'semua' })}
-                              className="inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-md bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white font-black text-[10px] border border-blue-200 hover:border-blue-600 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-                              title="Klik untuk melihat rincian tugas / WO hari ini"
-                            >
-                              {m.totalWO}
-                            </button>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
-
-                        {/* AKTIVASI */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-emerald-600 text-xs">
-                          {m.aktivasi > 0 ? m.aktivasi : <span className="text-slate-300 font-normal">-</span>}
-                        </td>
-
-                        {/* VISIT */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-indigo-600 text-xs">
-                          {m.visit > 0 ? m.visit : <span className="text-slate-300 font-normal">-</span>}
-                        </td>
-
-                        {/* DISMANTLE */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-rose-600 text-xs">
-                          {m.dismantle > 0 ? m.dismantle : <span className="text-slate-300 font-normal">-</span>}
-                        </td>
-
-                        {/* PENDING */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-amber-600 text-xs">
-                          {m.pending > 0 ? (
-                            <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-amber-50 text-amber-700 font-bold text-[10px] border border-amber-200/60">
-                              {m.pending}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
-
-                        {/* KENDALA (KDL) */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-rose-600 text-xs">
-                          {m.kendala > 0 ? (
-                            <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200/60">
-                              {m.kendala}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
-
-                        {/* OUTSTANDING */}
-                        <td className="px-1 py-2 text-center border-r border-slate-100 font-bold text-slate-700 text-xs">
-                          {m.outstanding > 0 ? (
-                            <span className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded bg-slate-100 text-slate-700 font-bold text-[10px] border border-slate-200/60">
-                              {m.outstanding}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
-
-                        {/* PERFORMANSI */}
-                        <td className="px-1 py-2 text-center font-bold text-xs">
-                          {isHighProd ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/70">
-                              {m.prodStr}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 font-medium text-[10px]">{m.prodStr}</span>
-                          )}
-                        </td>
-
-                      </tr>
-                    );
-                  })}
-
-                  {/* BARIS SUBTOTAL PER STASIUN */}
-                  <tr className="bg-slate-50/80 text-slate-700 font-bold text-[11px] border-y border-slate-200/80">
-                    <td colSpan={isTwoCol ? 3 : 4} className="px-2.5 py-1.5 font-bold text-slate-700 text-left border-r border-slate-200/60 uppercase tracking-tight">
-                      Subtotal {sc.stasiun} {sektor ? `(${sektor})` : ''}
-                    </td>
                     <td className="px-1 py-1.5 text-center font-bold text-blue-700 border-r border-slate-200/60">
                       {subWO > 0 ? subWO : '-'}
                     </td>
@@ -1782,7 +1814,10 @@ export default function TeamPerformanceView({
                 </React.Fragment>
               );
             })}
-          </tbody>
+          </React.Fragment>
+        );
+      })}
+    </tbody>
         </table>
       </div>
     );
@@ -1799,9 +1834,7 @@ export default function TeamPerformanceView({
             {/* THEAD */}
             <thead className="bg-slate-50 text-slate-400 font-bold text-[10px] sm:text-[11px] uppercase tracking-wider border-b border-slate-200">
               <tr>
-                <th className="px-2 py-2.5 w-24 text-center border-r border-slate-200/70 rounded-tl-xl">
-                  Sektor
-                </th>
+                <th className="w-9 min-w-[36px] max-w-[42px] px-1 py-2.5 text-center border-r border-slate-200/70 rounded-tl-xl"></th>
                 <th className="px-2.5 py-2.5 w-28 text-left border-r border-slate-200/70">
                   Stasiun / TL
                 </th>
@@ -1827,12 +1860,12 @@ export default function TeamPerformanceView({
                   <React.Fragment key={stIdx}>
                     {Array.from({ length: teamCount }).map((__, tmIdx) => (
                       <tr key={tmIdx} className="animate-pulse">
-                        {tmIdx === 0 && (
+                        {stIdx === 0 && tmIdx === 0 && (
                           <td
-                            rowSpan={teamCount}
-                            className="px-2 py-2 border-r border-slate-100 bg-slate-50/40 align-middle text-center"
+                            rowSpan={stationCount * 3}
+                            className="w-9 min-w-[36px] max-w-[42px] px-1 py-2 border-r border-slate-100 bg-slate-50/40 align-middle text-center"
                           >
-                            <div className="h-5 bg-slate-200/70 rounded-lg w-16 mx-auto animate-pulse"></div>
+                            <div className="h-28 bg-slate-200/70 rounded-lg w-4 mx-auto animate-pulse"></div>
                           </td>
                         )}
 
@@ -1889,7 +1922,7 @@ export default function TeamPerformanceView({
 
                     {/* Subtotal Shimmer */}
                     <tr className="bg-slate-50/80 border-y border-slate-200/80 animate-pulse">
-                      <td colSpan={3} className="px-2.5 py-2 border-r border-slate-200/60">
+                      <td colSpan={2} className="px-2.5 py-2 border-r border-slate-200/60">
                         <div className="h-3 bg-slate-200 rounded w-28 animate-pulse"></div>
                       </td>
                       <td className="px-1 py-2 text-center border-r border-slate-200/60">
