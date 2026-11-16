@@ -19906,7 +19906,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   </div>
                 </div>
 
-                <div className="text-[10px] text-slate-500 truncate w-full pl-6">
+                <div className="text-[10px] text-slate-500 leading-snug line-clamp-2 break-words w-full pl-6" title={item.alamat}>
                   {item.alamat || 'Alamat tidak tersedia'}
                 </div>
 
@@ -20216,7 +20216,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   </div>
                 </th>
                 <th className="px-3 py-3.5 w-28 text-left text-xs uppercase tracking-wider font-bold">ID PEL</th>
-                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[180px] max-w-[260px]">NAMA & ALAMAT</th>
+                <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[340px]">NAMA & ALAMAT</th>
                 <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">KONTAK & LOKASI</th>
                 <th className="px-4 py-3.5 w-36 text-left text-xs uppercase tracking-wider font-bold">STASIUN & SALES</th>
                 <th className="px-4 py-3.5 text-left text-xs uppercase tracking-wider font-bold min-w-[200px] max-w-[260px] cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => setSortAgeOrder(prev => prev === 'asc' ? 'desc' : (prev === 'desc' ? null : 'asc'))}>
@@ -20245,7 +20245,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                       <div className="h-4 w-20 bg-slate-200 rounded"></div>
                     </td>
                     {/* Nama & Alamat Skeleton */}
-                    <td className="px-4 py-3 min-w-[180px] max-w-[260px]">
+                    <td className="px-4 py-3 min-w-[200px] max-w-[340px]">
                       <div className="space-y-1.5">
                         <div className="h-4 w-36 bg-slate-200 rounded"></div>
                         <div className="h-3 w-48 bg-slate-100 rounded"></div>
@@ -20392,9 +20392,9 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         <span className="truncate" title={item.idPelanggan}>{item.idPelanggan || '-'}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 min-w-[180px] max-w-[260px]">
+                    <td className="px-4 py-3 min-w-[200px] max-w-[340px]">
                       <div className="font-bold text-slate-800 text-xs sm:text-sm truncate" title={item.namaPelanggan}>{item.namaPelanggan || 'Tanpa Nama'}</div>
-                      <div className="text-[11px] text-slate-500 truncate max-w-[240px]" title={item.alamat}>{item.alamat || '-'}</div>
+                      <div className="text-[11px] text-slate-500 leading-snug line-clamp-2 break-words mt-0.5" title={item.alamat}>{item.alamat || '-'}</div>
                     </td>
                     <td className="px-4 py-3 w-36 whitespace-nowrap">
                       <div className="flex flex-col gap-1">
