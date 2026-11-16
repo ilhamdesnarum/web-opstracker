@@ -11922,6 +11922,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     }
   }, [initialTask, data, activeDispatch]);
 
+  const initialPendingInfo = useMemo(() => extractPendingData(data), [data]);
+  const initialKendalaInfo = useMemo(() => extractKendalaData(data), [data]);
+
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
     namaPelanggan: data?.namaPelanggan || '',
@@ -11938,9 +11941,13 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     longitude: data?.longitude || '',
     aktivasi: data?.aktivasi || '',
     catatan: data?.catatan || '', // Field Catatan Pelanggan Baru
-    catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || '') : ''),
+    catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
-    issueKendala: data?.issueKendala || '',
+    issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
+    reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || '',
+    tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
+    reporterKendala: data?.reporterKendala || data?.reporter_kendala || initialKendalaInfo.reporter || '',
+    tanggalKendala: (data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date) ? (String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).includes('T') ? String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split('T')[0] : String(data?.tanggalKendala || data?.tanggal_kendala || initialKendalaInfo.date).split(' ')[0]) : todayDateStr,
     keluhan: 'Modem LOS / Nyala Merah',
     catatanKendala: '',
     petugas: activeDispatch?.petugas || data?.activeWo?.petugas || data?.petugasIkr || data?.petugasAktivasi || '',
@@ -12381,6 +12388,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         petugas_ikr: payload.petugasIkr,
         catatan: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || null) : (payload.catatan || null),
         catatan_pending: isPendingStatus ? (payload.catatanPending || null) : null,
+        reporter_pending: isPendingStatus ? (payload.reporterPending || null) : null,
+        tanggal_pending: isPendingStatus ? (payload.tanggalPending || null) : null,
         issue_kendala: isKendalaStatus ? (payload.issueKendala || null) : (isWaitingStatus ? null : (payload.issueKendala || null)),
         tanggal_kendala: isKendalaStatus ? (payload.tanggalKendala || null) : null,
         reporter_kendala: isKendalaStatus ? (payload.reporterKendala || null) : null,
@@ -12394,9 +12403,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       if (payload.ikrPartner !== undefined) updateData.ikr_partner = payload.ikrPartner;
 
       let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
-      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending'))) {
+      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('reporter_pending'))) {
         const fallbackData = { ...updateData };
         delete fallbackData.catatan_pending;
+        delete fallbackData.reporter_pending;
+        delete fallbackData.tanggal_pending;
         if (isPendingStatus && payload.catatanPending) {
           fallbackData.issue_kendala = payload.catatanPending;
         }
@@ -12411,7 +12422,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         ...payload,
         catatanWaiting: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || '') : (payload.catatanWaiting || ''),
         catatan: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || '') : (payload.catatan || ''),
-        issueKendala: isWaitingStatus ? '' : (payload.issueKendala || '')
+        catatanPending: isPendingStatus ? (payload.catatanPending || '') : '',
+        reporterPending: isPendingStatus ? (payload.reporterPending || '') : '',
+        tanggalPending: isPendingStatus ? (payload.tanggalPending || '') : '',
+        reporter_pending: isPendingStatus ? (payload.reporterPending || '') : '',
+        tanggal_pending: isPendingStatus ? (payload.tanggalPending || '') : '',
+        issueKendala: isWaitingStatus ? '' : (payload.issueKendala || ''),
+        reporterKendala: isKendalaStatus ? (payload.reporterKendala || '') : '',
+        tanggalKendala: isKendalaStatus ? (payload.tanggalKendala || '') : '',
+        reporter_kendala: isKendalaStatus ? (payload.reporterKendala || '') : '',
+        tanggal_kendala: isKendalaStatus ? (payload.tanggalKendala || '') : ''
       };
       if (onLocalPelangganUpdate) onLocalPelangganUpdate([safeUpdatedLocal]);
       setInternalData(safeUpdatedLocal);
@@ -12855,6 +12875,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         const formattedId = String(formData.idPelanggan).trim().toUpperCase();
 
         const isPendingAdd = String(formData.aktivasi || '').trim().toUpperCase() === 'PENDING';
+        const isKendalaAdd = String(formData.aktivasi || '').trim().toUpperCase() === 'KENDALA';
         const supabaseAddPayload = {
           id_pelanggan: formattedId,
           nama_pelanggan: formData.namaPelanggan || '',
@@ -12868,11 +12889,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           tahap_pembangunan: formData.tahapPembangunan || '',
           latitude: formData.latitude ? String(formData.latitude).replace(/^'+/, '').trim().replace(',', '.') : '',
           longitude: formData.longitude ? String(formData.longitude).replace(/^'+/, '').trim().replace(',', '.') : '',
-          status_ikr: isPendingAdd ? 'Pending' : 'Belum',
+          status_ikr: isPendingAdd ? 'Pending' : (isKendalaAdd ? 'Kendala' : 'Belum'),
           status_aktivasi: formData.aktivasi || 'Belum',
           catatan: formData.catatan || '',
           catatan_pending: isPendingAdd ? (formData.catatanPending || '') : null,
-          issue_kendala: isPendingAdd ? null : (formData.issueKendala || ''),
+          reporter_pending: isPendingAdd ? (formData.reporterPending || null) : null,
+          tanggal_pending: isPendingAdd ? (formData.tanggalPending || null) : null,
+          issue_kendala: isKendalaAdd ? (formData.issueKendala || '') : (isPendingAdd ? null : (formData.issueKendala || '')),
+          reporter_kendala: isKendalaAdd ? (formData.reporterKendala || null) : null,
+          tanggal_kendala: isKendalaAdd ? (formData.tanggalKendala || null) : null,
           tanggal_dismantle: isDismantleStatus ? (formData.tanggalDismantle || null) : null,
           reason_dismantle: isDismantleStatus ? (formData.reasonDismantle || null) : null,
           created_at: nowIso,
@@ -12885,7 +12910,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
               onLocalPelangganUpdate([{
                 ...formData,
                 idPelanggan: formattedId,
-                ikr: isPendingAdd ? 'Pending' : 'Belum',
+                ikr: isPendingAdd ? 'Pending' : (isKendalaAdd ? 'Kendala' : 'Belum'),
                 aktivasi: formData.aktivasi || 'Belum'
               }]);
             }
@@ -12898,9 +12923,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           try {
             // 1. Simpan langsung ke Supabase
             let { error: sbErr } = await supabase.from('data_pelanggan').insert([supabaseAddPayload]);
-            if (sbErr && (sbErr.code === '42703' || String(sbErr.message || '').includes('catatan_pending'))) {
+            if (sbErr && (sbErr.code === '42703' || String(sbErr.message || '').includes('catatan_pending') || String(sbErr.message || '').includes('reporter_pending'))) {
               const fallbackAdd = { ...supabaseAddPayload };
               delete fallbackAdd.catatan_pending;
+              delete fallbackAdd.reporter_pending;
+              delete fallbackAdd.tanggal_pending;
               if (isPendingAdd && formData.catatanPending) {
                 fallbackAdd.issue_kendala = formData.catatanPending;
               }
@@ -12967,7 +12994,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             ...updatePayload,
             catatanWaiting: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatanWaiting || ''),
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatan || ''),
-            issueKendala: isWaitingUpdate ? '' : (updatePayload.issueKendala || '')
+            catatanPending: isPendingUpdate ? (updatePayload.catatanPending || '') : '',
+            reporterPending: isPendingUpdate ? (updatePayload.reporterPending || '') : '',
+            tanggalPending: isPendingUpdate ? (updatePayload.tanggalPending || '') : '',
+            reporter_pending: isPendingUpdate ? (updatePayload.reporterPending || '') : '',
+            tanggal_pending: isPendingUpdate ? (updatePayload.tanggalPending || '') : '',
+            issueKendala: isKendalaUpdate ? (updatePayload.issueKendala || '') : (isWaitingUpdate ? '' : (updatePayload.issueKendala || '')),
+            reporterKendala: isKendalaUpdate ? (updatePayload.reporterKendala || '') : '',
+            tanggalKendala: isKendalaUpdate ? (updatePayload.tanggalKendala || '') : '',
+            reporter_kendala: isKendalaUpdate ? (updatePayload.reporterKendala || '') : '',
+            tanggal_kendala: isKendalaUpdate ? (updatePayload.tanggalKendala || '') : ''
           };
           if (onLocalPelangganUpdate) onLocalPelangganUpdate([{ ...data, ...localPayload }]);
         } catch (e) { console.error(e); }
@@ -13004,6 +13040,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             petugas_ikr: updatePayload.petugasIkr,
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || null) : (updatePayload.catatan || null),
             catatan_pending: isPendingUpdate ? (updatePayload.catatanPending || null) : null,
+            reporter_pending: isPendingUpdate ? (updatePayload.reporterPending || null) : null,
+            tanggal_pending: isPendingUpdate ? (updatePayload.tanggalPending || null) : null,
             issue_kendala: isKendalaUpdate ? (updatePayload.issueKendala || null) : (isWaitingUpdate ? null : (updatePayload.issueKendala || null)),
             tanggal_kendala: isKendalaUpdate ? (updatePayload.tanggalKendala || null) : null,
             reporter_kendala: isKendalaUpdate ? (updatePayload.reporterKendala || null) : null,
@@ -13017,9 +13055,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (updatePayload.ikrPartner !== undefined) updateData.ikr_partner = updatePayload.ikrPartner;
 
           let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
-          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending'))) {
+          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('reporter_pending'))) {
             const fallbackData = { ...updateData };
             delete fallbackData.catatan_pending;
+            delete fallbackData.reporter_pending;
+            delete fallbackData.tanggal_pending;
             if (isPendingUpdate && updatePayload.catatanPending) {
               fallbackData.issue_kendala = updatePayload.catatanPending;
             }
@@ -13073,6 +13113,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 alasanPerubahan: alasanKet,
                 catatanWaiting: updatePayload.catatanWaiting || null,
                 catatanPending: updatePayload.catatanPending || null,
+                reporterPending: updatePayload.reporterPending || null,
+                tanggalPending: updatePayload.tanggalPending || null,
                 issueKendala: updatePayload.issueKendala || null,
                 reporterKendala: updatePayload.reporterKendala || null,
                 tanggalKendala: updatePayload.tanggalKendala || null,
@@ -13189,11 +13231,19 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 {renderEditableDetailRow({ label: "Longitude", fieldKey: "longitude" })}
                 {renderEditableDetailRow({ label: "Catatan", fieldKey: "catatan", fullWidth: true })}
                 {String(internalData.aktivasi || '').trim().toUpperCase() === 'PENDING' ? (
-                  renderEditableDetailRow({ label: "Catatan Update Pending", fieldKey: "catatanPending", fullWidth: true })
+                  <>
+                    {renderEditableDetailRow({ label: "Catatan Update Pending", fieldKey: "catatanPending", fullWidth: true })}
+                    {renderEditableDetailRow({ label: "Reporter Pending", fieldKey: "reporterPending", valueOverride: internalData.reporterPending || internalData.reporter_pending || '-' })}
+                    {renderEditableDetailRow({ label: "Tanggal Pending", fieldKey: "tanggalPending", type: "date", valueOverride: (internalData.tanggalPending || internalData.tanggal_pending) ? formatDateDisplay(internalData.tanggalPending || internalData.tanggal_pending) : '-' })}
+                  </>
                 ) : (String(internalData.aktivasi || '').trim().toUpperCase() === 'WAITING' || String(internalData.aktivasi || '').trim().toUpperCase() === 'BELUM') ? (
                   renderEditableDetailRow({ label: "Catatan Waiting", fieldKey: "catatanWaiting", fullWidth: true })
                 ) : (String(internalData.aktivasi || '').trim().toUpperCase() === 'KENDALA' || String(internalData.aktivasi || '').includes('KENDALA')) ? (
-                  renderEditableDetailRow({ label: "Issue / Kendala", fieldKey: "issueKendala", fullWidth: true })
+                  <>
+                    {renderEditableDetailRow({ label: "Issue / Kendala", fieldKey: "issueKendala", fullWidth: true })}
+                    {renderEditableDetailRow({ label: "Reporter Kendala", fieldKey: "reporterKendala", valueOverride: internalData.reporterKendala || internalData.reporter_kendala || '-' })}
+                    {renderEditableDetailRow({ label: "Tanggal Kendala", fieldKey: "tanggalKendala", type: "date", valueOverride: (internalData.tanggalKendala || internalData.tanggal_kendala) ? formatDateDisplay(internalData.tanggalKendala || internalData.tanggal_kendala) : '-' })}
+                  </>
                 ) : null}
 
                 <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
@@ -13223,10 +13273,14 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                   valueOverride: effectiveTahapPembangunan,
                   options: customerStationTahapOptions
                 })}
-                <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
-                {renderEditableDetailRow({ label: "Petugas IKR", fieldKey: "petugasIkr" })}
-                {renderEditableDetailRow({ label: "Petugas Aktivasi", fieldKey: "petugasAktivasi" })}
-                {renderEditableDetailRow({ label: "IKR Partner", fieldKey: "ikrPartner", valueOverride: internalData.ikrPartner || internalData.ikr_partner || '-' })}
+                {String(internalData.aktivasi || '').trim().toUpperCase() !== 'PENDING' && !String(internalData.aktivasi || '').includes('KENDALA') && (
+                  <>
+                    <div className="md:col-span-2 border-b-2 border-slate-100 mt-2 mb-1"></div>
+                    {renderEditableDetailRow({ label: "Petugas IKR", fieldKey: "petugasIkr" })}
+                    {renderEditableDetailRow({ label: "Petugas Aktivasi", fieldKey: "petugasAktivasi" })}
+                    {renderEditableDetailRow({ label: "IKR Partner", fieldKey: "ikrPartner", valueOverride: internalData.ikrPartner || internalData.ikr_partner || '-' })}
+                  </>
+                )}
 
                 {/* FOTO DOKUMENTASI */}
                 <div className="md:col-span-2 mt-4">
@@ -13502,21 +13556,85 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                   </>
                 )}
 
-                {/* 8C. PETUGAS IKR & PETUGAS AKTIVASI MANUAL */}
+                {/* 8C. FIELD OPERASIONAL DINAMIS SESUAI STATUS (PENDING, KENDALA, ATAU AKTIF/WAITING) */}
                 {type !== 'add' && (
                   <>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas IKR</label>
-                      <input type="text" name="petugasIkr" value={formData.petugasIkr || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas IKR..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas Aktivasi</label>
-                      <input type="text" name="petugasAktivasi" value={formData.petugasAktivasi || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas aktivasi..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">IKR Partner</label>
-                      <input type="text" name="ikrPartner" value={formData.ikrPartner || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama IKR partner..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
-                    </div>
+                    {currentNormStatus === 'PENDING' ? (
+                      <>
+                        <div className="animate-fade">
+                          <label className="text-[11px] font-bold text-blue-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="user" size={13} className="text-blue-500" /> Reporter Pending
+                          </label>
+                          <input
+                            type="text"
+                            name="reporterPending"
+                            value={formData.reporterPending || ''}
+                            onChange={handleInputChange}
+                            disabled={isSaving}
+                            placeholder="Cth: @nurrosyid_wp..."
+                            className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="animate-fade">
+                          <label className="text-[11px] font-bold text-blue-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="calendar" size={13} className="text-blue-500" /> Tanggal Pending
+                          </label>
+                          <input
+                            type="date"
+                            name="tanggalPending"
+                            value={formData.tanggalPending || todayDateStr}
+                            onChange={handleInputChange}
+                            disabled={isSaving}
+                            className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-bold text-blue-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50 cursor-pointer"
+                          />
+                        </div>
+                      </>
+                    ) : currentNormStatus === 'KENDALA' ? (
+                      <>
+                        <div className="animate-fade">
+                          <label className="text-[11px] font-bold text-rose-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="user" size={13} className="text-rose-500" /> Reporter Kendala
+                          </label>
+                          <input
+                            type="text"
+                            name="reporterKendala"
+                            value={formData.reporterKendala || ''}
+                            onChange={handleInputChange}
+                            disabled={isSaving}
+                            placeholder="Cth: @tyyexo..."
+                            className="w-full p-2.5 bg-rose-50/70 border border-rose-200 rounded-lg text-sm font-medium text-slate-800 placeholder:text-rose-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="animate-fade">
+                          <label className="text-[11px] font-bold text-rose-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Icon name="calendar" size={13} className="text-rose-500" /> Tanggal Kendala
+                          </label>
+                          <input
+                            type="date"
+                            name="tanggalKendala"
+                            value={formData.tanggalKendala || todayDateStr}
+                            onChange={handleInputChange}
+                            disabled={isSaving}
+                            className="w-full p-2.5 bg-rose-50/70 border border-rose-200 rounded-lg text-sm font-bold text-rose-900 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-colors disabled:opacity-50 cursor-pointer"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas IKR</label>
+                          <input type="text" name="petugasIkr" value={formData.petugasIkr || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas IKR..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">Petugas Aktivasi</label>
+                          <input type="text" name="petugasAktivasi" value={formData.petugasAktivasi || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama petugas aktivasi..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="text-[11px] font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">IKR Partner</label>
+                          <input type="text" name="ikrPartner" value={formData.ikrPartner || ''} onChange={handleInputChange} disabled={isSaving} placeholder="Ketik nama IKR partner..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50" />
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
 
