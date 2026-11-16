@@ -17,17 +17,50 @@ export const toProperCase = (str) => {
 
 // --- Helper Function: Pencari Data Kendala Secara Global ---
 export const extractKendalaData = (item) => {
-  let issue = item.issueKendala || '';
-  let reporter = item.reporterKendala || '';
-  let date = item.tanggalKendala || '';
+  if (!item) return { issue: '', reporter: '', date: '' };
+  let issue = item.issueKendala || item.issue_kendala || '';
+  let reporter = item.reporterKendala || item.reporter_kendala || '';
+  let date = item.tanggalKendala || item.tanggal_kendala || '';
 
   for (const key in item) {
     const lk = String(key).toLowerCase();
     if (lk.includes('issue') && !issue) issue = item[key];
-    if (lk.includes('reporter') && !reporter) reporter = item[key];
+    if (lk.includes('reporter') && lk.includes('kendala') && !reporter) reporter = item[key];
     if (lk.includes('tanggal') && lk.includes('kendala') && !date) date = item[key];
   }
+
+  if (!reporter) {
+    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || '';
+  }
+  if (!date) {
+    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
+  }
+
   return { issue, reporter, date };
+};
+
+// --- Helper Function: Pencari Data Pending Secara Global ---
+export const extractPendingData = (item) => {
+  if (!item) return { note: '', reporter: '', date: '' };
+  let note = item.catatanPending || item.catatan_pending || ((item.issueKendala && item.issueKendala !== item.alamat) ? item.issueKendala : '');
+  let reporter = item.reporterPending || item.reporter_pending || '';
+  let date = item.tanggalPending || item.tanggal_pending || '';
+
+  for (const key in item) {
+    const lk = String(key).toLowerCase();
+    if (lk.includes('catatan') && lk.includes('pending') && !note) note = item[key];
+    if (lk.includes('reporter') && lk.includes('pending') && !reporter) reporter = item[key];
+    if (lk.includes('tanggal') && lk.includes('pending') && !date) date = item[key];
+  }
+
+  if (!reporter) {
+    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || item.namaSales || item.sales || '';
+  }
+  if (!date) {
+    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
+  }
+
+  return { note, reporter, date };
 };
 
 // --- Helper Function: Pencari Status Pelanggan Global ---

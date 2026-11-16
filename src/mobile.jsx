@@ -9,7 +9,7 @@ import { fetchPartnerBastToday, formatToWibTime } from './services/partnerBastSe
 import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
 import { syncDismantlingFast } from './services/partnerDismantleService.js';
-import { isPercepatanCustomer, buildOdpLookupMap, formatDateDisplay, getWoDismantleInfo } from './utils';
+import { isPercepatanCustomer, buildOdpLookupMap, formatDateDisplay, getWoDismantleInfo, extractKendalaData, extractPendingData } from './utils';
 import { logActivity } from './services/activityLogService.js';
 import './index.css';
 
@@ -83,6 +83,8 @@ const parseSupabaseDocument = (fields) => {
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
     catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
+    reporterPending: fields.reporter_pending || fields.reporterPending || "",
+    tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     issueKendala: ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? "" : (fields.issue_kendala || "")),
     tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
     tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
@@ -1145,16 +1147,16 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
-        setCachedData('otas_pelanggan_cache_v7', null);
+        setCachedData('otas_pelanggan_cache_v8', null);
         setCachedData('otas_cache_visit', null);
         setCachedData('otas_odp_cache_v5', null);
       }
       setGlobalError(null);
 
-      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v7');
+      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v8');
       if (cachedPelanggan && (cachedPelanggan.length < 5000 || !cachedPelanggan.some(p => 'statusPartner' in p))) {
         cachedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v7', null);
+        setCachedData('otas_pelanggan_cache_v8', null);
       }
 
       const cachedVisit = getCachedData('otas_cache_visit');
@@ -1168,9 +1170,9 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
-        const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
-        const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
-        const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,status_partner';
+        const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
+        const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
+        const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
 
         const fetchPelanggan = () => fetchAllSupabaseData('data_pelanggan', pelangganColsWithIkrPartner, 'id_pelanggan')
           .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsWithWo, 'id_pelanggan'))
@@ -1180,7 +1182,7 @@ const MobileApp = () => {
           fetchPelanggan()
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v7', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v8', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -1290,7 +1292,7 @@ const MobileApp = () => {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v7', parsed);
+                setCachedData('otas_pelanggan_cache_v8', parsed);
                 setData(prev => ({ ...prev, pelangganData: parsed }));
               }
             }).catch(e => console.warn('[MOBILE SYNC PARTNER] Gagal refetch pelanggan baru/aktif/dismantle:', e));
@@ -1359,7 +1361,7 @@ const MobileApp = () => {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v7', nextList);
+                setCachedData('otas_pelanggan_cache_v8', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -4693,26 +4695,60 @@ const MobileApp = () => {
                             })()
                           ) : st === 'PENDING' ? (
                             (() => {
-                              const notePending = p.catatanPending || (p.issueKendala && p.issueKendala !== p.alamat ? p.issueKendala : '');
-                              if (!notePending) return null;
+                              const { note: notePending, reporter: repPending, date: tglPending } = extractPendingData(p);
+                              const tglPendingDisplay = formatDateDisplay(tglPending);
                               return (
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex items-start gap-1.5 text-[9px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 px-2 py-1.5 rounded-md" title={notePending}>
+                                <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg">
+                                  <div className="flex items-start gap-1.5">
                                     <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-blue-800">PENDING:</span> {notePending}</span>
+                                    <span className="whitespace-normal leading-relaxed font-bold italic">
+                                      <span className="font-extrabold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repPending || '-'}`}>
+                                      <Icon name="user" size={9} className="text-blue-500 shrink-0" />
+                                      <span className="truncate">{repPending || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-blue-600 font-bold" title={`Tanggal: ${tglPendingDisplay || '-'}`}>
+                                      <Icon name="calendar" size={9} className="text-blue-500 shrink-0" />
+                                      <span>{tglPendingDisplay || '-'}</span>
+                                    </span>
                                   </div>
                                 </div>
                               );
                             })()
                           ) : (
-                            (st !== 'AKTIF' && p.issueKendala && p.issueKendala !== p.alamat) && (
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1.5 rounded-md" title={p.issueKendala}>
-                                  <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                                  <span className="whitespace-normal leading-relaxed font-bold italic"><span className="font-extrabold text-rose-800">KENDALA:</span> {p.issueKendala}</span>
+                            (() => {
+                              const hasKendala = p.issueKendala && p.issueKendala !== p.alamat;
+                              const isKendala = st === 'KENDALA' || hasKendala;
+                              if (!isKendala || st === 'AKTIF') return null;
+
+                              const { issue: finalIssue, reporter: repKendala, date: tglKendala } = extractKendalaData(p);
+                              const tglKendalaDisplay = formatDateDisplay(tglKendala);
+                              const displayKendalaText = p.issueKendala || finalIssue || 'Terkendala di lapangan';
+
+                              return (
+                                <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg">
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
+                                    <span className="whitespace-normal leading-relaxed font-bold italic">
+                                      <span className="font-extrabold text-rose-800">KENDALA:</span> {displayKendalaText}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70 text-[8.5px] text-rose-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repKendala || '-'}`}>
+                                      <Icon name="user" size={9} className="text-rose-500 shrink-0" />
+                                      <span className="truncate">{repKendala || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-rose-600 font-bold" title={`Tanggal: ${tglKendalaDisplay || '-'}`}>
+                                      <Icon name="calendar" size={9} className="text-rose-500 shrink-0" />
+                                      <span>{tglKendalaDisplay || '-'}</span>
+                                    </span>
+                                  </div>
                                 </div>
-                              </div>
-                            )
+                              );
+                            })()
                           )}
                         </div>
                       </div>

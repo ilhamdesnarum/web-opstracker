@@ -56,6 +56,8 @@ const parseSupabaseDocument = (fields) => {
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
     catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
+    reporterPending: fields.reporter_pending || fields.reporterPending || "",
+    tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     catatanWaiting: fields.catatan_waiting || fields.catatanWaiting || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'WAITING' ? (fields.catatan || "") : ""),
     issueKendala: fields.issue_kendala || "",
     tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
@@ -823,17 +825,49 @@ const toProperCase = (str) => {
 };
 
 const extractKendalaData = (item) => {
-  let issue = item.issueKendala || '';
-  let reporter = item.reporterKendala || '';
-  let date = item.tanggalKendala || item.tglAktivasi || item.timestampAktivasi || item.tanggalRegistrasi || '';
+  if (!item) return { issue: '', reporter: '', date: '' };
+  let issue = item.issueKendala || item.issue_kendala || '';
+  let reporter = item.reporterKendala || item.reporter_kendala || '';
+  let date = item.tanggalKendala || item.tanggal_kendala || '';
 
   for (const key in item) {
     const lk = String(key).toLowerCase();
     if (lk.includes('issue') && !issue) issue = item[key];
-    if (lk.includes('reporter') && !reporter) reporter = item[key];
+    if (lk.includes('reporter') && lk.includes('kendala') && !reporter) reporter = item[key];
     if (lk.includes('tanggal') && lk.includes('kendala') && !date) date = item[key];
   }
+
+  if (!reporter) {
+    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || '';
+  }
+  if (!date) {
+    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
+  }
+
   return { issue, reporter, date };
+};
+
+const extractPendingData = (item) => {
+  if (!item) return { note: '', reporter: '', date: '' };
+  let note = item.catatanPending || item.catatan_pending || ((item.issueKendala && item.issueKendala !== item.alamat) ? item.issueKendala : '');
+  let reporter = item.reporterPending || item.reporter_pending || '';
+  let date = item.tanggalPending || item.tanggal_pending || '';
+
+  for (const key in item) {
+    const lk = String(key).toLowerCase();
+    if (lk.includes('catatan') && lk.includes('pending') && !note) note = item[key];
+    if (lk.includes('reporter') && lk.includes('pending') && !reporter) reporter = item[key];
+    if (lk.includes('tanggal') && lk.includes('pending') && !date) date = item[key];
+  }
+
+  if (!reporter) {
+    reporter = item.petugasIkr || item.petugasAktivasi || item.petugas || item.namaSales || item.sales || '';
+  }
+  if (!date) {
+    date = item.tanggalRegistrasi || item.createdAt || item.updatedAt || '';
+  }
+
+  return { note, reporter, date };
 };
 
 // --- Helper Function: Pencari Status Pelanggan Global ---
@@ -1889,7 +1923,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           newPelangganData.unshift(updatedItem);
         }
       });
-      setCachedData('otas_pelanggan_cache_v11', newPelangganData);
+      setCachedData('otas_pelanggan_cache_v12', newPelangganData);
       return { ...prevData, pelangganData: newPelangganData };
     });
   };
@@ -2142,7 +2176,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v11', null);
+        setCachedData('otas_pelanggan_cache_v12', null);
         setCachedData('otas_odp_cache_v5', null);
         setCachedData('otas_station_cache', null);
         setCachedData('otas_po_release_cache', null);
@@ -2156,11 +2190,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v11');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v12');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v11', null);
+        setCachedData('otas_pelanggan_cache_v12', null);
       }
 
       if (isForce) {
@@ -2205,10 +2239,10 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
       if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation || !cachedWoDispatch || !cachedWoDispatch.length) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumnsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
-        const pelangganColumnsWithDismantle = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,wo_dismantle,status_partner';
-        const pelangganColumnsWithPending = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,status_partner';
-        const pelangganColumnsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,status_partner';
+        const pelangganColumnsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
+        const pelangganColumnsWithDismantle = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
+        const pelangganColumnsWithPending = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
+        const pelangganColumnsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
 
         const fetchPelangganSafe = async () => {
           try {
@@ -2239,7 +2273,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v11', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v12', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -2332,7 +2366,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v11', parsed);
+                setCachedData('otas_pelanggan_cache_v12', parsed);
                 setData(prev => ({
                   ...prev,
                   pelangganData: parsed
@@ -2420,7 +2454,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v11', nextList);
+                setCachedData('otas_pelanggan_cache_v12', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -2631,7 +2665,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v11', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v12', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -4584,7 +4618,7 @@ export function OkupansiView({ data, setData }) {
             }
             return p;
           });
-          setCachedData('otas_pelanggan_cache_v11', updatedPel);
+          setCachedData('otas_pelanggan_cache_v12', updatedPel);
 
           return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
         });
@@ -19421,6 +19455,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             else displayStatusStr = getGlobalStatusStr(item);
 
             const { issue, reporter, date } = extractKendalaData(item);
+            const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
 
             let umurWoStr = '';
             let isWoLama = false;
@@ -19632,14 +19667,29 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   if (displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
 
                   if (displayStatusStr === 'PENDING') {
-                    const notePending = item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                    if (!notePending) return null;
+                    const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                    const repPending = pendingRep || item.reporterPending || item.reporter_pending || item.petugasIkr || item.petugasAktivasi || item.namaSales || item.sales || '';
+                    const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || item.tanggalRegistrasi || item.createdAt;
+                    const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
+
                     return (
-                      <div className="flex items-start gap-1.5 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded-md ml-6">
-                        <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
-                        <span className="whitespace-normal leading-tight italic">
-                          <span className="font-bold text-blue-800">PENDING:</span> {notePending}
-                        </span>
+                      <div className="flex flex-col gap-1 text-[9px] font-medium text-blue-900 bg-blue-50 border border-blue-200 p-2 rounded-md ml-6">
+                        <div className="flex items-start gap-1.5">
+                          <Icon name="hourglass" size={10} className="text-blue-600 shrink-0 mt-0.5" />
+                          <span className="whitespace-normal leading-tight italic">
+                            <span className="font-bold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-blue-200/70 text-[8.5px] text-blue-700 font-medium not-italic">
+                          <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repPending || '-'}`}>
+                            <Icon name="user" size={9} className="text-blue-500 shrink-0" />
+                            <span className="truncate">{repPending || '-'}</span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-blue-600" title={`Tanggal: ${tglPendingFormatted || '-'}`}>
+                            <Icon name="calendar" size={9} className="text-blue-500 shrink-0" />
+                            <span>{tglPendingFormatted || '-'}</span>
+                          </span>
+                        </div>
                       </div>
                     );
                   }
@@ -19659,13 +19709,32 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                   const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                   const issueText = issue && issue !== item.alamat ? issue : '';
-                  if (!hasKendala && !issueText) return null;
+                  const isKendala = displayStatusStr === 'KENDALA' || hasKendala || issueText;
+                  if (!isKendala) return null;
+
+                  const repKendala = reporter || item.reporterKendala || item.reporter_kendala || item.petugasIkr || item.petugasAktivasi || '';
+                  const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || item.tanggalRegistrasi || item.createdAt;
+                  const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
+                  const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
+
                   return (
-                    <div className="flex items-start gap-1.5 text-[9px] font-medium text-rose-900 bg-rose-50 border border-rose-200 px-2 py-1.5 rounded-md ml-6">
-                      <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
-                      <span className="whitespace-normal leading-tight italic">
-                        <span className="font-bold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}
-                      </span>
+                    <div className="flex flex-col gap-1 text-[9px] font-medium text-rose-900 bg-rose-50 border border-rose-200 p-2 rounded-md ml-6">
+                      <div className="flex items-start gap-1.5">
+                        <Icon name="alert-circle" size={10} className="text-rose-600 shrink-0 mt-0.5" />
+                        <span className="whitespace-normal leading-tight italic">
+                          <span className="font-bold text-rose-800">KENDALA:</span> {displayKendalaText}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70 text-[8.5px] text-rose-700 font-medium not-italic">
+                        <span className="flex items-center gap-1 truncate" title={`Pelapor: ${repKendala || '-'}`}>
+                          <Icon name="user" size={9} className="text-rose-500 shrink-0" />
+                          <span className="truncate">{repKendala || '-'}</span>
+                        </span>
+                        <span className="flex items-center gap-1 shrink-0 font-semibold text-rose-600" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
+                          <Icon name="calendar" size={9} className="text-rose-500 shrink-0" />
+                          <span>{tglKendalaFormatted || '-'}</span>
+                        </span>
+                      </div>
                     </div>
                   );
                 })()}
@@ -19851,6 +19920,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 else displayStatusStr = getGlobalStatusStr(item);
 
                 const { issue, reporter, date } = extractKendalaData(item);
+            const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
 
                 let umurWoStr = '';
                 let isWoLama = false;
@@ -20190,17 +20260,32 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           {(() => {
                             if (displayStatusStr === 'AKTIF' || displayStatusStr.includes('AKTIF') || displayStatusStr === 'DONE') return null;
 
-                            // 1. Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass)
+                            // 1. Jika Status PENDING: Tampilkan Catatan Update Pending (Warna Biru / Hourglass) beserta Pelapor & Tanggal
                             if (displayStatusStr === 'PENDING') {
-                              const notePending = item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
-                              if (!notePending) return null;
+                              const notePending = pendingNote || item.catatanPending || (item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '');
+                              const repPending = pendingRep || item.reporterPending || item.reporter_pending || item.petugasIkr || item.petugasAktivasi || item.namaSales || item.sales || '';
+                              const tglPendingRaw = pendingDate || item.tanggalPending || item.tanggal_pending || item.tanggalRegistrasi || item.createdAt;
+                              const tglPendingFormatted = formatDateDisplay(tglPendingRaw);
+
                               return (
-                                <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[260px]">
-                                  <div className="flex items-start gap-1.5 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 px-2 py-1 rounded-md" title={notePending}>
-                                    <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span className="leading-snug font-bold italic line-clamp-2 break-words">
-                                      <span className="font-extrabold text-blue-800">PENDING:</span> {notePending}
-                                    </span>
+                                <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px]">
+                                  <div className="flex flex-col gap-1 text-[10px] font-medium text-blue-900 bg-blue-50/90 border border-blue-200/80 p-2 rounded-lg" title={notePending || 'Pending'}>
+                                    <div className="flex items-start gap-1.5">
+                                      <Icon name="hourglass" size={12} className="text-blue-600 shrink-0 mt-0.5" />
+                                      <span className="leading-snug font-bold italic line-clamp-2 break-words">
+                                        <span className="font-extrabold text-blue-800">PENDING:</span> {notePending || 'Menunggu jadwal pasang'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-blue-200/70 text-[9px] text-blue-700 font-semibold not-italic">
+                                      <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repPending || '-'}`}>
+                                        <Icon name="user" size={10} className="text-blue-500 shrink-0" />
+                                        <span className="truncate">{repPending || '-'}</span>
+                                      </span>
+                                      <span className="flex items-center gap-1 shrink-0 text-blue-600 font-bold" title={`Tanggal: ${tglPendingFormatted || '-'}`}>
+                                        <Icon name="calendar" size={10} className="text-blue-500 shrink-0" />
+                                        <span>{tglPendingFormatted || '-'}</span>
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -20222,16 +20307,37 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                               );
                             }
 
-                            // 3. Jika Bukan PENDING & Bukan WAITING: Tampilkan Catatan Kendala (Warna Merah)
+                            // 3. Jika Bukan PENDING & Bukan WAITING: Tampilkan Catatan Kendala (Warna Merah) beserta Pelapor & Tanggal
                             const hasKendala = item.issueKendala && item.issueKendala !== item.alamat;
                             const issueText = issue && issue !== item.alamat ? issue : '';
+                            const isKendala = displayStatusStr === 'KENDALA' || hasKendala || issueText;
 
-                            if (!hasKendala && !issueText) return null;
+                            if (!isKendala || displayStatusStr === 'DISMANTLED' || displayStatusStr === 'DISMANTLE' || displayStatusStr === 'READY TO DISMANTLE' || displayStatusStr === 'SUSPEND') return null;
+
+                            const repKendala = reporter || item.reporterKendala || item.reporter_kendala || item.petugasIkr || item.petugasAktivasi || '';
+                            const tglKendalaRaw = date || item.tanggalKendala || item.tanggal_kendala || item.tanggalRegistrasi || item.createdAt;
+                            const tglKendalaFormatted = formatDateDisplay(tglKendalaRaw);
+                            const displayKendalaText = item.issueKendala || issueText || 'Terkendala di lapangan';
+
                             return (
-                              <div className="col-span-full mt-1 flex flex-col gap-1.5 max-w-[250px]">
-                                <div className="flex items-start gap-1.5 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 px-2 py-1 rounded-md" title={item.issueKendala || issueText}>
-                                  <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                                  <span className="leading-snug font-bold italic line-clamp-2 break-words"><span className="font-extrabold text-rose-800">KENDALA:</span> {item.issueKendala || issueText}</span>
+                              <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px]">
+                                <div className="flex flex-col gap-1 text-[10px] font-medium text-rose-900 bg-rose-50/90 border border-rose-200/80 p-2 rounded-lg" title={displayKendalaText}>
+                                  <div className="flex items-start gap-1.5">
+                                    <Icon name="alert-circle" size={12} className="text-rose-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug font-bold italic line-clamp-2 break-words">
+                                      <span className="font-extrabold text-rose-800">KENDALA:</span> {displayKendalaText}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-rose-200/70 text-[9px] text-rose-700 font-semibold not-italic">
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Pelapor: ${repKendala || '-'}`}>
+                                      <Icon name="user" size={10} className="text-rose-500 shrink-0" />
+                                      <span className="truncate">{repKendala || '-'}</span>
+                                    </span>
+                                    <span className="flex items-center gap-1 shrink-0 text-rose-600 font-bold" title={`Tanggal: ${tglKendalaFormatted || '-'}`}>
+                                      <Icon name="calendar" size={10} className="text-rose-500 shrink-0" />
+                                      <span>{tglKendalaFormatted || '-'}</span>
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             );
