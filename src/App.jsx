@@ -28,6 +28,7 @@ import TeamPerformanceView from './components/TeamPerformanceView';
 import GamasDashboardView from './components/GamasDashboardView';
 import PreRegisterPortalView from './components/PreRegisterPortalView';
 import UserManagementView from './components/UserManagementView';
+import { VersionUpdateNotifier } from './components/VersionUpdateNotifier';
 import { fetchAllOspTickets } from './services/ospTicketService.js';
 import { logActivity } from './services/activityLogService';
 
@@ -1909,7 +1910,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           newPelangganData.unshift(updatedItem);
         }
       });
-      setCachedData('otas_pelanggan_cache_v13', newPelangganData);
+      setCachedData('otas_pelanggan_cache_v14', newPelangganData);
       return { ...prevData, pelangganData: newPelangganData };
     });
   };
@@ -2162,6 +2163,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
     try {
       if (isForce) {
+        setCachedData('otas_pelanggan_cache_v14', null);
         setCachedData('otas_pelanggan_cache_v13', null);
         setCachedData('otas_pelanggan_cache_v12', null);
         setCachedData('otas_odp_cache_v5', null);
@@ -2177,11 +2179,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v13');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v14');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v13', null);
+        setCachedData('otas_pelanggan_cache_v14', null);
       }
 
       if (isForce) {
@@ -2260,7 +2262,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v13', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v14', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -2353,7 +2355,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v13', parsed);
+                setCachedData('otas_pelanggan_cache_v14', parsed);
                 setData(prev => ({
                   ...prev,
                   pelangganData: parsed
@@ -2441,7 +2443,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v13', nextList);
+                setCachedData('otas_pelanggan_cache_v14', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -2652,7 +2654,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v13', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v14', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -3495,6 +3497,9 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         </div>,
         document.body
       )}
+
+      {/* AUTO-UPDATE NOTIFIER SAAT TAB DIBUKA */}
+      <VersionUpdateNotifier />
     </div>
   );
 }
@@ -4605,7 +4610,7 @@ export function OkupansiView({ data, setData }) {
             }
             return p;
           });
-          setCachedData('otas_pelanggan_cache_v13', updatedPel);
+          setCachedData('otas_pelanggan_cache_v14', updatedPel);
 
           return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
         });

@@ -11,6 +11,7 @@ import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
 import { syncDismantlingFast } from './services/partnerDismantleService.js';
 import { isPercepatanCustomer, buildOdpLookupMap, formatDateDisplay, getWoDismantleInfo, extractKendalaData, extractPendingData } from './utils';
 import { logActivity } from './services/activityLogService.js';
+import { VersionUpdateNotifier } from './components/VersionUpdateNotifier';
 import './index.css';
 
 const DetailRow = ({ label, value, isLink, href }) => value ? (
@@ -1147,6 +1148,7 @@ const MobileApp = () => {
     try {
       if (force) {
         setIsGlobalLoading(true);
+        setCachedData('otas_pelanggan_cache_v10', null);
         setCachedData('otas_pelanggan_cache_v9', null);
         setCachedData('otas_pelanggan_cache_v8', null);
         setCachedData('otas_cache_visit', null);
@@ -1154,10 +1156,10 @@ const MobileApp = () => {
       }
       setGlobalError(null);
 
-      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v9');
+      let cachedPelanggan = getCachedData('otas_pelanggan_cache_v10');
       if (cachedPelanggan && (cachedPelanggan.length < 5000 || !cachedPelanggan.some(p => 'statusPartner' in p))) {
         cachedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v9', null);
+        setCachedData('otas_pelanggan_cache_v10', null);
       }
 
       const cachedVisit = getCachedData('otas_cache_visit');
@@ -1183,7 +1185,7 @@ const MobileApp = () => {
           fetchPelanggan()
             .then((sbData) => {
               finalPelanggan = (sbData || []).map(parseSupabaseDocument);
-              setCachedData('otas_pelanggan_cache_v9', finalPelanggan);
+              setCachedData('otas_pelanggan_cache_v10', finalPelanggan);
             }).catch(e => {
               console.error("Gagal memuat data_pelanggan dari Supabase:", e);
             })
@@ -1293,7 +1295,7 @@ const MobileApp = () => {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v9', parsed);
+                setCachedData('otas_pelanggan_cache_v10', parsed);
                 setData(prev => ({ ...prev, pelangganData: parsed }));
               }
             }).catch(e => console.warn('[MOBILE SYNC PARTNER] Gagal refetch pelanggan baru/aktif/dismantle:', e));
@@ -1362,7 +1364,7 @@ const MobileApp = () => {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v9', nextList);
+                setCachedData('otas_pelanggan_cache_v10', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -1429,7 +1431,7 @@ const MobileApp = () => {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v4', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v10', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -6273,6 +6275,9 @@ const MobileApp = () => {
           </div>
         </div>
       )}
+
+      {/* AUTO-UPDATE NOTIFIER SAAT TAB/APP DIBUKA */}
+      <VersionUpdateNotifier isMobile={true} />
     </div>
   );
 };
