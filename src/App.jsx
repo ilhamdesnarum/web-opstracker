@@ -824,6 +824,24 @@ const formatDateDisplay = (dateStr) => {
   return std;
 };
 
+const getExpDateDisplay = (item) => {
+  if (!item) return '';
+  if (item.tanggalBerakhir) {
+    const formatted = formatDateDisplay(item.tanggalBerakhir);
+    if (formatted) return formatted;
+  }
+  // Fallback: Jika tanggal berakhir belum tercatat tetapi ada telat bayar hari, hitung tanggal jatuh tempo mundur dari hari ini
+  if (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari)) && Number(item.telatBayarHari) > 0) {
+    const d = new Date();
+    d.setDate(d.getDate() - Number(item.telatBayarHari));
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+  return '';
+};
+
 const toProperCase = (str) => {
   if (!str) return '';
   return String(str).toLowerCase().replace(/\b\w/g, char => char.toUpperCase());
@@ -18894,7 +18912,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
           }
 
           row['Telat Bayar (Hari)'] = (item.telatBayarHari !== null && item.telatBayarHari !== undefined && !isNaN(Number(item.telatBayarHari))) ? Number(item.telatBayarHari) : '';
-          row['Tanggal Exp / Berakhir'] = item.tanggalBerakhir ? String(item.tanggalBerakhir).substring(0, 10) : '';
+          row['Tanggal Exp / Berakhir'] = getExpDateDisplay(item);
 
           if (hasDismantleData) {
             row['WO Dismantle'] = item.woDismantle || '';
@@ -20019,7 +20037,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                   // 5. SUSPEND
                   if (displayStatusStr === 'SUSPEND') {
-                    const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                    const tglExp = getExpDateDisplay(item);
                     const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
                     const noteSuspend = Number(item.telatBayarHari) > 0
                       ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
@@ -20050,7 +20068,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   // 6. READY TO DISMANTLE
                   if (displayStatusStr === 'READY TO DISMANTLE') {
                     const woDismantle = getWoDismantleInfo(item);
-                    const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                    const tglExp = getExpDateDisplay(item);
                     const isSudahRilisWo = Boolean(woDismantle?.hasWo);
                     const noteRtd = isSudahRilisWo ? 'Sudah Rilis WO' : 'Belum Rilis WO';
                     const repRtd = isSudahRilisWo ? (woDismantle.teknisi || '-') : '-';
@@ -20589,7 +20607,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                           // 5. SUSPEND
                           if (displayStatusStr === 'SUSPEND') {
-                            const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                            const tglExp = getExpDateDisplay(item);
                             const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
                             const noteSuspend = Number(item.telatBayarHari) > 0
                               ? `Isolir: Telat bayar ${item.telatBayarHari} hari`
@@ -20622,7 +20640,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           // 6. READY TO DISMANTLE
                           if (displayStatusStr === 'READY TO DISMANTLE') {
                             const woDismantle = getWoDismantleInfo(item);
-                            const tglExp = item.tanggalBerakhir ? formatDateDisplay(item.tanggalBerakhir) : '';
+                            const tglExp = getExpDateDisplay(item);
                             const isSudahRilisWo = Boolean(woDismantle?.hasWo);
                             const noteRtd = isSudahRilisWo ? 'Sudah Rilis WO' : 'Belum Rilis WO';
                             const repRtd = isSudahRilisWo ? (woDismantle.teknisi || '-') : '-';
