@@ -1973,12 +1973,16 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   // ========================================================
   // FUNGSI BARU: UPDATE LOKAL (TANPA LOADING 15 DETIK)
   // ========================================================
-  const handleLocalPelangganUpdate = (updatedItemsArray) => {
+  const handleLocalPelangganUpdate = (updatedItems) => {
+    const itemsArray = Array.isArray(updatedItems) ? updatedItems : (updatedItems ? [updatedItems] : []);
+    if (itemsArray.length === 0) return;
     setData(prevData => {
       const newPelangganData = [...prevData.pelangganData];
-      updatedItemsArray.forEach(updatedItem => {
-        const targetId = String(updatedItem.idPelanggan || '').trim().toUpperCase();
-        const idx = newPelangganData.findIndex(p => String(p.idPelanggan || '').trim().toUpperCase() === targetId);
+      itemsArray.forEach(updatedItem => {
+        if (!updatedItem) return;
+        const targetId = String(updatedItem.idPelanggan || updatedItem.id_pelanggan || '').trim().toUpperCase();
+        if (!targetId) return;
+        const idx = newPelangganData.findIndex(p => String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase() === targetId);
         if (idx !== -1) {
           // Jika ID ditemukan (Mode Edit/Update Massal), timpa data lamanya
           newPelangganData[idx] = { ...newPelangganData[idx], ...updatedItem };
@@ -1995,14 +1999,16 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   // ========================================================
   // FUNGSI BARU: HAPUS LOKAL (TANPA LOADING)
   // ========================================================
-  const handleLocalPelangganDelete = (deletedIdsArray) => {
+  const handleLocalPelangganDelete = (deletedIds) => {
+    const idsArray = Array.isArray(deletedIds) ? deletedIds : (deletedIds ? [deletedIds] : []);
+    if (idsArray.length === 0) return;
     setData(prevData => {
       // 1. Seragamkan ID yang dihapus jadi huruf besar semua & tanpa spasi
-      const normalizedDeletedIds = deletedIdsArray.map(id => String(id).trim().toUpperCase());
+      const normalizedDeletedIds = idsArray.map(id => String(id).trim().toUpperCase());
 
       // 2. Saring data: Buang data yang ID-nya cocok dengan daftar hapus
       const newPelangganData = prevData.pelangganData.filter(p => {
-        const currentId = String(p.idPelanggan).trim().toUpperCase();
+        const currentId = String(p.idPelanggan || p.id_pelanggan || '').trim().toUpperCase();
         return !normalizedDeletedIds.includes(currentId);
       });
 
@@ -12895,7 +12901,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (woVisitErr) console.warn("Supabase log_wo_dispatch visit insert warning:", woVisitErr);
           if (onLocalWoDispatchAdd) onLocalWoDispatchAdd(woVisitPayload);
           if (onLocalPelangganUpdate) {
-            onLocalPelangganUpdate({
+            onLocalPelangganUpdate([{
               ...data,
               activeWo: {
                 petugas: usernamePetugas,
@@ -12903,7 +12909,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 tipe: 'VISIT',
                 status: 'DISPATCHED'
               }
-            });
+            }]);
           }
 
           sendTelegramVisitDM(payload, listTeknisi);
