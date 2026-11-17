@@ -22333,24 +22333,6 @@ function LoginView({ onLogin }) {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState(null);
-
-  useEffect(() => {
-    const handleBeforePrompt = (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforePrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforePrompt);
-  }, []);
-
-  const handleInstallClick = () => {
-    if (installPrompt) {
-      installPrompt.prompt();
-    } else {
-      window.location.href = '/mobile.html';
-    }
-  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -22507,20 +22489,6 @@ function LoginView({ onLogin }) {
             )}
           </button>
         </form>
-
-        {/* Tombol Install App OpsTracker */}
-        <button
-          type="button"
-          onClick={handleInstallClick}
-          className="w-full py-2.5 sm:py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs sm:text-sm transition-all flex items-center justify-between group shadow-2xs mt-3 cursor-pointer"
-          title="Install atau buka aplikasi OpsTracker"
-        >
-          <div className="flex items-center gap-2.5">
-            <Icon name="smartphone" size={17} className="text-blue-600 group-hover:scale-110 transition-transform" />
-            <span>Install App OpsTracker</span>
-          </div>
-          <Icon name="download" size={15} className="text-blue-600 group-hover:translate-y-0.5 transition-transform" />
-        </button>
       </div>
     </div>
   );

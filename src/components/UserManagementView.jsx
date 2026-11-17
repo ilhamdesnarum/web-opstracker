@@ -114,22 +114,36 @@ export default function UserManagementView({ currentUser }) {
     }
   };
 
-  // 2. Fetch Activity Logs dari Supabase
+  // 2. Fetch Activity Logs dari Supabase (Tanpa Batas)
   const fetchActivityLogs = async () => {
     setIsLogsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(300);
+      let allLogs = [];
+      let start = 0;
+      const limit = 1000;
+      let hasMore = true;
 
-      if (error) {
-        console.warn('Gagal fetch activity_logs:', error);
-        showToast('Gagal memuat log aktivitas: ' + error.message, 'error');
-      } else {
-        setActivityLogs(data || []);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(start, start + limit - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allLogs = allLogs.concat(data);
+        }
+
+        if (!data || data.length < limit) {
+          hasMore = false;
+        } else {
+          start += limit;
+        }
       }
+
+      setActivityLogs(allLogs);
     } catch (err) {
       console.error('Fetch activity logs error:', err);
       showToast('Terjadi kesalahan memuat log: ' + err.message, 'error');
@@ -256,14 +270,23 @@ export default function UserManagementView({ currentUser }) {
         );
       } else {
         // Create user
+        const newUserId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+              return v.toString(16);
+            });
+
         const insertPayload = {
+          id: newUserId,
           username: userForm.username.toLowerCase().trim(),
           password: userForm.password.trim(),
           name: userForm.name.trim(),
           role: userForm.role,
           sektor: userForm.sektor,
           stasiun: userForm.stasiun,
-          status: userForm.status || 'active'
+          status: userForm.status || 'active',
+          created_at: new Date().toISOString()
         };
 
         const { data, error } = await supabase
@@ -275,7 +298,7 @@ export default function UserManagementView({ currentUser }) {
 
         const newUser = data && data[0]
           ? data[0]
-          : { id: `USER-${Date.now()}`, ...insertPayload, created_at: new Date().toISOString() };
+          : insertPayload;
 
         setUsersData(prev => [newUser, ...prev]);
         showToast(`Pengguna baru @${userForm.username} berhasil didaftarkan!`, 'success');
@@ -663,11 +686,16 @@ export default function UserManagementView({ currentUser }) {
           <div className="inline-flex p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 gap-1 w-fit">
             <button
               type="button"
-              onClick={() => setActiveMainTab('users')}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                setActiveMainTab('users');
+              }}
+              style={{ outline: 'none', WebkitTapHighlightColor: 'transparent' }}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 select-none ${
                 activeMainTab === 'users'
                   ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 border border-transparent'
               }`}
             >
               <Icon name="users" size={15} />
@@ -681,11 +709,16 @@ export default function UserManagementView({ currentUser }) {
 
             <button
               type="button"
-              onClick={() => setActiveMainTab('logs')}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                setActiveMainTab('logs');
+              }}
+              style={{ outline: 'none', WebkitTapHighlightColor: 'transparent' }}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 select-none ${
                 activeMainTab === 'logs'
                   ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 border border-transparent'
               }`}
             >
               <Icon name="history" size={15} />
@@ -706,7 +739,7 @@ export default function UserManagementView({ currentUser }) {
                   type="button"
                   onClick={fetchUsers}
                   disabled={isLoading}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50 outline-none focus:outline-none focus:ring-0"
                   title="Perbarui daftar pengguna terbaru"
                 >
                   <Icon name="refresh-cw" size={14} className={isLoading ? 'animate-spin text-blue-600' : 'text-slate-600'} />
@@ -716,7 +749,7 @@ export default function UserManagementView({ currentUser }) {
                 <button
                   type="button"
                   onClick={handleOpenCreateModal}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition-all cursor-pointer active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition-all cursor-pointer active:scale-95 outline-none focus:outline-none focus:ring-0"
                 >
                   <Icon name="user-plus" size={15} />
                   <span>Tambah Pengguna</span>
@@ -727,7 +760,7 @@ export default function UserManagementView({ currentUser }) {
                 type="button"
                 onClick={fetchActivityLogs}
                 disabled={isLogsLoading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[38px] rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80 transition-all cursor-pointer disabled:opacity-50 outline-none focus:outline-none focus:ring-0"
                 title="Perbarui log aktivitas terbaru"
               >
                 <Icon name="refresh-cw" size={14} className={isLogsLoading ? 'animate-spin text-blue-600' : 'text-slate-600'} />

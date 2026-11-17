@@ -38,6 +38,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Hilangkan outline hitam bawaan browser saat tombol diklik */
+button:focus,
+button:focus-visible {
+  outline: none !important;
+}
+
 /* Efek zoom hanya aktif di layar besar (Laptop/PC) */
 @media (min-width: 1024px) {
   body {
