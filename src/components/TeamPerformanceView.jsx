@@ -8,6 +8,7 @@ import { toProperCase } from '../utils';
 import Icon from './Icon';
 import PantauTimModal from './PantauTimModal';
 import ManagePetugasModal from './ManagePetugasModal';
+import { logActivity } from '../services/activityLogService';
 
 // Helper: Format tanggal YYYY-MM-DD
 const formatDateToYMD = (date) => {
@@ -597,6 +598,13 @@ export default function TeamPerformanceView({
 
     if (isCloudSuccess) {
       showToast('Konfigurasi Tim & Stasiun berhasil disimpan!', 'success');
+
+      logActivity({
+        module: 'Monitoring Tim',
+        action: 'UPDATE_KONFIGURASI_TIM',
+        description: `Memperbarui konfigurasi cluster & stasiun tim operasional (${clustersToSave.length} cluster)`,
+        metadata: { clusterCount: clustersToSave.length }
+      });
     } else {
       showToast('Konfigurasi Tim & Stasiun tersimpan di penyimpanan lokal.', 'info');
     }

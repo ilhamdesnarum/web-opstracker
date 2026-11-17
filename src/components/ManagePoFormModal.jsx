@@ -13,6 +13,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import { logActivity } from '../services/activityLogService';
 
 const DEFAULT_STATIONS = [
   'Alastua',
@@ -158,6 +159,14 @@ export const ManagePoFormModal = ({
 
         if (error) throw error;
 
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'PO Release',
+          action: 'UPDATE_PO_RELEASE',
+          description: `Memperbarui data PO Release ${payload.no_po_release || '-'} (${payload.tahap_pembangunan}) - Stasiun: ${payload.stasiun}`,
+          metadata: payload
+        });
+
         // Tutup modal segera dan panggil onSuccess agar UI responsif dan instan tanpa lag
         onSuccess && onSuccess();
         onClose();
@@ -185,6 +194,14 @@ export const ManagePoFormModal = ({
           .insert([payload]);
 
         if (error) throw error;
+
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'PO Release',
+          action: 'TAMBAH_PO_RELEASE',
+          description: `Menambahkan data PO Release baru ${payload.no_po_release || '-'} (${payload.tahap_pembangunan}) - Stasiun: ${payload.stasiun}`,
+          metadata: payload
+        });
       }
 
       onSuccess && onSuccess();
@@ -210,6 +227,14 @@ export const ManagePoFormModal = ({
         .eq('stasiun', poToEdit.stasiun);
 
       if (error) throw error;
+
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'PO Release',
+        action: 'HAPUS_PO_RELEASE',
+        description: `Menghapus data PO Release ${poToEdit.noPoRelease || poToEdit.no_po_release || '-'} (${poToEdit.tahapPembangunan || poToEdit.tahap_pembangunan || '-'}) - Stasiun: ${poToEdit.stasiun || '-'}`,
+        metadata: poToEdit
+      });
 
       onSuccess && onSuccess();
       onClose();

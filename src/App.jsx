@@ -1321,6 +1321,14 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
         if (insErr) throw insErr;
       }
 
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'Manajemen Petugas',
+        action: isEditing ? 'UPDATE_PETUGAS' : 'TAMBAH_PETUGAS',
+        description: `${isEditing ? 'Memperbarui data petugas' : 'Menambahkan petugas baru'} ${finalData.nama} (${finalData.username || 'Tanpa username'}) - Stasiun: ${finalData.stasiun || '-'}`,
+        metadata: finalData
+      });
+
       setSyncToast({
         show: true,
         type: 'success',
@@ -1357,6 +1365,14 @@ function OfficerManagementView({ teknisiList, onRefresh, onRefreshSilent }) {
       try {
         const { error } = await supabase.from('petugas').update({ stasiun: '' }).eq('nama', target.nama);
         if (error) throw error;
+
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'Manajemen Petugas',
+          action: 'UNASSIGN_PETUGAS',
+          description: `Menghapus penempatan stasiun petugas ${target.nama} (Stasiun sebelumnya: ${deleteTarget?.stasiun || '-'})`,
+          metadata: { nama: target.nama, stasiunLama: deleteTarget?.stasiun }
+        });
 
         setSyncToast({ show: true, type: 'success', message: 'Penempatan petugas berhasil dihapus!' });
         setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3000);
@@ -2163,6 +2179,22 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           no_wo: payload.noWo || payload.no_wo || null,
           tipe_visit: payload.tipeVisit || payload.tipe_visit || (payload.noWo ? 'WO_VISIT' : 'PROAKTIF')
         });
+
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'Data Gangguan',
+          action: 'BUAT_TIKET_GANGGUAN',
+          description: `Membuat tiket gangguan pelanggan ${payload.idPelanggan || '-'} (${payload.namaPelanggan || 'Pelanggan'}) - Keluhan: ${payload.keluhan || '-'}${payload.petugas ? ` - Teknisi: ${payload.petugas}` : ''}`,
+          metadata: {
+            idPelanggan: payload.idPelanggan,
+            namaPelanggan: payload.namaPelanggan,
+            stasiun: payload.stasiun,
+            keluhan: payload.keluhan,
+            petugas: payload.petugas,
+            noWo: payload.noWo || payload.no_wo,
+            tipeVisit: payload.tipeVisit || payload.tipe_visit
+          }
+        });
       } else if (actionType === 'resolve') {
         let q = supabase.from('log_visit').update({
           status_visit: 'DONE',
@@ -2181,6 +2213,20 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           }
         }
         await q;
+
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'Data Gangguan',
+          action: 'RESOLVE_GANGGUAN',
+          description: `Menyelesaikan tiket gangguan pelanggan ${payload.idPelanggan || '-'} (${payload.namaPelanggan || 'Pelanggan'}) - Tindakan: ${payload.tindakan || payload.perbaikan || 'Selesai'}`,
+          metadata: {
+            idPelanggan: payload.idPelanggan,
+            namaPelanggan: payload.namaPelanggan,
+            tindakan: payload.tindakan || payload.perbaikan,
+            material: payload.material || payload.usedMaterials,
+            petugas: payload.petugas
+          }
+        });
       } else if (actionType === 'delete') {
         let q = supabase.from('log_visit').delete();
         if (payload.id) {
@@ -2192,6 +2238,19 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           }
         }
         await q;
+
+        // Audit Trail Log ke activity_logs
+        logActivity({
+          module: 'Data Gangguan',
+          action: 'HAPUS_TIKET_GANGGUAN',
+          description: `Menghapus tiket gangguan pelanggan ${payload.idPelanggan || '-'} (${payload.namaPelanggan || 'Pelanggan'})`,
+          metadata: {
+            idPelanggan: payload.idPelanggan,
+            namaPelanggan: payload.namaPelanggan,
+            id: payload.id,
+            timestamp: payload.timestamp
+          }
+        });
       }
     } catch (dbErr) {
       console.warn("Supabase visit sync error:", dbErr);
@@ -4577,6 +4636,14 @@ export function OkupansiView({ data, setData }) {
         });
       }
 
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'ODP Coverage',
+        action: 'UPDATE_ODP',
+        description: `Memperbarui data ODP ${payload.kode_odp} (Stasiun: ${payload.stasiun}, Tahap: ${payload.tahap_pembangunan})`,
+        metadata: payload
+      });
+
       setSyncToast({ show: true, type: 'success', message: `ODP ${payload.kode_odp} berhasil diperbarui!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
       setEditingOdp(null);
@@ -4607,6 +4674,14 @@ export function OkupansiView({ data, setData }) {
           return { ...prev, odpData: filtered };
         });
       }
+
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'ODP Coverage',
+        action: 'HAPUS_ODP',
+        description: `Menghapus ODP ${deletingOdp.kodeOdp || deletingOdp.label || deletingOdp.id} (Stasiun: ${deletingOdp.stasiun || '-'})`,
+        metadata: deletingOdp
+      });
 
       setSyncToast({ show: true, type: 'success', message: `ODP ${deletingOdp.kodeOdp || deletingOdp.label} berhasil dihapus!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
@@ -4653,6 +4728,14 @@ export function OkupansiView({ data, setData }) {
           return { ...prev, odpData: filtered };
         });
       }
+
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'ODP Coverage',
+        action: 'BATCH_DELETE_ODP',
+        description: `Menghapus massal ${idsToDelete.length} ODP (Stasiun: ${manageStationFilter || 'Semua'}, Tahap: ${massDeleteTahap || 'Semua'})`,
+        metadata: { count: idsToDelete.length, ids: idsToDelete }
+      });
 
       setSyncToast({ show: true, type: 'success', message: `${idsToDelete.length} ODP berhasil dihapus!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
@@ -4715,6 +4798,14 @@ export function OkupansiView({ data, setData }) {
           return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
         });
       }
+
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'ODP Coverage',
+        action: 'BATCH_GANTI_TAHAP_ODP',
+        description: `Mengubah massal tahap pembangunan ${idsToUpdate.length} ODP & pelanggan ke "${cleanNewTahap}"`,
+        metadata: { count: idsToUpdate.length, newTahap: cleanNewTahap }
+      });
 
       setSyncToast({ show: true, type: 'success', message: `${idsToUpdate.length} ODP & pelanggan terkait berhasil diubah ke "${cleanNewTahap}"!` });
       setTimeout(() => setSyncToast(prev => prev.type === 'success' ? { ...prev, show: false } : prev), 3500);
@@ -12291,6 +12382,19 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         }]);
       }
 
+      // Audit Trail Log ke activity_logs
+      logActivity({
+        module: 'Penugasan WO',
+        action: 'BATALKAN_WO',
+        description: `Membatalkan penugasan WO (${activeDispatch?.tipe || 'WO'}) untuk pelanggan ${targetId} (${data?.namaPelanggan || internalData?.namaPelanggan || ''})`,
+        metadata: {
+          idPelanggan: targetId,
+          namaPelanggan: data?.namaPelanggan || internalData?.namaPelanggan,
+          tipe: activeDispatch?.tipe,
+          petugas: activeDispatch?.petugas
+        }
+      });
+
       setShowConfirmDeleteWo(false);
       setIsSaving(false);
       setIsSuccess(true);
@@ -12913,6 +13017,22 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           }
 
           sendTelegramVisitDM(payload, listTeknisi);
+
+          // Audit Trail Log ke activity_logs
+          logActivity({
+            module: 'Penugasan WO',
+            action: 'TUGASKAN_WO_VISIT',
+            description: `Menugaskan WO Visit kepada teknisi ${usernamePetugas || '-'} untuk pelanggan ${woVisitPayload.id_pelanggan} (${woVisitPayload.nama_pelanggan}) - Keluhan: ${formData.keluhan || '-'}`,
+            metadata: {
+              idPelanggan: woVisitPayload.id_pelanggan,
+              namaPelanggan: woVisitPayload.nama_pelanggan,
+              stasiun: woVisitPayload.stasiun,
+              teknisi: usernamePetugas,
+              keluhan: formData.keluhan,
+              catatan: formData.catatanKendala
+            }
+          });
+
           finalizeSuccessLog();
           return;
         }
@@ -12997,6 +13117,21 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 petugas: usernamePetugas
               };
               sendTelegramAktivasiDM(telePayload, listTeknisi);
+
+              // Audit Trail Log ke activity_logs
+              logActivity({
+                module: 'Penugasan WO',
+                action: 'TUGASKAN_WO_AKTIVASI',
+                description: `Menugaskan WO Aktivasi/IKR kepada teknisi ${usernamePetugas || '-'} untuk pelanggan ${woAktivasiPayload.id_pelanggan} (${woAktivasiPayload.nama_pelanggan})`,
+                metadata: {
+                  idPelanggan: woAktivasiPayload.id_pelanggan,
+                  namaPelanggan: woAktivasiPayload.nama_pelanggan,
+                  stasiun: woAktivasiPayload.stasiun,
+                  teknisi: usernamePetugas,
+                  tglIkr: formData.tglIkr,
+                  catatan: formData.catatanAktivasi
+                }
+              });
 
               setIsSaving(false);
               setIsSuccess(true);
@@ -13099,6 +13234,21 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                 petugas: usernamePetugas
               };
               sendTelegramDismantleDM(telePayload, listTeknisi);
+
+              // Audit Trail Log ke activity_logs
+              logActivity({
+                module: 'Penugasan WO',
+                action: 'TUGASKAN_WO_DISMANTLE',
+                description: `Menugaskan WO Dismantle/Tarik Perangkat kepada teknisi ${usernamePetugas || '-'} untuk pelanggan ${woDismantlePayload.id_pelanggan} (${woDismantlePayload.nama_pelanggan}) - Alasan: ${formData.alasanDismantle || '-'}`,
+                metadata: {
+                  idPelanggan: woDismantlePayload.id_pelanggan,
+                  namaPelanggan: woDismantlePayload.nama_pelanggan,
+                  stasiun: woDismantlePayload.stasiun,
+                  teknisi: usernamePetugas,
+                  alasan: formData.alasanDismantle,
+                  catatan: formData.catatanDismantle
+                }
+              });
 
               setIsSaving(false);
               setIsSuccess(true);
@@ -15758,6 +15908,13 @@ function DataGangguanView({
           tipe_visit: cleanTipeVisit
         });
         if (sbErr) throw sbErr;
+
+        logActivity({
+          module: 'Data Gangguan',
+          action: 'BUAT_TIKET_GANGGUAN',
+          description: `Membuat tiket gangguan pelanggan ${payload.idPelanggan || '-'} (${payload.namaPelanggan || 'Pelanggan'}) - Keluhan: ${payload.keluhan || '-'}${payload.petugas ? ` - Teknisi: ${payload.petugas}` : ''}`,
+          metadata: payload
+        });
       }
 
       // DUAL WRITE: Sinkronkan ke log_wo_dispatch jika ada penugasan petugas
@@ -15790,6 +15947,13 @@ function DataGangguanView({
         if (onLocalWoDispatchAdd) {
           onLocalWoDispatchAdd(woData && woData[0] ? woData[0] : woVisitPayload);
         }
+
+        logActivity({
+          module: 'Penugasan WO',
+          action: 'TUGASKAN_WO_VISIT',
+          description: `Menugaskan WO Visit kepada teknisi ${usernamePetugas} untuk pelanggan ${payload.idPelanggan} (${payload.namaPelanggan}) - Keluhan: ${payload.keluhan}`,
+          metadata: woVisitPayload
+        });
       }
 
       setNewTicketIsSaving(false);

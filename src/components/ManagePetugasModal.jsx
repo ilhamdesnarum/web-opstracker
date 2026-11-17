@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import Icon from './Icon';
 import { supabase } from '../supabaseClient';
+import { logActivity } from '../services/activityLogService';
 
 const STASIUN_OPTIONS = [
   'Alastua',
@@ -170,6 +171,13 @@ export default function ManagePetugasModal({
 
         if (error) throw error;
         showToast(`Data petugas ${payload.full_name} berhasil diperbarui!`, 'success');
+
+        logActivity({
+          module: 'Manajemen Petugas',
+          action: 'UPDATE_PETUGAS',
+          description: `Memperbarui master data petugas ${payload.full_name} (${payload.nick_name})`,
+          metadata: payload
+        });
       } else {
         const { error } = await supabase
           .from('list_petugas')
@@ -177,6 +185,13 @@ export default function ManagePetugasModal({
 
         if (error) throw error;
         showToast(`Petugas baru ${payload.full_name} berhasil ditambahkan!`, 'success');
+
+        logActivity({
+          module: 'Manajemen Petugas',
+          action: 'TAMBAH_PETUGAS',
+          description: `Menambahkan master data petugas baru ${payload.full_name} (${payload.nick_name}) - Peran: ${payload.role}`,
+          metadata: payload
+        });
       }
 
       setShowForm(false);
@@ -202,6 +217,14 @@ export default function ManagePetugasModal({
       if (error) throw error;
       setPetugasList(prev => prev.map(item => item.id === p.id ? { ...item, status: newStatus } : item));
       showToast(`Status ${p.full_name} diubah menjadi ${newStatus}!`, 'success');
+
+      logActivity({
+        module: 'Manajemen Petugas',
+        action: 'STATUS_PETUGAS',
+        description: `Mengubah status petugas ${p.full_name} (${p.nick_name || '-'}) menjadi ${newStatus}`,
+        metadata: { id: p.id, full_name: p.full_name, status: newStatus }
+      });
+
       if (typeof onPetugasUpdated === 'function') onPetugasUpdated();
     } catch (err) {
       console.error('Toggle status error:', err);
@@ -220,6 +243,14 @@ export default function ManagePetugasModal({
       if (error) throw error;
       setPetugasList(prev => prev.filter(item => item.id !== deleteTarget.id));
       showToast(`Petugas ${deleteTarget.full_name} berhasil dihapus!`, 'success');
+
+      logActivity({
+        module: 'Manajemen Petugas',
+        action: 'HAPUS_PETUGAS',
+        description: `Menghapus master data petugas ${deleteTarget.full_name} (${deleteTarget.nick_name})`,
+        metadata: deleteTarget
+      });
+
       if (typeof onPetugasUpdated === 'function') onPetugasUpdated();
     } catch (err) {
       console.error('Delete list_petugas error:', err);
