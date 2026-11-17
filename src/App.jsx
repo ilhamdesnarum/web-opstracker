@@ -60,6 +60,8 @@ const parseSupabaseDocument = (fields) => {
     reporterPending: fields.reporter_pending || fields.reporterPending || "",
     tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     catatanWaiting: fields.catatan_waiting || fields.catatanWaiting || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'WAITING' ? (fields.catatan || "") : ""),
+    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && fields.issue_kendala !== fields.alamat ? fields.issue_kendala : ""),
+    reporterSuspend: fields.reporter_suspend || fields.reporterSuspend || "",
     issueKendala: fields.issue_kendala || "",
     tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
     tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
@@ -12079,6 +12081,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     catatan: data?.catatan || '', // Field Catatan Pelanggan Baru
     catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
+    catatanSuspend: data?.catatanSuspend || data?.catatan_suspend || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'SUSPEND' && data?.issueKendala && data?.issueKendala !== data?.alamat ? data.issueKendala : ''),
+    reporterSuspend: data?.reporterSuspend || data?.reporter_suspend || '',
     issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
     reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || '',
     tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
@@ -12506,6 +12510,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isWaitingStatus = String(finalAktivasi || '').trim().toUpperCase() === 'WAITING' || String(finalAktivasi || '').trim().toUpperCase() === 'BELUM';
       const isPendingStatus = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
       const isKendalaStatus = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
+      const isSuspendStatus = String(finalAktivasi || '').trim().toUpperCase() === 'SUSPEND';
 
       const finalInlineRepPending = isPendingStatus 
         ? ((payload.reporterPending && payload.reporterPending !== initialPendingInfo.reporter) ? payload.reporterPending : (activeReporter || payload.reporterPending || 'Superuser')) 
@@ -12544,7 +12549,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         tanggal_kendala: finalInlineTglKendala,
         reporter_kendala: finalInlineRepKendala,
         tanggal_dismantle: isDismantleStatus ? (payload.tanggalDismantle || null) : null,
-        reason_dismantle: isDismantleStatus ? (payload.reasonDismantle || null) : null
+        reason_dismantle: isDismantleStatus ? (payload.reasonDismantle || null) : null,
+        catatan_suspend: isSuspendStatus ? (payload.catatanSuspend || null) : null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
       if (payload.stasiun !== undefined) updateData.stasiun = payload.stasiun;
@@ -12553,13 +12559,17 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       if (payload.ikrPartner !== undefined) updateData.ikr_partner = payload.ikrPartner;
 
       let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
-      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('reporter_pending'))) {
+      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_pending'))) {
         const fallbackData = { ...updateData };
         delete fallbackData.catatan_pending;
         delete fallbackData.reporter_pending;
         delete fallbackData.tanggal_pending;
+        delete fallbackData.catatan_suspend;
         if (isPendingStatus && payload.catatanPending) {
           fallbackData.issue_kendala = payload.catatanPending;
+        }
+        if (isSuspendStatus && payload.catatanSuspend) {
+          fallbackData.issue_kendala = payload.catatanSuspend;
         }
         const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', payload.idPelanggan);
         error = res.error;
@@ -13147,6 +13157,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isWaitingUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'WAITING' || String(finalAktivasi || '').trim().toUpperCase() === 'BELUM';
       const isPendingUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
       const isKendalaUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
+      const isSuspendUpdate = String(finalAktivasi || '').trim().toUpperCase() === 'SUSPEND';
 
       const oldStatusUpper = String(getGlobalStatusStr(data || {})).toUpperCase();
       const isPendingChanged = isPendingUpdate && (
@@ -13181,6 +13192,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             catatanWaiting: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatanWaiting || ''),
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatan || ''),
             catatanPending: isPendingUpdate ? (updatePayload.catatanPending || '') : '',
+            catatanSuspend: isSuspendUpdate ? (updatePayload.catatanSuspend || '') : '',
+            reporterSuspend: isSuspendUpdate ? (updatePayload.reporterSuspend || activeReporter || '') : '',
+            reporter_suspend: isSuspendUpdate ? (updatePayload.reporterSuspend || activeReporter || '') : '',
             reporterPending: isPendingUpdate ? (finalReporterPending || '') : '',
             tanggalPending: isPendingUpdate ? (finalTanggalPending || '') : '',
             reporter_pending: isPendingUpdate ? (finalReporterPending || '') : '',
@@ -13232,7 +13246,8 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             tanggal_kendala: finalTanggalKendala,
             reporter_kendala: finalReporterKendala,
             tanggal_dismantle: isDismantleStatus ? (updatePayload.tanggalDismantle || null) : null,
-            reason_dismantle: isDismantleStatus ? (updatePayload.reasonDismantle || null) : null
+            reason_dismantle: isDismantleStatus ? (updatePayload.reasonDismantle || null) : null,
+            catatan_suspend: isSuspendUpdate ? (updatePayload.catatanSuspend || null) : null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
           if (updatePayload.stasiun !== undefined) updateData.stasiun = updatePayload.stasiun;
@@ -13241,13 +13256,17 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (updatePayload.ikrPartner !== undefined) updateData.ikr_partner = updatePayload.ikrPartner;
 
           let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
-          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('reporter_pending'))) {
+          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_pending'))) {
             const fallbackData = { ...updateData };
             delete fallbackData.catatan_pending;
             delete fallbackData.reporter_pending;
             delete fallbackData.tanggal_pending;
+            delete fallbackData.catatan_suspend;
             if (isPendingUpdate && updatePayload.catatanPending) {
               fallbackData.issue_kendala = updatePayload.catatanPending;
+            }
+            if (isSuspendUpdate && updatePayload.catatanSuspend) {
+              fallbackData.issue_kendala = updatePayload.catatanSuspend;
             }
             const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', updatePayload.idPelanggan);
             error = res.error;
@@ -13718,6 +13737,24 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                           disabled={isSaving}
                           placeholder="Cth: Pelanggan sedang di luar kota, reschedule instalasi minggu depan..."
                           className="w-full p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-sm font-medium text-blue-900 placeholder:text-blue-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50 resize-y"
+                        ></textarea>
+                      </div>
+                    )}
+
+                    {/* HANYA MUNCUL JIKA STATUS SUSPEND */}
+                    {currentNormStatus === 'SUSPEND' && (
+                      <div className="md:col-span-2 animate-fade">
+                        <label className="text-[11px] font-bold text-orange-600 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                          <Icon name="pause-circle" size={13} className="text-orange-500" /> Catatan Reminder Suspend (Helpdesk)
+                        </label>
+                        <textarea
+                          rows="2"
+                          name="catatanSuspend"
+                          value={formData.catatanSuspend || ''}
+                          onChange={handleInputChange}
+                          disabled={isSaving}
+                          placeholder="Cth: Sudah di-remind tgl 16-11 via WA, pelanggan janji bayar tanggal 20..."
+                          className="w-full p-2.5 bg-orange-50/70 border border-orange-200 rounded-lg text-sm font-medium text-orange-950 placeholder:text-orange-400 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-colors disabled:opacity-50 resize-y"
                         ></textarea>
                       </div>
                     )}
@@ -20074,17 +20111,17 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   // 5. SUSPEND
                   if (displayStatusStr === 'SUSPEND') {
                     const tglExp = getExpDateDisplay(item);
-                    const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                    const noteSuspend = (item.catatan && item.catatan !== item.alamat)
-                      ? item.catatan
-                      : (Number(item.telatBayarHari) > 0 ? 'Isolir / Tunggakan langganan' : 'Layanan di-suspend / isolir');
+                    const repSuspend = item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
+                    const suspendReminderNote = (item.catatanSuspend || item.catatan_suspend || (String(item.aktivasi || item.status_aktivasi || '').trim().toUpperCase() === 'SUSPEND' && item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '') || '').trim();
+                    const hasReminder = Boolean(suspendReminderNote);
+                    const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6 shadow-2xs" title={noteSuspend}>
                         <div className="flex items-start justify-between gap-1.5">
                           <div className="flex items-start gap-1.5 min-w-0 flex-1">
                             <Icon name="pause-circle" size={10} className="text-orange-600 shrink-0 mt-0.5" />
-                            <span className="flex-1 min-w-0 whitespace-normal leading-tight italic pr-1 text-orange-950 font-medium">
+                            <span className={`flex-1 min-w-0 whitespace-normal leading-tight pr-1 ${hasReminder ? 'font-medium text-orange-950 not-italic' : 'italic text-orange-900/60 font-normal'}`}>
                               {noteSuspend}
                             </span>
                           </div>
@@ -20690,10 +20727,10 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           // 5. SUSPEND
                           if (displayStatusStr === 'SUSPEND') {
                             const tglExp = getExpDateDisplay(item);
-                            const repSuspend = item.petugasAktivasi || item.petugasIkr || (item.namaSales && item.namaSales !== '-' ? item.namaSales : '-');
-                            const noteSuspend = (item.catatan && item.catatan !== item.alamat)
-                              ? item.catatan
-                              : (Number(item.telatBayarHari) > 0 ? 'Isolir / Tunggakan langganan' : 'Layanan di-suspend / isolir');
+                            const repSuspend = item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
+                            const suspendReminderNote = (item.catatanSuspend || item.catatan_suspend || (String(item.aktivasi || item.status_aktivasi || '').trim().toUpperCase() === 'SUSPEND' && item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '') || '').trim();
+                            const hasReminder = Boolean(suspendReminderNote);
+                            const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
@@ -20701,7 +20738,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                   <div className="flex items-start justify-between gap-1.5">
                                     <div className="flex items-start gap-1.5 min-w-0 flex-1">
                                       <Icon name="pause-circle" size={12} className="text-orange-600 shrink-0 mt-0.5" />
-                                      <span className="flex-1 min-w-0 leading-snug font-medium italic line-clamp-2 break-words text-orange-950">
+                                      <span className={`flex-1 min-w-0 leading-snug break-words ${hasReminder ? 'font-medium text-orange-950 not-italic' : 'italic text-orange-900/60 font-normal'}`}>
                                         {noteSuspend}
                                       </span>
                                     </div>

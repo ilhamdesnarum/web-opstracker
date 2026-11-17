@@ -84,6 +84,8 @@ const parseSupabaseDocument = (fields) => {
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
     catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
+    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && fields.issue_kendala !== fields.alamat ? fields.issue_kendala : ""),
+    reporterSuspend: fields.reporter_suspend || fields.reporterSuspend || "",
     reporterPending: fields.reporter_pending || fields.reporterPending || "",
     tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     issueKendala: ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? "" : (fields.issue_kendala || "")),
