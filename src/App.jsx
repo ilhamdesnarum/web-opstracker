@@ -60,8 +60,9 @@ const parseSupabaseDocument = (fields) => {
     reporterPending: fields.reporter_pending || fields.reporterPending || "",
     tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     catatanWaiting: fields.catatan_waiting || fields.catatanWaiting || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'WAITING' ? (fields.catatan || "") : ""),
-    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && fields.issue_kendala !== fields.alamat ? fields.issue_kendala : ""),
+    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && /remind|bayar|tagih|tunggak/i.test(fields.issue_kendala) ? fields.issue_kendala : ""),
     reporterSuspend: fields.reporter_suspend || fields.reporterSuspend || "",
+    tanggalSuspend: fields.tanggal_suspend || fields.tanggalSuspend || "",
     issueKendala: fields.issue_kendala || "",
     tglAktivasi: fields.tgl_aktivasi || fields.tanggal_aktivasi || fields.timestamp_aktivasi || "",
     tglIkr: fields.tgl_ikr || fields.tanggal_ikr || "",
@@ -900,6 +901,26 @@ const extractPendingData = (item) => {
     if (lk.includes('catatan') && lk.includes('pending') && !note) note = item[key];
     if (lk.includes('reporter') && lk.includes('pending') && !reporter) reporter = item[key];
     if (lk.includes('tanggal') && lk.includes('pending') && !date) date = item[key];
+  }
+
+  return { note, reporter, date };
+};
+
+const extractSuspendData = (item) => {
+  if (!item) return { note: '', reporter: '', date: '' };
+  let note = item.catatanSuspend || item.catatan_suspend || item.catatan_remind || item.catatanRemind || '';
+  // Hanya ambil dari issue_kendala jika murni teks reminder pembayaran (bukan catatan perbaikan/kendala teknis)
+  if (!note && item.issueKendala && /remind|bayar|tagih|tunggak/i.test(item.issueKendala)) {
+    note = item.issueKendala;
+  }
+  let reporter = item.reporterSuspend || item.reporter_suspend || '';
+  let date = item.tanggalSuspend || item.tanggal_suspend || '';
+
+  for (const key in item) {
+    const lk = String(key).toLowerCase();
+    if (lk.includes('catatan') && lk.includes('suspend') && !note) note = item[key];
+    if (lk.includes('reporter') && lk.includes('suspend') && !reporter) reporter = item[key];
+    if (lk.includes('tanggal') && lk.includes('suspend') && !date) date = item[key];
   }
 
   return { note, reporter, date };
@@ -2375,6 +2396,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
       if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation || !cachedWoDispatch || !cachedWoDispatch.length) {
         // Ambil data langsung dari tabel Supabase
+        const pelangganColumnsWithSuspend = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,catatan_suspend,reporter_suspend,tanggal_suspend,wo_dismantle,status_partner';
         const pelangganColumnsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColumnsWithDismantle = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColumnsWithPending = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
@@ -2382,15 +2404,19 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
         const fetchPelangganSafe = async () => {
           try {
-            return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithIkrPartner, 'id_pelanggan');
-          } catch (_errIkr) {
+            return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithSuspend, 'id_pelanggan');
+          } catch (_errSuspend) {
             try {
-              return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithDismantle, 'id_pelanggan');
-            } catch (colErr) {
+              return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithIkrPartner, 'id_pelanggan');
+            } catch (_errIkr) {
               try {
-                return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithPending, 'id_pelanggan');
-              } catch (_e) {
-                return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsBase, 'id_pelanggan');
+                return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithDismantle, 'id_pelanggan');
+              } catch (colErr) {
+                try {
+                  return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsWithPending, 'id_pelanggan');
+                } catch (_e) {
+                  return await fetchAllSupabaseData('data_pelanggan', pelangganColumnsBase, 'id_pelanggan');
+                }
               }
             }
           }
@@ -12188,6 +12214,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
 
   const initialPendingInfo = useMemo(() => extractPendingData(data), [data]);
   const initialKendalaInfo = useMemo(() => extractKendalaData(data), [data]);
+  const initialSuspendInfo = useMemo(() => extractSuspendData(data), [data]);
 
   const [formData, setFormData] = useState({
     idPelanggan: data?.idPelanggan || '',
@@ -12207,8 +12234,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     catatan: data?.catatan || '', // Field Catatan Pelanggan Baru
     catatanPending: data?.catatanPending || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'PENDING' ? (data?.issueKendala || initialPendingInfo.note || '') : ''),
     catatanWaiting: data?.catatanWaiting || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'WAITING' ? (data?.catatan || '') : ''),
-    catatanSuspend: data?.catatanSuspend || data?.catatan_suspend || (String(getGlobalStatusStr(data || {})).toUpperCase() === 'SUSPEND' && data?.issueKendala && data?.issueKendala !== data?.alamat ? data.issueKendala : ''),
-    reporterSuspend: data?.reporterSuspend || data?.reporter_suspend || '',
+    catatanSuspend: data?.catatanSuspend || data?.catatan_suspend || initialSuspendInfo.note || '',
+    reporterSuspend: data?.reporterSuspend || data?.reporter_suspend || initialSuspendInfo.reporter || '',
+    tanggalSuspend: (data?.tanggalSuspend || data?.tanggal_suspend || initialSuspendInfo.date) ? (String(data?.tanggalSuspend || data?.tanggal_suspend || initialSuspendInfo.date).includes('T') ? String(data?.tanggalSuspend || data?.tanggal_suspend || initialSuspendInfo.date).split('T')[0] : String(data?.tanggalSuspend || data?.tanggal_suspend || initialSuspendInfo.date).split(' ')[0]) : todayDateStr,
     issueKendala: data?.issueKendala || initialKendalaInfo.issue || '',
     reporterPending: data?.reporterPending || data?.reporter_pending || initialPendingInfo.reporter || '',
     tanggalPending: (data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date) ? (String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).includes('T') ? String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split('T')[0] : String(data?.tanggalPending || data?.tanggal_pending || initialPendingInfo.date).split(' ')[0]) : todayDateStr,
@@ -12707,6 +12735,13 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         ? todayDateStr 
         : null;
 
+      const finalInlineRepSuspend = isSuspendStatus 
+        ? ((payload.reporterSuspend && payload.reporterSuspend !== initialSuspendInfo.reporter) ? payload.reporterSuspend : (activeReporter || payload.reporterSuspend || 'Superuser')) 
+        : null;
+      const finalInlineTglSuspend = isSuspendStatus 
+        ? todayDateStr 
+        : null;
+
       const updateData = {
         nomor_hp: payload.nomorHp,
         alamat: payload.alamat,
@@ -12731,7 +12766,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         reporter_kendala: finalInlineRepKendala,
         tanggal_dismantle: isDismantleStatus ? (payload.tanggalDismantle || null) : null,
         reason_dismantle: isDismantleStatus ? (payload.reasonDismantle || null) : null,
-        catatan_suspend: isSuspendStatus ? (payload.catatanSuspend || null) : null
+        catatan_suspend: isSuspendStatus ? (payload.catatanSuspend || null) : null,
+        reporter_suspend: isSuspendStatus ? finalInlineRepSuspend : null,
+        tanggal_suspend: isSuspendStatus ? finalInlineTglSuspend : null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
       if (payload.stasiun !== undefined) updateData.stasiun = payload.stasiun;
@@ -12740,17 +12777,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       if (payload.ikrPartner !== undefined) updateData.ikr_partner = payload.ikrPartner;
 
       let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
-      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_pending'))) {
+      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('reporter_pending'))) {
         const fallbackData = { ...updateData };
         delete fallbackData.catatan_pending;
         delete fallbackData.reporter_pending;
         delete fallbackData.tanggal_pending;
         delete fallbackData.catatan_suspend;
+        delete fallbackData.reporter_suspend;
+        delete fallbackData.tanggal_suspend;
         if (isPendingStatus && payload.catatanPending) {
           fallbackData.issue_kendala = payload.catatanPending;
-        }
-        if (isSuspendStatus && payload.catatanSuspend) {
-          fallbackData.issue_kendala = payload.catatanSuspend;
         }
         const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', payload.idPelanggan);
         error = res.error;
@@ -12768,6 +12804,11 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         tanggalPending: isPendingStatus ? (finalInlineTglPending || '') : '',
         reporter_pending: isPendingStatus ? (finalInlineRepPending || '') : '',
         tanggal_pending: isPendingStatus ? (finalInlineTglPending || '') : '',
+        catatanSuspend: isSuspendStatus ? (payload.catatanSuspend || '') : '',
+        reporterSuspend: isSuspendStatus ? (finalInlineRepSuspend || '') : '',
+        tanggalSuspend: isSuspendStatus ? (finalInlineTglSuspend || '') : '',
+        reporter_suspend: isSuspendStatus ? (finalInlineRepSuspend || '') : '',
+        tanggal_suspend: isSuspendStatus ? (finalInlineTglSuspend || '') : '',
         issueKendala: isWaitingStatus ? '' : (payload.issueKendala || ''),
         reporterKendala: isKendalaStatus ? (finalInlineRepKendala || '') : '',
         tanggalKendala: isKendalaStatus ? (finalInlineTglKendala || '') : '',
@@ -13426,6 +13467,13 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         ? (updatePayload.tanggalKendala || (isKendalaChanged ? todayDateStr : (data?.tanggalKendala || data?.tanggal_kendala || todayDateStr)))
         : null;
 
+      const finalReporterSuspend = isSuspendUpdate 
+        ? (updatePayload.reporterSuspend || (isSuspendChanged ? activeReporter : (data?.reporterSuspend || data?.reporter_suspend || activeReporter)))
+        : null;
+      const finalTanggalSuspend = isSuspendUpdate 
+        ? (updatePayload.tanggalSuspend || (isSuspendChanged ? todayDateStr : (data?.tanggalSuspend || data?.tanggal_suspend || todayDateStr)))
+        : null;
+
       const finalizeSuccessEdit = () => {
         try {
           const localPayload = {
@@ -13434,8 +13482,10 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || '') : (updatePayload.catatan || ''),
             catatanPending: isPendingUpdate ? (updatePayload.catatanPending || '') : '',
             catatanSuspend: isSuspendUpdate ? (updatePayload.catatanSuspend || '') : '',
-            reporterSuspend: isSuspendUpdate ? (updatePayload.reporterSuspend || activeReporter || '') : '',
-            reporter_suspend: isSuspendUpdate ? (updatePayload.reporterSuspend || activeReporter || '') : '',
+            reporterSuspend: isSuspendUpdate ? (finalReporterSuspend || '') : '',
+            reporter_suspend: isSuspendUpdate ? (finalReporterSuspend || '') : '',
+            tanggalSuspend: isSuspendUpdate ? (finalTanggalSuspend || '') : '',
+            tanggal_suspend: isSuspendUpdate ? (finalTanggalSuspend || '') : '',
             reporterPending: isPendingUpdate ? (finalReporterPending || '') : '',
             tanggalPending: isPendingUpdate ? (finalTanggalPending || '') : '',
             reporter_pending: isPendingUpdate ? (finalReporterPending || '') : '',
@@ -13488,7 +13538,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             reporter_kendala: finalReporterKendala,
             tanggal_dismantle: isDismantleStatus ? (updatePayload.tanggalDismantle || null) : null,
             reason_dismantle: isDismantleStatus ? (updatePayload.reasonDismantle || null) : null,
-            catatan_suspend: isSuspendUpdate ? (updatePayload.catatanSuspend || null) : null
+            catatan_suspend: isSuspendUpdate ? (updatePayload.catatanSuspend || null) : null,
+            reporter_suspend: isSuspendUpdate ? finalReporterSuspend : null,
+            tanggal_suspend: isSuspendUpdate ? finalTanggalSuspend : null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
           if (updatePayload.stasiun !== undefined) updateData.stasiun = updatePayload.stasiun;
@@ -13497,17 +13549,16 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (updatePayload.ikrPartner !== undefined) updateData.ikr_partner = updatePayload.ikrPartner;
 
           let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
-          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_pending'))) {
+          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('reporter_pending'))) {
             const fallbackData = { ...updateData };
             delete fallbackData.catatan_pending;
             delete fallbackData.reporter_pending;
             delete fallbackData.tanggal_pending;
             delete fallbackData.catatan_suspend;
+            delete fallbackData.reporter_suspend;
+            delete fallbackData.tanggal_suspend;
             if (isPendingUpdate && updatePayload.catatanPending) {
               fallbackData.issue_kendala = updatePayload.catatanPending;
-            }
-            if (isSuspendUpdate && updatePayload.catatanSuspend) {
-              fallbackData.issue_kendala = updatePayload.catatanSuspend;
             }
             const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', updatePayload.idPelanggan);
             error = res.error;
@@ -17886,6 +17937,7 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate, curren
       const finalAktivasi = item.aktivasi;
       const isPending = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
       const isKendala = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
+      const isSuspend = String(finalAktivasi || '').trim().toUpperCase() === 'SUSPEND';
       return {
         ...item,
         ikr: item.aktivasi,
@@ -17900,6 +17952,12 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate, curren
         reporter_pending: isPending ? (item.reporterPending || item.reporter_pending || activeReporter) : null,
         tanggalPending: isPending ? (item.tanggalPending || item.tanggal_pending || todayDateStr) : null,
         tanggal_pending: isPending ? (item.tanggalPending || item.tanggal_pending || todayDateStr) : null,
+        catatanSuspend: isSuspend ? (item.catatanSuspend || item.catatan_suspend || null) : null,
+        catatan_suspend: isSuspend ? (item.catatanSuspend || item.catatan_suspend || null) : null,
+        reporterSuspend: isSuspend ? (item.reporterSuspend || item.reporter_suspend || activeReporter) : null,
+        reporter_suspend: isSuspend ? (item.reporterSuspend || item.reporter_suspend || activeReporter) : null,
+        tanggalSuspend: isSuspend ? (item.tanggalSuspend || item.tanggal_suspend || todayDateStr) : null,
+        tanggal_suspend: isSuspend ? (item.tanggalSuspend || item.tanggal_suspend || todayDateStr) : null,
         catatan: item.catatan || null
       };
     });
@@ -17913,6 +17971,7 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate, curren
         else if (finalAktivasi === 'Aktif') { finalAktivasi = 'Sudah'; finalIkr = 'Sudah'; }
         const isPending = String(finalAktivasi || '').trim().toUpperCase() === 'PENDING';
         const isKendala = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
+        const isSuspend = String(finalAktivasi || '').trim().toUpperCase() === 'SUSPEND';
 
         const sbUpdatePayload = {
           status_aktivasi: finalAktivasi,
@@ -17922,10 +17981,21 @@ function MassUpdateModal({ selectedData, onClose, onLocalPelangganUpdate, curren
           tanggal_kendala: isKendala ? (it.tanggalKendala || todayDateStr) : null,
           catatan_pending: isPending ? (it.catatanPending || null) : null,
           reporter_pending: isPending ? (it.reporterPending || activeReporter) : null,
-          tanggal_pending: isPending ? (it.tanggalPending || todayDateStr) : null
+          tanggal_pending: isPending ? (it.tanggalPending || todayDateStr) : null,
+          catatan_suspend: isSuspend ? (it.catatanSuspend || null) : null,
+          reporter_suspend: isSuspend ? (it.reporterSuspend || activeReporter) : null,
+          tanggal_suspend: isSuspend ? (it.tanggalSuspend || todayDateStr) : null
         };
 
-        const { error: sbErr } = await supabase.from('data_pelanggan').update(sbUpdatePayload).eq('id_pelanggan', it.idPelanggan);
+        let { error: sbErr } = await supabase.from('data_pelanggan').update(sbUpdatePayload).eq('id_pelanggan', it.idPelanggan);
+        if (sbErr && (sbErr.code === '42703' || String(sbErr.message || '').includes('catatan_suspend') || String(sbErr.message || '').includes('reporter_suspend'))) {
+          const fallbackSb = { ...sbUpdatePayload };
+          delete fallbackSb.catatan_suspend;
+          delete fallbackSb.reporter_suspend;
+          delete fallbackSb.tanggal_suspend;
+          const retry = await supabase.from('data_pelanggan').update(fallbackSb).eq('id_pelanggan', it.idPelanggan);
+          sbErr = retry.error;
+        }
         if (sbErr) throw sbErr;
       }
 
@@ -20366,8 +20436,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                   // 5. SUSPEND
                   if (displayStatusStr === 'SUSPEND') {
                     const tglExp = getExpDateDisplay(item);
-                    const repSuspend = item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
-                    const suspendReminderNote = (item.catatanSuspend || item.catatan_suspend || (String(item.aktivasi || item.status_aktivasi || '').trim().toUpperCase() === 'SUSPEND' && item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '') || '').trim();
+                    const { note: suspendReminderNote, reporter: repSuspendRaw } = extractSuspendData(item);
+                    const repSuspend = repSuspendRaw || item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
                     const hasReminder = Boolean(suspendReminderNote);
                     const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
 
@@ -20982,8 +21052,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           // 5. SUSPEND
                           if (displayStatusStr === 'SUSPEND') {
                             const tglExp = getExpDateDisplay(item);
-                            const repSuspend = item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
-                            const suspendReminderNote = (item.catatanSuspend || item.catatan_suspend || (String(item.aktivasi || item.status_aktivasi || '').trim().toUpperCase() === 'SUSPEND' && item.issueKendala && item.issueKendala !== item.alamat ? item.issueKendala : '') || '').trim();
+                            const { note: suspendReminderNote, reporter: repSuspendRaw } = extractSuspendData(item);
+                            const repSuspend = repSuspendRaw || item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
                             const hasReminder = Boolean(suspendReminderNote);
                             const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
 

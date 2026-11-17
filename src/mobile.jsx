@@ -84,8 +84,9 @@ const parseSupabaseDocument = (fields) => {
     tanggalRegistrasi: fields.tgl_registrasi || fields.tanggal_registrasi || "",
     catatan: fields.catatan || "",
     catatanPending: fields.catatan_pending || fields.catatanPending || ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? (fields.issue_kendala || "") : ""),
-    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && fields.issue_kendala !== fields.alamat ? fields.issue_kendala : ""),
+    catatanSuspend: fields.catatan_suspend || fields.catatanSuspend || fields.catatan_remind || fields.catatanRemind || (String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'SUSPEND' && fields.issue_kendala && /remind|bayar|tagih|tunggak/i.test(fields.issue_kendala) ? fields.issue_kendala : ""),
     reporterSuspend: fields.reporter_suspend || fields.reporterSuspend || "",
+    tanggalSuspend: fields.tanggal_suspend || fields.tanggalSuspend || "",
     reporterPending: fields.reporter_pending || fields.reporterPending || "",
     tanggalPending: fields.tanggal_pending || fields.tanggalPending || "",
     issueKendala: ((String(fields.status_aktivasi || fields.aktivasi || '').trim().toUpperCase() === 'PENDING' || String(fields.status_ikr || fields.ikr || '').trim().toUpperCase() === 'PENDING') ? "" : (fields.issue_kendala || "")),
@@ -1187,11 +1188,13 @@ const MobileApp = () => {
 
       // 1. Pelanggan Data
       if (!cachedPelanggan) {
+        const pelangganColsWithSuspend = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,catatan_suspend,reporter_suspend,tanggal_suspend,wo_dismantle,status_partner';
         const pelangganColsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColsWithWo = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColsBase = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
 
-        const fetchPelanggan = () => fetchAllSupabaseData('data_pelanggan', pelangganColsWithIkrPartner, 'id_pelanggan')
+        const fetchPelanggan = () => fetchAllSupabaseData('data_pelanggan', pelangganColsWithSuspend, 'id_pelanggan')
+          .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsWithIkrPartner, 'id_pelanggan'))
           .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsWithWo, 'id_pelanggan'))
           .catch(() => fetchAllSupabaseData('data_pelanggan', pelangganColsBase, 'id_pelanggan'));
 
