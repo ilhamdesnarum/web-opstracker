@@ -488,26 +488,34 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
     const rawPetugas = String(payload.petugas || '').trim();
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+    const firstWord = cleanUser.split(' ')[0];
 
     const allCandidates = [
       ...(Array.isArray(petugasList) ? petugasList : []),
       ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
     ];
 
-    const matches = allCandidates.filter(t =>
-      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-      String(t.id || '') === rawPetugas ||
-      String(t.chatId || '') === rawPetugas
-    );
+    const matches = allCandidates.filter(t => {
+      const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+      const tNama = String(t.nama || '').trim().toLowerCase();
+      return (
+        tUser === cleanUser ||
+        tNama === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas ||
+        (cleanUser.length >= 3 && (tNama.includes(cleanUser) || cleanUser.includes(tNama) || tUser.includes(cleanUser) || cleanUser.includes(tUser))) ||
+        (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+      );
+    });
     let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
 
     if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
       try {
+        const searchPattern = `username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%,username.ilike.%${firstWord}%,nama.ilike.%${firstWord}%`;
         const { data: dbPetugas } = await supabase
           .from('petugas')
           .select('id, nama, username, chat_id')
-          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .or(searchPattern)
           .not('chat_id', 'is', null)
           .limit(1);
         if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
@@ -1246,6 +1254,10 @@ const MobileApp = () => {
 
       // 5. Data Petugas dari Supabase
       let cachedPetugas = getCachedData('otas_teknisi_cache');
+      if (cachedPetugas && cachedPetugas.length > 0 && !cachedPetugas.some(t => t.chatId || t.chat_id)) {
+        cachedPetugas = null;
+        setCachedData('otas_teknisi_cache', null);
+      }
       let finalPetugas = cachedPetugas;
       if (!cachedPetugas) {
         fetchPromises.push(

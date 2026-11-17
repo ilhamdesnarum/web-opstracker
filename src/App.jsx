@@ -467,26 +467,34 @@ const sendTelegramVisitDM = async (payload, petugasList = []) => {
     const rawPetugas = String(payload.petugas || '').trim();
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+    const firstWord = cleanUser.split(' ')[0];
 
     const allCandidates = [
       ...(Array.isArray(petugasList) ? petugasList : []),
       ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
     ];
 
-    const matches = allCandidates.filter(t =>
-      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-      String(t.id || '') === rawPetugas ||
-      String(t.chatId || '') === rawPetugas
-    );
+    const matches = allCandidates.filter(t => {
+      const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+      const tNama = String(t.nama || '').trim().toLowerCase();
+      return (
+        tUser === cleanUser ||
+        tNama === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas ||
+        (cleanUser.length >= 3 && (tNama.includes(cleanUser) || cleanUser.includes(tNama) || tUser.includes(cleanUser) || cleanUser.includes(tUser))) ||
+        (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+      );
+    });
     let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
 
     if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
       try {
+        const searchPattern = `username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%,username.ilike.%${firstWord}%,nama.ilike.%${firstWord}%`;
         const { data: dbPetugas } = await supabase
           .from('petugas')
           .select('id, nama, username, chat_id')
-          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .or(searchPattern)
           .not('chat_id', 'is', null)
           .limit(1);
         if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
@@ -558,26 +566,34 @@ const sendTelegramAktivasiDM = async (payload, petugasList = []) => {
     const rawPetugas = String(payload.petugas || '').trim();
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+    const firstWord = cleanUser.split(' ')[0];
 
     const allCandidates = [
       ...(Array.isArray(petugasList) ? petugasList : []),
       ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
     ];
 
-    const matches = allCandidates.filter(t =>
-      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-      String(t.id || '') === rawPetugas ||
-      String(t.chatId || '') === rawPetugas
-    );
+    const matches = allCandidates.filter(t => {
+      const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+      const tNama = String(t.nama || '').trim().toLowerCase();
+      return (
+        tUser === cleanUser ||
+        tNama === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas ||
+        (cleanUser.length >= 3 && (tNama.includes(cleanUser) || cleanUser.includes(tNama) || tUser.includes(cleanUser) || cleanUser.includes(tUser))) ||
+        (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+      );
+    });
     let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
 
     if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
       try {
+        const searchPattern = `username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%,username.ilike.%${firstWord}%,nama.ilike.%${firstWord}%`;
         const { data: dbPetugas } = await supabase
           .from('petugas')
           .select('id, nama, username, chat_id')
-          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .or(searchPattern)
           .not('chat_id', 'is', null)
           .limit(1);
         if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
@@ -653,26 +669,34 @@ const sendTelegramDismantleDM = async (payload, petugasList = []) => {
     const rawPetugas = String(payload.petugas || '').trim();
     if (!rawPetugas || rawPetugas === '-' || rawPetugas.toLowerCase().includes('kosongkan') || rawPetugas.toLowerCase().includes('belum ditugaskan')) return;
     const cleanUser = rawPetugas.replace(/^@/, '').toLowerCase();
+    const firstWord = cleanUser.split(' ')[0];
 
     const allCandidates = [
       ...(Array.isArray(petugasList) ? petugasList : []),
       ...(Array.isArray(getCachedData('otas_teknisi_cache')) ? getCachedData('otas_teknisi_cache') : [])
     ];
 
-    const matches = allCandidates.filter(t =>
-      String(t.username || '').replace(/^@/, '').toLowerCase() === cleanUser ||
-      String(t.nama || '').trim().toLowerCase() === rawPetugas.toLowerCase() ||
-      String(t.id || '') === rawPetugas ||
-      String(t.chatId || '') === rawPetugas
-    );
+    const matches = allCandidates.filter(t => {
+      const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+      const tNama = String(t.nama || '').trim().toLowerCase();
+      return (
+        tUser === cleanUser ||
+        tNama === rawPetugas.toLowerCase() ||
+        String(t.id || '') === rawPetugas ||
+        String(t.chatId || '') === rawPetugas ||
+        (cleanUser.length >= 3 && (tNama.includes(cleanUser) || cleanUser.includes(tNama) || tUser.includes(cleanUser) || cleanUser.includes(tUser))) ||
+        (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+      );
+    });
     let targetTeknisi = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0] || null;
 
     if (!targetTeknisi || (!targetTeknisi.chatId && !targetTeknisi.chat_id)) {
       try {
+        const searchPattern = `username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%,username.ilike.%${firstWord}%,nama.ilike.%${firstWord}%`;
         const { data: dbPetugas } = await supabase
           .from('petugas')
           .select('id, nama, username, chat_id')
-          .or(`username.ilike.%${cleanUser}%,nama.ilike.%${rawPetugas}%`)
+          .or(searchPattern)
           .not('chat_id', 'is', null)
           .limit(1);
         if (dbPetugas && dbPetugas.length > 0 && dbPetugas[0].chat_id) {
@@ -2253,6 +2277,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         setCachedData('otas_visit_cache_v5', null);
       }
       let cachedTeknisi = getCachedData('otas_teknisi_cache');
+      // Invalidate stale cache jika data teknisi belum memiliki chatId/username Telegram atau berasal dari list_petugas
+      if (cachedTeknisi && cachedTeknisi.length > 0 && !cachedTeknisi.some(t => t.chatId || t.chat_id)) {
+        cachedTeknisi = null;
+        setCachedData('otas_teknisi_cache', null);
+      }
       let cachedWoDispatch = isForce ? null : getCachedData('otas_wo_dispatch_cache');
 
       const hasCache = parsedPelanggan && parsedOdp && cachedVisit && cachedDetailPo && cachedStation;
@@ -2308,7 +2337,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           parsedOdp ? Promise.resolve(null) : fetchAllSupabaseData('odp', odpColumns, 'label'),
           fetchAllSupabaseData('log_visit', '*', 'id').catch(() => null),
           cachedDetailPo ? Promise.resolve(null) : fetchAllSupabaseData('po_release', '*', 'id'),
-          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('list_petugas', '*', 'full_name').catch(() => fetchAllSupabaseData('petugas', '*', 'nama')).catch(() => null),
+          cachedTeknisi ? Promise.resolve(null) : fetchAllSupabaseData('petugas', '*', 'nama').catch(() => fetchAllSupabaseData('list_petugas', '*', 'full_name')).catch(() => null),
           cachedStation ? Promise.resolve(null) : fetchAllSupabaseData('starlite_station_counts', '*', 'stasiun').catch(() => null),
           fetchAllSupabaseData('log_wo_dispatch', '*', 'id').catch(() => null)
         ]);
@@ -2625,8 +2654,8 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         }
       }).catch(err => console.warn('Silent Supabase PO fail:', err));
 
-      fetchAllSupabaseData('list_petugas', '*', 'full_name')
-        .catch(() => fetchAllSupabaseData('petugas', '*', 'nama'))
+      fetchAllSupabaseData('petugas', '*', 'nama')
+        .catch(() => fetchAllSupabaseData('list_petugas', '*', 'full_name'))
         .then(supabasePetugas => {
           if (supabasePetugas && supabasePetugas.length > 0) {
             const updatedPetugas = supabasePetugas.map(parseSupabasePetugasDocument);
@@ -12282,18 +12311,44 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     return getGlobalStatusStr(internalData || {});
   }, [internalData]);
 
-  // <--- STATE UNTUK DROPDOWN PETUGAS
+  // <--- STATE UNTUK DROPDOWN PETUGAS (DITARGETKAN KE TABEL 'petugas' AGAR MEMILIKI CHAT_ID & USERNAME TELEGRAM)
   const [isPetugasOpen, setIsPetugasOpen] = useState(false);
   const [petugasSearch, setPetugasSearch] = useState('');
+  const [directPetugasList, setDirectPetugasList] = useState([]);
+
+  // Ambil langsung dari tabel 'petugas' saat modal terbuka agar list teknisi terjamin lengkap dengan chatId & username Telegram
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDirectPetugas = async () => {
+      try {
+        const { data: dbPetugas, error } = await supabase
+          .from('petugas')
+          .select('*')
+          .order('nama', { ascending: true });
+        if (!error && dbPetugas && dbPetugas.length > 0 && isMounted) {
+          const parsed = dbPetugas.map(parseSupabasePetugasDocument);
+          setDirectPetugasList(parsed);
+          setCachedData('otas_teknisi_cache', parsed);
+        }
+      } catch (err) {
+        console.warn('Fetch direct petugas modal error:', err);
+      }
+    };
+    fetchDirectPetugas();
+    return () => { isMounted = false; };
+  }, []);
 
   const effectivePetugasList = useMemo(() => {
-    if (petugasList && Array.isArray(petugasList) && petugasList.length > 0) return petugasList;
+    if (directPetugasList && directPetugasList.length > 0) return directPetugasList;
+    if (petugasList && Array.isArray(petugasList) && petugasList.length > 0 && petugasList.some(t => t.chatId || t.chat_id)) {
+      return petugasList;
+    }
     try {
       const cached = getCachedData('otas_teknisi_cache');
-      if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+      if (cached && Array.isArray(cached) && cached.length > 0 && cached.some(t => t.chatId || t.chat_id)) return cached;
     } catch (e) { }
-    return [];
-  }, [petugasList]);
+    return (petugasList && petugasList.length > 0) ? petugasList : [];
+  }, [directPetugasList, petugasList]);
 
   const filteredPetugasForLog = useMemo(() => {
     if (!effectivePetugasList || !Array.isArray(effectivePetugasList)) return [];
@@ -12311,13 +12366,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     if (!formData.petugas || !effectivePetugasList || effectivePetugasList.length === 0) return null;
     const pName = String(formData.petugas).trim().toLowerCase();
     const cleanP = pName.replace(/^@/, '');
+    const firstWord = cleanP.split(' ')[0];
     const matches = effectivePetugasList.filter(t =>
       String(t.nama || '').trim().toLowerCase() === pName ||
       String(t.username || '').replace(/^@/, '').toLowerCase() === cleanP ||
       String(t.id || '') === pName
     );
-    if (matches.length === 0) return null;
-    return matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0];
+    if (matches.length > 0) {
+      return matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0];
+    }
+    // Fallback: pencocokan parsial jika ada perbedaan nama panggilan atau format username
+    const partialMatches = effectivePetugasList.filter(t => {
+      const tNama = String(t.nama || '').toLowerCase();
+      const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+      return (
+        (tNama && cleanP && (tNama.includes(cleanP) || cleanP.includes(tNama))) ||
+        (tUser && cleanP && (tUser.includes(cleanP) || cleanP.includes(tUser))) ||
+        (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+      );
+    });
+    if (partialMatches.length > 0) {
+      return partialMatches.find(t => Boolean(t.chatId || t.chat_id)) || partialMatches[0];
+    }
+    return null;
   }, [formData.petugas, effectivePetugasList]);
 
   // STATE UNTUK CUSTOM DROPDOWN KELUHAN
@@ -12686,15 +12757,29 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
     try {
       // --- LOGIKA WO OPERASIONAL (VISIT, AKTIVASI, DISMANTLE) ---
       if (type === 'log') {
-        const listTeknisi = (petugasList && petugasList.length > 0) ? petugasList : effectivePetugasList;
+        const listTeknisi = (directPetugasList && directPetugasList.length > 0)
+          ? directPetugasList
+          : ((petugasList && petugasList.length > 0) ? petugasList : effectivePetugasList);
         let usernamePetugas = formData.petugas;
         if (formData.petugas && listTeknisi.length > 0) {
           const cleanInput = String(formData.petugas).replace(/^@/, '').toLowerCase().trim();
-          const matches = listTeknisi.filter(t =>
+          const firstWord = cleanInput.split(' ')[0];
+          let matches = listTeknisi.filter(t =>
             String(t.username || '').replace(/^@/, '').toLowerCase().trim() === cleanInput ||
             String(t.nama || '').trim().toLowerCase() === cleanInput ||
             String(t.nama || '').trim().toLowerCase() === String(formData.petugas).trim().toLowerCase()
           );
+          if (matches.length === 0) {
+            matches = listTeknisi.filter(t => {
+              const tNama = String(t.nama || '').toLowerCase();
+              const tUser = String(t.username || '').replace(/^@/, '').toLowerCase();
+              return (
+                (tNama && cleanInput && (tNama.includes(cleanInput) || cleanInput.includes(tNama))) ||
+                (tUser && cleanInput && (tUser.includes(cleanInput) || cleanInput.includes(tUser))) ||
+                (firstWord.length >= 3 && (tNama.includes(firstWord) || tUser.includes(firstWord)))
+              );
+            });
+          }
           const teknisiTerpilih = matches.find(t => Boolean(t.chatId || t.chat_id)) || matches[0];
           if (teknisiTerpilih && teknisiTerpilih.username) {
             usernamePetugas = teknisiTerpilih.username.startsWith('@')
