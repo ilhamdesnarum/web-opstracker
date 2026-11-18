@@ -13,7 +13,7 @@ import GangguanCalendarTable from './components/GangguanCalendarTable';
 import GangguanAnalytics from './components/GangguanAnalytics';
 import { PoReleaseModal } from './components/PoReleaseModal';
 import { ExecutiveRolloutTracker } from './components/ExecutiveRolloutTracker';
-import { isPercepatanCustomer, isPoPercepatan, isPoInnercity, isInnercityCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps } from './utils';
+import { isPercepatanCustomer, isPoPercepatan, isPoInnercity, isInnercityCustomer, buildOdpLookupMap, getCustomerDismantleDate, isInitialChartAnimationActive, getWoDismantleInfo, getWoActionProps, getWoDispatchBadgeProps, formatHumanErrorMessage } from './utils';
 import coverageBoundaries from './data/coverageBoundaries.json';
 import { fetchLiveCoverageBoundaries } from './services/coverageService.js';
 import CustomerMapView from './components/CustomerMapView';
@@ -24,6 +24,9 @@ import { syncSalesFromPartnerApi } from './services/partnerSalesService.js';
 import { syncNewCustomersFast } from './services/partnerNewCustomerService.js';
 import { syncDismantlingFast } from './services/partnerDismantleService.js';
 import { syncCanceledCustomersFast } from './services/partnerCancelService.js';
+import { syncSuspendCustomersFast } from './services/partnerSuspendService.js';
+import { getCustomerBroadcastSummary, fetchBroadcastData, BROADCAST_OUTCOMES } from './services/partnerBroadcastService.js';
+import BroadcastDetailModal from './components/BroadcastDetailModal';
 import TeamPerformanceView from './components/TeamPerformanceView';
 import GamasDashboardView from './components/GamasDashboardView';
 import PreRegisterPortalView from './components/PreRegisterPortalView';
@@ -906,6 +909,19 @@ const extractPendingData = (item) => {
   return { note, reporter, date };
 };
 
+const cleanDbDate = (val) => {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m1 = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+  if (m1) return `${m1[3]}-${m1[2].padStart(2, '0')}-${m1[1].padStart(2, '0')}`;
+  const m2 = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2})$/);
+  if (m2) return `20${m2[3]}-${m2[2].padStart(2, '0')}-${m2[1].padStart(2, '0')}`;
+  return null;
+};
+
 const extractSuspendData = (item) => {
   if (!item) return { note: '', reporter: '', date: '' };
   let note = item.catatanSuspend || item.catatan_suspend || item.catatan_remind || item.catatanRemind || '';
@@ -914,13 +930,39 @@ const extractSuspendData = (item) => {
     note = item.issueKendala;
   }
   let reporter = item.reporterSuspend || item.reporter_suspend || '';
-  let date = item.tanggalSuspend || item.tanggal_suspend || '';
+  let date = item.tanggalSuspend || item.tanggal_suspend || item.tanggalRemind || item.tanggal_remind || '';
 
   for (const key in item) {
     const lk = String(key).toLowerCase();
     if (lk.includes('catatan') && lk.includes('suspend') && !note) note = item[key];
     if (lk.includes('reporter') && lk.includes('suspend') && !reporter) reporter = item[key];
-    if (lk.includes('tanggal') && lk.includes('suspend') && !date) date = item[key];
+    if (lk.includes('tanggal') && (lk.includes('suspend') || lk.includes('remind')) && !date) date = item[key];
+  }
+
+  // Ekstrak tanggal langsung jika tertulis di dalam teks catatan (contoh: "Done remind 07/11/2026...")
+  if (!date && note) {
+    const match = String(note).match(/(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/);
+    if (match) {
+      date = match[1];
+    }
+  }
+  if (date) {
+    const cd = cleanDbDate(date);
+    if (cd) date = cd;
+  }
+
+  // Sanitasi reporter: Petugas follow up reminder suspend BUKAN nama sales atau stasiun
+  const salesLower = String(item.namaSales || item.nama_sales || '').trim().toLowerCase();
+  const repLower = String(reporter || '').trim().toLowerCase();
+  if (
+    !note ||
+    note === 'Belum ada catatan reminder' ||
+    (salesLower && (repLower === salesLower || repLower === `cs ${salesLower}`)) ||
+    repLower.startsWith('cs ') ||
+    repLower.startsWith('desa ') ||
+    repLower.startsWith('bumdes ')
+  ) {
+    reporter = '';
   }
 
   return { note, reporter, date };
@@ -2496,7 +2538,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           message: 'Menyinkronkan data: memeriksa pelanggan baru, nama sales, WO Dismantle, & BAST Web Partner...'
         });
 
-        // Jalankan Sinkronisasi Cepat Pelanggan Baru, nama sales, WO Dismantle, dan BAST secara paralel
+        // Jalankan Sinkronisasi Cepat Pelanggan Baru, nama sales, WO Dismantle, Isolir (Suspend), dan BAST secara paralel
         Promise.allSettled([
           syncNewCustomersFast({
             pelangganList: parsedPelanggan || data.pelangganData,
@@ -2509,11 +2551,18 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           syncDismantlingFast({
             pelangganList: parsedPelanggan || data.pelangganData
           }),
+          syncSuspendCustomersFast({
+            pelangganList: parsedPelanggan || data.pelangganData
+          }),
+          syncCanceledCustomersFast({
+            pelangganList: parsedPelanggan || data.pelangganData
+          }),
           loadPartnerBast(true)
-        ]).then(([newCustSettled, salesSettled, dismantleSettled, bastSettled]) => {
+        ]).then(([newCustSettled, salesSettled, dismantleSettled, suspendSettled, bastSettled]) => {
           const newCustRes = newCustSettled.status === 'fulfilled' ? newCustSettled.value : null;
           const salesRes = salesSettled.status === 'fulfilled' ? salesSettled.value : null;
           const dismantleRes = dismantleSettled.status === 'fulfilled' ? dismantleSettled.value : null;
+          const suspendRes = suspendSettled.status === 'fulfilled' ? suspendSettled.value : null;
           const bastRes = bastSettled.status === 'fulfilled' ? bastSettled.value : null;
 
           const totalBaru = newCustRes?.newCount || 0;
@@ -2521,10 +2570,12 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           const updatedActiveCount = newCustRes?.updatedActiveCount || 0;
           const salesUpdatedCount = salesRes?.updatedCount || 0;
           const dismantleUpdatedCount = dismantleRes?.updatedCount || 0;
+          const suspendUpdatedCount = suspendRes?.updatedCount || 0;
+          const suspendReactivatedCount = suspendRes?.reactivatedCount || 0;
           const bastCount = bastRes?.count || bastRes?.data?.length || 0;
 
-          // 1. Jika ada pelanggan baru yang ditarik, status aktif diperbarui, atau WO dismantle diperbarui, ambil ulang data_pelanggan dari Supabase
-          if (totalBaru > 0 || updatedActiveCount > 0 || dismantleUpdatedCount > 0) {
+          // 1. Jika ada pelanggan baru yang ditarik, status aktif diperbarui, WO dismantle diperbarui, atau Isolir/Reaktivasi diperbarui, ambil ulang data_pelanggan dari Supabase
+          if (totalBaru > 0 || updatedActiveCount > 0 || dismantleUpdatedCount > 0 || suspendUpdatedCount > 0 || suspendReactivatedCount > 0) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
@@ -2534,7 +2585,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                   pelangganData: parsed
                 }));
               }
-            }).catch(e => console.warn('[SYNC PARTNER] Gagal refetch pelanggan baru / WO dismantle:', e));
+            }).catch(e => console.warn('[SYNC PARTNER] Gagal refetch pelanggan baru / WO dismantle / Isolir:', e));
           }
 
           // 2. Perbarui nama sales & IKR partner jika ada yang berubah
@@ -3503,7 +3554,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
         )}
 
         {/* WADAH UTAMA KONTEN */}
-        <div className={`flex-1 w-full ${activeTab === 'aidece' ? 'p-0 overflow-hidden flex flex-col' : activeTab === 'peta-pelanggan' ? 'p-2 sm:p-3 overflow-hidden flex flex-col h-full' : 'overflow-auto p-2.5 sm:p-4 md:p-6 pb-6 sm:pb-8'}`}>
+        <div className={`flex-1 w-full ${activeTab === 'aidece' ? 'p-0 overflow-hidden flex flex-col' : (activeTab === 'peta-pelanggan' || activeTab === 'database') ? 'p-2 sm:p-3 md:p-4 overflow-hidden flex flex-col h-full' : 'overflow-auto p-2.5 sm:p-4 md:p-6 pb-6 sm:pb-8'}`}>
           {fetchError && !isLoading && (
             <div className="max-w-7xl mx-auto mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-start shadow-sm animate-in slide-in-from-top-4">
               <Icon name="alert-circle" className="mr-3 shrink-0 mt-0.5 text-rose-500" size={20} />
@@ -3514,7 +3565,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             </div>
           )}
 
-          <div className={`w-full ${activeTab === 'peta-pelanggan' ? 'flex-1 flex flex-col h-full min-h-0' : 'min-h-full'}`}>
+          <div className={`w-full ${(activeTab === 'peta-pelanggan' || activeTab === 'database') ? 'flex-1 flex flex-col h-full min-h-0' : 'min-h-full'}`}>
             {(visitedTabs.has('dashboard') || visitedTabs.has('performansi')) && (
               <div className={(activeTab === 'dashboard' || activeTab === 'performansi') ? 'w-full' : 'hidden'}>
                 <DashboardView
@@ -3543,7 +3594,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               </div>
             )}
             {visitedTabs.has('database') && (
-              <div className={activeTab === 'database' ? 'w-full' : 'hidden'}>
+              <div className={activeTab === 'database' ? 'w-full flex-1 flex flex-col h-full min-h-0' : 'hidden'}>
                 <DatabaseView
                   pelangganData={data.pelangganData}
                   visitData={data.visitData}
@@ -4297,19 +4348,14 @@ export function OkupansiView({ data, setData }) {
     setIsUploading(true);
 
     if (!skipDbCheck) {
-      // Cek Duplikasi Kode ODP
-      const existingKodes = new Set((data.odpData || []).map(o => String(o.kodeOdp || o.kode_odp || o.label).trim().toUpperCase()));
+      // 1. Cek Duplikasi Kode ODP di dalam file/input itu sendiri
       const payloadKodes = new Set();
       const duplicatesInFile = new Set();
-      const duplicatesInDb = new Set();
-
       for (const o of payloadToSend) {
-        const kod = String(o.kode_odp || o.label).trim().toUpperCase();
+        const kod = cleanOdpStr(o.kode_odp || o.kodeOdp || o.label).toUpperCase();
         if (!kod) continue;
         if (payloadKodes.has(kod)) {
           duplicatesInFile.add(kod);
-        } else if (existingKodes.has(kod)) {
-          duplicatesInDb.add(kod);
         }
         payloadKodes.add(kod);
       }
@@ -4320,35 +4366,92 @@ export function OkupansiView({ data, setData }) {
         return;
       }
 
-      if (duplicatesInDb.size > 0) {
-        setUploadDuplicateError({ type: 'db', data: Array.from(duplicatesInDb), payload: payloadToSend });
+      // 2. Cek Duplikasi terhadap database (odpData)
+      const existingOdpMap = new Map();
+      (data.odpData || []).forEach(o => {
+        const k = cleanOdpStr(o.kodeOdp || o.kode_odp || o.label).toUpperCase();
+        if (k) existingOdpMap.set(k, o);
+      });
+
+      const duplicatesInDb = [];
+      const newItems = [];
+      for (const o of payloadToSend) {
+        const k = cleanOdpStr(o.kode_odp || o.kodeOdp || o.label).toUpperCase();
+        if (k && existingOdpMap.has(k)) {
+          duplicatesInDb.push(k);
+        } else {
+          newItems.push(o);
+        }
+      }
+
+      if (duplicatesInDb.length > 0) {
+        setConflictModalData({
+          duplicatesCount: duplicatesInDb.length,
+          duplicatesList: duplicatesInDb,
+          newItems: newItems,
+          finalPayload: payloadToSend
+        });
         setIsUploading(false);
         return;
       }
     }
 
     try {
-      const records = payloadToSend.map(o => ({
-        id: o.id,
-        label: o.label || o.kode_odp,
-        kode_odp: o.kode_odp || o.label,
-        kode_odc: o.kode_odc,
-        kapasitas: Number(o.kapasitas) || 8,
-        port_terpakai: Number(o.port_terpakai) || 0,
-        latitude: String(o.latitude),
-        longitude: String(o.longitude),
-        stasiun: o.stasiun,
-        tahap_pembangunan: o.tahap_pembangunan
-      }));
+      // 1. Dapatkan max ID riil dari database Supabase secara real-time
+      // untuk mencegah bentrokan primary key (odp_pkey) pada data ODP baru
+      let currentMaxId = 0;
+      (data.odpData || []).forEach(o => {
+        const num = Number(o.id);
+        if (!isNaN(num) && num > currentMaxId) currentMaxId = num;
+      });
+
+      try {
+        const { data: topOdp } = await supabase
+          .from('odp')
+          .select('id')
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (topOdp && !isNaN(Number(topOdp.id))) {
+          currentMaxId = Math.max(currentMaxId, Number(topOdp.id));
+        }
+      } catch (errMax) {
+        console.warn('Gagal membaca top id ODP dari Supabase:', errMax);
+      }
+
+      // Pastikan ada batas aman minimal 15000 jika data database belum terdeteksi penuh
+      let nextId = Math.max(currentMaxId, 15000);
+
+      // Map existing ODP di data lokal untuk menjaga existing ID agar update tidak membuat baris ganda
+      const existingOdpMap = new Map();
+      (data.odpData || []).forEach(o => {
+        const key = String(o.kodeOdp || o.kode_odp || o.label || '').trim().toLowerCase();
+        if (key && o.id) existingOdpMap.set(key, o.id);
+      });
+
+      const records = payloadToSend.map(o => {
+        const key = String(o.kode_odp || o.kodeOdp || o.label || '').trim().toLowerCase();
+        const existingId = o.id || existingOdpMap.get(key);
+        // Jika ODP sudah ada di database, gunakan ID aslinya. Jika ODP baru, berikan ID baru di atas ID maksimal database
+        const recordId = existingId ? Number(existingId) : ++nextId;
+
+        return {
+          id: recordId,
+          label: o.label || o.kode_odp,
+          kode_odp: o.kode_odp || o.label,
+          kode_odc: o.kode_odc,
+          kapasitas: Number(o.kapasitas) || 8,
+          port_terpakai: Number(o.port_terpakai) || 0,
+          latitude: String(o.latitude),
+          longitude: String(o.longitude),
+          stasiun: o.stasiun,
+          tahap_pembangunan: o.tahap_pembangunan
+        };
+      });
 
       const BATCH_SIZE = 100;
       for (let i = 0; i < records.length; i += BATCH_SIZE) {
-        // Hapus property id jika undefined agar tidak menimpa serial/UUID otomatis saat upsert
-        const batch = records.slice(i, i + BATCH_SIZE).map(r => {
-          const rec = { ...r };
-          if (!rec.id) delete rec.id;
-          return rec;
-        });
+        const batch = records.slice(i, i + BATCH_SIZE);
         const { error } = await supabase.from('odp').upsert(batch, { onConflict: 'kode_odp' });
         if (error) throw error;
       }
@@ -4372,51 +4475,54 @@ export function OkupansiView({ data, setData }) {
       }, 2000);
     } catch (error) {
       console.error("Upload ODP error:", error);
-      setSyncToast({ show: true, type: 'error', message: 'Gagal mengupload data: ' + error.message });
+      const friendlyMsg = formatHumanErrorMessage(error, 'Gagal mengupload data');
+      setSyncToast({ show: true, type: 'error', message: friendlyMsg });
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 5000);
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Daftar seluruh tahap pembangunan unik (disinkronkan dari data resmi PO Release milik stasiun terpilih)
+  // Daftar seluruh tahap pembangunan unik (disinkronkan dari data resmi PO Release stasiun terpilih dan data ODP)
   const allTahapList = useMemo(() => {
+    const set = new Set();
     let poList = data?.detailPoData || [];
     if (manageStationFilter) {
       poList = poList.filter(p => isStationMatch(p.stasiun, manageStationFilter));
     }
-    const set = new Set();
     poList.forEach(p => {
       const t = String(p.tahapPembangunan || p.tahap_pembangunan || '').trim();
       if (t) set.add(t);
     });
-    // Fallback dari odpData jika poList belum terisi
-    if (set.size === 0) {
-      let list = data?.odpData || [];
-      if (manageStationFilter) {
-        list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
-      }
-      list.forEach(o => {
-        const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
-        if (t) set.add(t);
-      });
+
+    // Tambahkan juga dari odpData agar tahap yang sudah memiliki ODP pasti selalu ada di opsi filter
+    let list = data?.odpData || [];
+    if (manageStationFilter) {
+      list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
     }
+    list.forEach(o => {
+      const t = String(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '').trim();
+      if (t) set.add(t);
+    });
+
     return Array.from(set).sort();
   }, [data?.detailPoData, data?.odpData, manageStationFilter]);
 
-  // Otomatis reset manageTahapFilter jika stasiun berganti dan tahap aktif tidak ada di stasiun baru
-  useEffect(() => {
-    if (manageTahapFilter && manageStationFilter) {
-      const targetTahap = normalizeTahapStr(manageTahapFilter);
-      const existsInStation = (data?.odpData || []).some(o =>
-        isStationMatch(o.stasiun, manageStationFilter) &&
-        normalizeTahapStr(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap) === targetTahap
-      );
-      if (!existsInStation) {
-        setManageTahapFilter('');
-      }
+  // Hitung jumlah ODP riil per tahap untuk stasiun yang sedang dipilih pada modal Kelola ODP
+  const odpCountByTahapInStation = useMemo(() => {
+    let list = data?.odpData || [];
+    if (manageStationFilter) {
+      list = list.filter(o => isStationMatch(o.stasiun, manageStationFilter));
     }
-  }, [manageStationFilter, manageTahapFilter, data?.odpData]);
+    const counts = {};
+    list.forEach(o => {
+      const t = normalizeTahapStr(o.tahapPembangunan || o.tahap_pembangunan || o.Tahap || '');
+      if (t) {
+        counts[t] = (counts[t] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [data?.odpData, manageStationFilter]);
 
   // Data ODP terfilter untuk modal Kelola ODP
   const filteredManageOdps = useMemo(() => {
@@ -4675,7 +4781,7 @@ export function OkupansiView({ data, setData }) {
       setEditingOdp(null);
     } catch (err) {
       console.error("Gagal update ODP:", err);
-      setSyncToast({ show: true, type: 'error', message: 'Gagal update ODP: ' + err.message });
+      setSyncToast({ show: true, type: 'error', message: formatHumanErrorMessage(err, 'Gagal update ODP') });
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
     } finally {
       setIsSavingEdit(false);
@@ -4714,7 +4820,7 @@ export function OkupansiView({ data, setData }) {
       setDeletingOdp(null);
     } catch (err) {
       console.error("Gagal hapus ODP:", err);
-      setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus ODP: ' + err.message });
+      setSyncToast({ show: true, type: 'error', message: formatHumanErrorMessage(err, 'Gagal menghapus ODP') });
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
     } finally {
       setIsDeletingOdp(false);
@@ -4771,7 +4877,7 @@ export function OkupansiView({ data, setData }) {
       setManagePage(1);
     } catch (err) {
       console.error("Gagal hapus ODP massal:", err);
-      setSyncToast({ show: true, type: 'error', message: 'Gagal menghapus ODP massal: ' + err.message });
+      setSyncToast({ show: true, type: 'error', message: formatHumanErrorMessage(err, 'Gagal menghapus ODP massal') });
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
     } finally {
       setIsMassDeleting(false);
@@ -4840,7 +4946,7 @@ export function OkupansiView({ data, setData }) {
       setManageTahapFilter(cleanNewTahap);
     } catch (err) {
       console.error("Gagal ubah tahap ODP massal:", err);
-      setSyncToast({ show: true, type: 'error', message: 'Gagal mengubah tahap ODP: ' + err.message });
+      setSyncToast({ show: true, type: 'error', message: formatHumanErrorMessage(err, 'Gagal mengubah tahap ODP') });
       setTimeout(() => setSyncToast(prev => prev.type === 'error' ? { ...prev, show: false } : prev), 4000);
     } finally {
       setIsMassUpdatingTahap(false);
@@ -5029,11 +5135,6 @@ export function OkupansiView({ data, setData }) {
       if (key) existingOdpMap.set(key, o);
     });
 
-    let currentMaxId = (data.odpData || []).reduce((max, o) => {
-      const num = Number(o.id);
-      return !isNaN(num) && num > max ? num : max;
-    }, 12785);
-
     const finalPayload = validRows.map(row => {
       const cleanCode = cleanOdpStr(row.kodeOdp.trim());
       const key = cleanCode.toLowerCase();
@@ -5047,7 +5148,7 @@ export function OkupansiView({ data, setData }) {
       }
 
       return {
-        id: existing?.id || ++currentMaxId,
+        id: existing?.id || undefined,
         label: cleanCode,
         kode_odp: cleanCode,
         kode_odc: odcCode,
@@ -5061,19 +5162,6 @@ export function OkupansiView({ data, setData }) {
     });
 
     setUploadedCount(finalPayload.length);
-
-    const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-    const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-
-    if (duplicates.length > 0) {
-      setConflictModalData({
-        duplicatesCount: duplicates.length,
-        newItems: newItems,
-        finalPayload: finalPayload
-      });
-      return;
-    }
-
     await handleUploadPayload(finalPayload);
   };
 
@@ -5088,11 +5176,6 @@ export function OkupansiView({ data, setData }) {
       if (key) existingOdpMap.set(key, o);
     });
 
-    let currentMaxId = (data.odpData || []).reduce((max, o) => {
-      const num = Number(o.id);
-      return !isNaN(num) && num > max ? num : max;
-    }, 12785);
-
     const targetStation = manageStationFilter || selectedStation || '';
 
     const finalPayload = parsedExcelData.map(odp => {
@@ -5100,26 +5183,13 @@ export function OkupansiView({ data, setData }) {
       const existing = existingOdpMap.get(key);
       return {
         ...odp,
-        id: existing?.id || ++currentMaxId,
+        id: existing?.id || undefined,
         stasiun: targetStation || odp.stasiun || '',
         tahap_pembangunan: effectiveTahap
       };
     });
 
     setUploadedCount(finalPayload.length);
-
-    const duplicates = finalPayload.filter(o => existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-    const newItems = finalPayload.filter(o => !existingOdpMap.has(String(o.kode_odp || o.label || '').trim().toLowerCase()));
-
-    if (duplicates.length > 0) {
-      setConflictModalData({
-        duplicatesCount: duplicates.length,
-        newItems: newItems,
-        finalPayload: finalPayload
-      });
-      return;
-    }
-
     await handleUploadPayload(finalPayload);
   };
 
@@ -6309,69 +6379,111 @@ export function OkupansiView({ data, setData }) {
 
       {/* CONFLICT MODAL */}
       {conflictModalData && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[110] bg-slate-950/70 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-scale-up">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
-                  <Icon name="alert-triangle" size={20} weight="fill" />
+        <div className="fixed inset-0 z-[110] bg-slate-950/70 flex items-center justify-center p-3 sm:p-4 animate-fade">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-scale-up border border-slate-100">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-amber-100 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
+                  <Icon name="alert-triangle" size={20} />
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">Data ODP Sudah Ada</h3>
-                  <p className="text-xs text-amber-700 mt-0.5">Ditemukan {conflictModalData.duplicatesCount} data bentrok.</p>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-800 truncate">Kode ODP Sudah Terdaftar</h3>
+                  <p className="text-xs text-amber-700 mt-0.5">Ditemukan <strong className="text-amber-800">{conflictModalData.duplicatesCount} ODP</strong> dengan kode yang sudah ada di sistem.</p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setConflictModalData(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+              >
+                <Icon name="x" size={18} />
+              </button>
             </div>
 
-            <div className="p-5 text-sm text-slate-600 space-y-3">
-              <p>Beberapa data ODP yang Anda unggah sudah ada di dalam database. Apa yang ingin Anda lakukan dengan data yang bentrok ini?</p>
+            {/* Body */}
+            <div className="p-4 sm:p-5 text-xs sm:text-sm text-slate-600 space-y-3.5">
+              <p className="text-slate-600 leading-relaxed">
+                Terdapat <strong>{conflictModalData.duplicatesCount} ODP</strong> yang diunggah memiliki kode yang sama dengan data di database. Mau di-<strong>replace (timpa)</strong> atau di-<strong>skip (lewati)</strong>?
+              </p>
 
-              <div className="flex flex-col gap-3 mt-4">
+              {/* Daftar Kode ODP Bentrok */}
+              {conflictModalData.duplicatesList && conflictModalData.duplicatesList.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 max-h-28 overflow-y-auto font-mono text-[11px] text-slate-700">
+                  {conflictModalData.duplicatesList.slice(0, 50).map((k, i) => (
+                    <div key={i} className="py-0.5 border-b border-slate-200/50 last:border-0 truncate">
+                      • {k}
+                    </div>
+                  ))}
+                  {conflictModalData.duplicatesList.length > 50 && (
+                    <div className="text-[10px] text-slate-400 italic pt-1">
+                      ...dan {conflictModalData.duplicatesList.length - 50} ODP lainnya.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pilihan Aksi: Replace vs Skip */}
+              <div className="flex flex-col gap-2.5 pt-1">
+                {/* Opsi 1: Replace */}
                 <button
+                  type="button"
                   onClick={async () => {
                     const payload = conflictModalData.finalPayload;
                     setConflictModalData(null);
-                    await handleUploadPayload(payload);
+                    await handleUploadPayload(payload, true);
                   }}
                   disabled={isUploading}
-                  className="w-full text-left p-3 rounded-xl border border-rose-200 hover:border-rose-400 hover:bg-rose-50 transition-colors flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-left p-3 rounded-xl border border-rose-200 hover:border-rose-400 hover:bg-rose-50/70 transition-all flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <div className="mt-0.5 text-rose-500 group-hover:scale-110 transition-transform"><Icon name="copy" size={18} /></div>
+                  <div className="mt-0.5 p-2 rounded-lg bg-rose-100 text-rose-600 group-hover:scale-110 transition-transform shrink-0">
+                    <Icon name="copy" size={16} />
+                  </div>
                   <div>
-                    <strong className="block text-rose-700">Timpa Semua (Overwrite)</strong>
-                    <span className="text-xs text-slate-500">Data lama akan digantikan sepenuhnya oleh data baru dari Excel ini.</span>
+                    <strong className="block text-rose-700 font-bold text-xs sm:text-sm">Replace / Timpa Semua Data yang Sama</strong>
+                    <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
+                      Data ODP yang sudah ada di database akan diperbarui (koordinat, kapasitas, tahap) dengan data baru dari file ini.
+                    </span>
                   </div>
                 </button>
 
+                {/* Opsi 2: Skip */}
                 <button
+                  type="button"
                   onClick={async () => {
                     const payload = conflictModalData.newItems;
                     setConflictModalData(null);
-                    if (payload.length === 0) {
-                      setSyncToast({ show: true, type: 'info', message: 'Tidak ada data baru untuk disubmit (semua dilewati).' });
+                    if (!payload || payload.length === 0) {
+                      setSyncToast({ show: true, type: 'info', message: 'Semua data ODP sudah ada di database (semua dilewati, tidak ada data baru).' });
                       setTimeout(() => setSyncToast({ show: false, type: '', message: '' }), 4000);
                       return;
                     }
-                    await handleUploadPayload(payload);
+                    await handleUploadPayload(payload, true);
                   }}
                   disabled={isUploading}
-                  className="w-full text-left p-3 rounded-xl border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-left p-3 rounded-xl border border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/70 transition-all flex items-start gap-3 group disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <div className="mt-0.5 text-emerald-500 group-hover:scale-110 transition-transform"><Icon name="fast-forward" size={18} /></div>
+                  <div className="mt-0.5 p-2 rounded-lg bg-emerald-100 text-emerald-600 group-hover:scale-110 transition-transform shrink-0">
+                    <Icon name="fast-forward" size={16} />
+                  </div>
                   <div>
-                    <strong className="block text-emerald-700">Lewati Saja (Skip)</strong>
-                    <span className="text-xs text-slate-500">Abaikan data yang bentrok, hanya simpan data ODP yang benar-benar baru.</span>
+                    <strong className="block text-emerald-700 font-bold text-xs sm:text-sm">Skip / Lewati Data yang Sama</strong>
+                    <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
+                      Abaikan {conflictModalData.duplicatesCount} ODP yang sudah ada, hanya simpan {conflictModalData.newItems?.length || 0} ODP yang benar-benar baru.
+                    </span>
                   </div>
                 </button>
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 flex justify-end">
+            {/* Footer */}
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button
+                type="button"
                 onClick={() => setConflictModalData(null)}
-                className="px-5 py-2 text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
               >
-                Batal Upload
+                Batal
               </button>
             </div>
           </div>
@@ -6443,12 +6555,18 @@ export function OkupansiView({ data, setData }) {
                       setManageTahapFilter(e.target.value);
                       setManagePage(1);
                     }}
-                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[140px]"
+                    className="text-xs font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer max-w-[170px]"
                   >
                     <option value="">Semua Tahap</option>
-                    {allTahapList.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
+                    {allTahapList.map(t => {
+                      const norm = normalizeTahapStr(t);
+                      const cnt = odpCountByTahapInStation[norm] || 0;
+                      return (
+                        <option key={t} value={t}>
+                          {t} ({cnt} ODP)
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -6690,10 +6808,57 @@ export function OkupansiView({ data, setData }) {
                   <tbody className="divide-y divide-slate-100 font-medium">
                     {paginatedManageOdps.length === 0 ? (
                       <tr>
-                        <td colSpan={isManageSelectMode ? 9 : 8} className="py-12 text-center text-slate-400">
-                          <Icon name="inbox" size={36} className="mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-sm">Tidak ada data ODP yang sesuai</p>
-                          <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau filter stasiun/tahap</p>
+                        <td colSpan={isManageSelectMode ? 9 : 8} className="py-14 px-4 text-center">
+                          <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                            <Icon name="inbox" size={28} />
+                          </div>
+                          <h4 className="font-extrabold text-sm sm:text-base text-slate-800">
+                            {manageTahapFilter
+                              ? `Belum Ada Data ODP untuk Tahap "${manageTahapFilter}"`
+                              : 'Tidak Ada Data ODP yang Sesuai'}
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1.5 max-w-md mx-auto leading-relaxed">
+                            {manageTahapFilter
+                              ? `Tahap pembangunan ini terdaftar pada sistem PO Release${manageStationFilter ? ` stasiun ${manageStationFilter}` : ''}, namun belum memiliki data ODP yang di-upload atau ditambahkan.`
+                              : 'Coba sesuaikan kata kunci pencarian atau ganti filter stasiun/tahap pembangunan.'}
+                          </p>
+                          {manageTahapFilter && (
+                            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const defaultSt = manageStationFilter || selectedStation || (uniqueStations.length > 0 ? uniqueStations[0] : '');
+                                  setManualStation(defaultSt);
+                                  setManualTahap(manageTahapFilter);
+                                  setIsManualNewTahap(false);
+                                  setManualNewTahapInput('');
+                                  setManualOdpRows([
+                                    { kodeOdp: '', kodeOdc: '', kapasitas: 8, latitude: '', longitude: '', isOdcCustom: false }
+                                  ]);
+                                  setUploadDuplicateError(null);
+                                  setAddOdpTab('excel');
+                                  setInputTahap(manageTahapFilter);
+                                  setIsNewTahap(false);
+                                  setParsedExcelData([]);
+                                  setShowBulkModal(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95"
+                              >
+                                <Icon name="upload-cloud" size={14} />
+                                <span>+ Upload Excel / Tambah ODP ({manageTahapFilter})</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManageTahapFilter('');
+                                  setManagePage(1);
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              >
+                                <span>Tampilkan Semua Tahap</span>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ) : (
@@ -12721,25 +12886,25 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const isKendalaStatus = String(finalAktivasi || '').trim().toUpperCase() === 'KENDALA';
       const isSuspendStatus = String(finalAktivasi || '').trim().toUpperCase() === 'SUSPEND';
 
-      const finalInlineRepPending = isPendingStatus 
-        ? ((payload.reporterPending && payload.reporterPending !== initialPendingInfo.reporter) ? payload.reporterPending : (activeReporter || payload.reporterPending || 'Superuser')) 
+      const finalInlineRepPending = isPendingStatus
+        ? ((payload.reporterPending && payload.reporterPending !== initialPendingInfo.reporter) ? payload.reporterPending : (activeReporter || payload.reporterPending || 'Superuser'))
         : null;
-      const finalInlineTglPending = isPendingStatus 
-        ? todayDateStr 
-        : null;
-
-      const finalInlineRepKendala = isKendalaStatus 
-        ? ((payload.reporterKendala && payload.reporterKendala !== initialKendalaInfo.reporter) ? payload.reporterKendala : (activeReporter || payload.reporterKendala || 'Superuser')) 
-        : null;
-      const finalInlineTglKendala = isKendalaStatus 
-        ? todayDateStr 
+      const finalInlineTglPending = isPendingStatus
+        ? todayDateStr
         : null;
 
-      const finalInlineRepSuspend = isSuspendStatus 
-        ? ((payload.reporterSuspend && payload.reporterSuspend !== initialSuspendInfo.reporter) ? payload.reporterSuspend : (activeReporter || payload.reporterSuspend || 'Superuser')) 
+      const finalInlineRepKendala = isKendalaStatus
+        ? ((payload.reporterKendala && payload.reporterKendala !== initialKendalaInfo.reporter) ? payload.reporterKendala : (activeReporter || payload.reporterKendala || 'Superuser'))
         : null;
-      const finalInlineTglSuspend = isSuspendStatus 
-        ? todayDateStr 
+      const finalInlineTglKendala = isKendalaStatus
+        ? todayDateStr
+        : null;
+
+      const finalInlineRepSuspend = isSuspendStatus
+        ? ((payload.reporterSuspend && payload.reporterSuspend !== initialSuspendInfo.reporter) ? payload.reporterSuspend : (activeReporter || payload.reporterSuspend || 'Superuser'))
+        : null;
+      const finalInlineTglSuspend = isSuspendStatus
+        ? todayDateStr
         : null;
 
       const updateData = {
@@ -12760,15 +12925,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         catatan: isWaitingStatus ? (payload.catatanWaiting || payload.catatan || null) : (payload.catatan || null),
         catatan_pending: isPendingStatus ? (payload.catatanPending || null) : null,
         reporter_pending: finalInlineRepPending,
-        tanggal_pending: finalInlineTglPending,
+        tanggal_pending: isPendingStatus ? cleanDbDate(finalInlineTglPending || todayDateStr) : null,
         issue_kendala: isKendalaStatus ? (payload.issueKendala || null) : (isWaitingStatus ? null : (payload.issueKendala || null)),
-        tanggal_kendala: finalInlineTglKendala,
+        tanggal_kendala: isKendalaStatus ? cleanDbDate(finalInlineTglKendala || todayDateStr) : null,
         reporter_kendala: finalInlineRepKendala,
-        tanggal_dismantle: isDismantleStatus ? (payload.tanggalDismantle || null) : null,
+        tanggal_dismantle: isDismantleStatus ? cleanDbDate(payload.tanggalDismantle || todayDateStr) : null,
         reason_dismantle: isDismantleStatus ? (payload.reasonDismantle || null) : null,
         catatan_suspend: isSuspendStatus ? (payload.catatanSuspend || null) : null,
         reporter_suspend: isSuspendStatus ? finalInlineRepSuspend : null,
-        tanggal_suspend: isSuspendStatus ? finalInlineTglSuspend : null
+        tanggal_suspend: isSuspendStatus ? cleanDbDate(finalInlineTglSuspend || todayDateStr) : null
       };
       if (payload.namaSales !== undefined) updateData.nama_sales = payload.namaSales;
       if (payload.stasiun !== undefined) updateData.stasiun = payload.stasiun;
@@ -12777,7 +12942,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       if (payload.ikrPartner !== undefined) updateData.ikr_partner = payload.ikrPartner;
 
       let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', payload.idPelanggan);
-      if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('reporter_pending'))) {
+      if (error && (error.code === '42703' || error.code === 'PGRST204' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('reporter_pending'))) {
         const fallbackData = { ...updateData };
         delete fallbackData.catatan_pending;
         delete fallbackData.reporter_pending;
@@ -13452,25 +13617,30 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         String(updatePayload.issueKendala || '').trim() !== String(data?.issueKendala || data?.issue_kendala || '').trim() ||
         (!data?.reporterKendala && !data?.reporter_kendala)
       );
+      const isSuspendChanged = isSuspendUpdate && (
+        oldStatusUpper !== 'SUSPEND' ||
+        String(updatePayload.catatanSuspend || '').trim() !== String(data?.catatanSuspend || data?.catatan_suspend || '').trim() ||
+        (!data?.reporterSuspend && !data?.reporter_suspend)
+      );
 
-      const finalReporterPending = isPendingUpdate 
+      const finalReporterPending = isPendingUpdate
         ? (updatePayload.reporterPending || (isPendingChanged ? activeReporter : (data?.reporterPending || data?.reporter_pending || activeReporter)))
         : null;
-      const finalTanggalPending = isPendingUpdate 
+      const finalTanggalPending = isPendingUpdate
         ? (updatePayload.tanggalPending || (isPendingChanged ? todayDateStr : (data?.tanggalPending || data?.tanggal_pending || todayDateStr)))
         : null;
 
-      const finalReporterKendala = isKendalaUpdate 
+      const finalReporterKendala = isKendalaUpdate
         ? (updatePayload.reporterKendala || (isKendalaChanged ? activeReporter : (data?.reporterKendala || data?.reporter_kendala || activeReporter)))
         : null;
-      const finalTanggalKendala = isKendalaUpdate 
+      const finalTanggalKendala = isKendalaUpdate
         ? (updatePayload.tanggalKendala || (isKendalaChanged ? todayDateStr : (data?.tanggalKendala || data?.tanggal_kendala || todayDateStr)))
         : null;
 
-      const finalReporterSuspend = isSuspendUpdate 
+      const finalReporterSuspend = isSuspendUpdate
         ? (updatePayload.reporterSuspend || (isSuspendChanged ? activeReporter : (data?.reporterSuspend || data?.reporter_suspend || activeReporter)))
         : null;
-      const finalTanggalSuspend = isSuspendUpdate 
+      const finalTanggalSuspend = isSuspendUpdate
         ? (updatePayload.tanggalSuspend || (isSuspendChanged ? todayDateStr : (data?.tanggalSuspend || data?.tanggal_suspend || todayDateStr)))
         : null;
 
@@ -13505,7 +13675,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       const doUpdate = async () => {
         try {
           const formatTgl = (tgl) => {
-            if (!tgl) return '';
+            if (!tgl) return null;
             if (tgl.includes('T')) {
               let f = tgl.replace('T', ' ');
               if (f.length === 16) f += ':00';
@@ -13532,15 +13702,15 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             catatan: isWaitingUpdate ? (updatePayload.catatanWaiting || updatePayload.catatan || null) : (updatePayload.catatan || null),
             catatan_pending: isPendingUpdate ? (updatePayload.catatanPending || null) : null,
             reporter_pending: finalReporterPending,
-            tanggal_pending: finalTanggalPending,
+            tanggal_pending: isPendingUpdate ? cleanDbDate(finalTanggalPending || todayDateStr) : null,
             issue_kendala: isKendalaUpdate ? (updatePayload.issueKendala || null) : (isWaitingUpdate ? null : (updatePayload.issueKendala || null)),
-            tanggal_kendala: finalTanggalKendala,
+            tanggal_kendala: isKendalaUpdate ? cleanDbDate(finalTanggalKendala || todayDateStr) : null,
             reporter_kendala: finalReporterKendala,
-            tanggal_dismantle: isDismantleStatus ? (updatePayload.tanggalDismantle || null) : null,
+            tanggal_dismantle: isDismantleStatus ? cleanDbDate(updatePayload.tanggalDismantle || todayDateStr) : null,
             reason_dismantle: isDismantleStatus ? (updatePayload.reasonDismantle || null) : null,
             catatan_suspend: isSuspendUpdate ? (updatePayload.catatanSuspend || null) : null,
             reporter_suspend: isSuspendUpdate ? finalReporterSuspend : null,
-            tanggal_suspend: isSuspendUpdate ? finalTanggalSuspend : null
+            tanggal_suspend: isSuspendUpdate ? cleanDbDate(finalTanggalSuspend || todayDateStr) : null
           };
           if (updatePayload.namaSales !== undefined) updateData.nama_sales = updatePayload.namaSales;
           if (updatePayload.stasiun !== undefined) updateData.stasiun = updatePayload.stasiun;
@@ -13549,7 +13719,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
           if (updatePayload.ikrPartner !== undefined) updateData.ikr_partner = updatePayload.ikrPartner;
 
           let { error } = await supabase.from('data_pelanggan').update(updateData).eq('id_pelanggan', updatePayload.idPelanggan);
-          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('reporter_pending'))) {
+          if (error && (error.code === '42703' || String(error.message || '').includes('catatan_pending') || String(error.message || '').includes('catatan_suspend') || String(error.message || '').includes('reporter_suspend') || String(error.message || '').includes('tanggal_suspend') || String(error.message || '').includes('reporter_pending'))) {
             const fallbackData = { ...updateData };
             delete fallbackData.catatan_pending;
             delete fallbackData.reporter_pending;
@@ -13559,6 +13729,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             delete fallbackData.tanggal_suspend;
             if (isPendingUpdate && updatePayload.catatanPending) {
               fallbackData.issue_kendala = updatePayload.catatanPending;
+            }
+            if (isSuspendUpdate && updatePayload.catatanSuspend) {
+              fallbackData.issue_kendala = updatePayload.catatanSuspend;
             }
             const res = await supabase.from('data_pelanggan').update(fallbackData).eq('id_pelanggan', updatePayload.idPelanggan);
             error = res.error;
@@ -13585,12 +13758,12 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
             const alasanKet = isWaitingUpdate
               ? (updatePayload.catatanWaiting || updatePayload.catatan || null)
               : isPendingUpdate
-              ? (updatePayload.catatanPending || updatePayload.issueKendala || null)
-              : isKendalaUpdate
-              ? (updatePayload.issueKendala || null)
-              : isDismantleStatus
-              ? (updatePayload.reasonDismantle || null)
-              : (updatePayload.catatan || null);
+                ? (updatePayload.catatanPending || updatePayload.issueKendala || null)
+                : isKendalaUpdate
+                  ? (updatePayload.issueKendala || null)
+                  : isDismantleStatus
+                    ? (updatePayload.reasonDismantle || null)
+                    : (updatePayload.catatan || null);
 
             const statusDesc = isStatusChanged
               ? `Mengubah status pelanggan ${updatePayload.idPelanggan} (${updatePayload.namaPelanggan || data?.namaPelanggan || ''}) dari ${oldStatus} menjadi ${newStatus}${alasanKet ? ` (Catatan: "${alasanKet}")` : ''}`
@@ -13635,9 +13808,9 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
       doUpdate();
 
     } catch (fatalError) {
-      // Tangkapan terakhir jika ada error misterius lainnya
+      console.error("Fatal error during save:", fatalError);
       setIsSaving(false);
-      setMessage({ type: 'error', text: 'Terjadi kesalahan sistem internal.' });
+      setMessage({ type: 'error', text: fatalError?.message || 'Terjadi kesalahan sistem internal.' });
     }
   };
 
@@ -14699,15 +14872,20 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
         ) : (
           <div className="p-5 border-t border-slate-100 flex justify-between items-center bg-slate-50 mt-auto shrink-0">
             <div>
-              {(String(internalData?.aktivasi || '').toLowerCase() !== 'sudah') && (
-                <button
-                  type="button"
-                  onClick={() => setShowCoveragePopup(true)}
-                  className="px-4 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/30 transition-all flex items-center gap-2 transform active:scale-95"
-                >
-                  <Icon name="radar" size={16} /> Cek Coverage ODP
-                </button>
-              )}
+              {(() => {
+                const normStatus = String(getGlobalStatusStr(internalData || {})).toUpperCase();
+                const isEligible = normStatus.includes('WAITING') || normStatus.includes('PENDING') || normStatus.includes('KENDALA');
+                if (!isEligible) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setShowCoveragePopup(true)}
+                    className="px-4 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/30 transition-all flex items-center gap-2 transform active:scale-95"
+                  >
+                    <Icon name="radar" size={16} /> Cek Coverage ODP
+                  </button>
+                );
+              })()}
             </div>
             <button onClick={() => onClose(false)} className="px-6 py-2.5 text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl shadow-md transition-all transform active:scale-95">Tutup</button>
           </div>
@@ -15609,7 +15787,7 @@ function DataGangguanView({
                   await supabase.from('log_visit')
                     .update({ no_wo: pt.ticketNumber, tipe_visit: 'WO_VISIT' })
                     .eq('id', targetVisit.id);
-                } catch (_e) {}
+                } catch (_e) { }
               }
             }
           });
@@ -16619,7 +16797,7 @@ function DataGangguanView({
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${newTicketTipeVisit === 'PROAKTIF'
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
+                      }`}
                   >
                     <Icon name="zap" size={13} />
                     <span>WO Proaktif</span>
@@ -16630,7 +16808,7 @@ function DataGangguanView({
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${newTicketTipeVisit === 'WO_VISIT'
                       ? 'bg-blue-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
+                      }`}
                   >
                     <Icon name="ticket" size={13} />
                     <span>WO Partner</span>
@@ -17183,11 +17361,10 @@ function DataGangguanView({
                     type="button"
                     onClick={() => setTipeVisitFilter(prev => prev === 'PROAKTIF' ? '' : 'PROAKTIF')}
                     title="Klik untuk filter tiket Proaktif"
-                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
-                      tipeVisitFilter === 'PROAKTIF'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'bg-purple-50 text-purple-700 border border-purple-200/80 hover:bg-purple-100/80'
-                    }`}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${tipeVisitFilter === 'PROAKTIF'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-purple-50 text-purple-700 border border-purple-200/80 hover:bg-purple-100/80'
+                      }`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${tipeVisitFilter === 'PROAKTIF' ? 'bg-white' : 'bg-purple-500'}`}></span>
                     <span>{totalProaktifCount} Proaktif</span>
@@ -17198,11 +17375,10 @@ function DataGangguanView({
                     type="button"
                     onClick={() => setTipeVisitFilter(prev => prev === 'PARTNER' ? '' : 'PARTNER')}
                     title="Klik untuk filter tiket WO Partner"
-                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
-                      tipeVisitFilter === 'PARTNER'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100/80'
-                    }`}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${tipeVisitFilter === 'PARTNER'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100/80'
+                      }`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${tipeVisitFilter === 'PARTNER' ? 'bg-white' : 'bg-blue-500'}`}></span>
                     <span>{totalWoPartnerCount} WO Partner</span>
@@ -18389,6 +18565,128 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
   const [filterStatus, setFilterStatus] = useState(initialStatusFilter ? [initialStatusFilter] : []);
   const [dismantleWoFilter, setDismantleWoFilter] = useState('ALL'); // 'ALL' | 'WITH_WO' | 'WITHOUT_WO'
   const [kendalaPartnerFilter, setKendalaPartnerFilter] = useState('ALL'); // 'ALL' | 'CANCELED' | 'NOT_CANCELED'
+  const [suspendFollowUpFilter, setSuspendFollowUpFilter] = useState('ALL'); // 'ALL' | 'FOLLOWED_UP' | 'NOT_FOLLOWED_UP'
+  const [copiedSuspendId, setCopiedSuspendId] = useState(null);
+  const [copiedDismantleId, setCopiedDismantleId] = useState(null);
+  const [selectedBroadcastItem, setSelectedBroadcastItem] = useState(null);
+  const [suspendBroadcastFilter, setSuspendBroadcastFilter] = useState('ALL');
+  const [dismantleBroadcastFilter, setDismantleBroadcastFilter] = useState('ALL');
+  const [isSyncingBroadcast, setIsSyncingBroadcast] = useState(false);
+  const [broadcastSyncTime, setBroadcastSyncTime] = useState(null);
+  const [broadcastVersion, setBroadcastVersion] = useState(0);
+
+  const triggerBroadcastSync = async (force = false) => {
+    setIsSyncingBroadcast(true);
+    try {
+      const res = await fetchBroadcastData({ force });
+      if (res?.success) {
+        setBroadcastSyncTime(new Date());
+        setBroadcastVersion(v => v + 1);
+      }
+    } catch (err) {
+      console.warn('Sync broadcast error:', err);
+    } finally {
+      setIsSyncingBroadcast(false);
+    }
+  };
+
+  useEffect(() => {
+    triggerBroadcastSync(false);
+  }, []);
+
+  const handleCopyDismantleReminder = (item) => {
+    if (!item) return;
+    const idPel = item.idPelanggan || item.id_pelanggan || '-';
+    const namaPel = item.namaPelanggan || item.nama_pelanggan || 'Pelanggan';
+
+    const hours = new Date().getHours();
+    let salam = 'Selamat Malam';
+    if (hours >= 4 && hours < 11) {
+      salam = 'Selamat Pagi';
+    } else if (hours >= 11 && hours < 15) {
+      salam = 'Selamat Siang';
+    } else if (hours >= 15 && hours < 18) {
+      salam = 'Selamat Sore';
+    }
+
+    const text = `${salam} Bapak/Ibu *${namaPel}*,\n\nKami dari tim Customer Care Starlite by Desnarum ingin mengonfirmasi terkait status layanan internet Bapak/Ibu:\n• *ID Pelanggan:* ${idPel}\n• *Nama Pelanggan:* ${namaPel}\n• *Status Layanan:* Ready To Dismantle\n\nSaat ini akses Internet Starlite dinonaktifkan karena masa aktif berlangganan telah berakhir.\n\nApabila Bapak/Ibu masih ingin menikmati layanan internet kembali, Bapak/Ibu bisa melakukan perpanjangan paket / pembayaran langganan melalui tautan berikut:\nhttps://starliteindonesia.com/payment-billing\natau bisa juga langsung via aplikasi Starlite.\n\nNamun, jika memang sudah tidak ingin lanjut berlangganan, bisakah kami bantu jadwalkan untuk penarikan perangkatnya? Mohon infokan hari dan waktu yang sesuai ya.\n\nTerima kasih atas perhatian dan kerjasamanya. 🙏`;
+
+    try {
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopiedDismantleId(idPel);
+          setTimeout(() => setCopiedDismantleId(null), 2000);
+        }).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          setCopiedDismantleId(idPel);
+          setTimeout(() => setCopiedDismantleId(null), 2000);
+        });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setCopiedDismantleId(idPel);
+        setTimeout(() => setCopiedDismantleId(null), 2000);
+      }
+    } catch (e) {
+      console.warn('Copy dismantle reminder error:', e);
+    }
+  };
+
+  const handleCopySuspendReminder = (item) => {
+    if (!item) return;
+    const idPel = item.idPelanggan || item.id_pelanggan || '-';
+    const namaPel = item.namaPelanggan || item.nama_pelanggan || 'Pelanggan';
+
+    const hours = new Date().getHours();
+    let salam = 'Selamat Malam';
+    if (hours >= 4 && hours < 11) {
+      salam = 'Selamat Pagi';
+    } else if (hours >= 11 && hours < 15) {
+      salam = 'Selamat Siang';
+    } else if (hours >= 15 && hours < 18) {
+      salam = 'Selamat Sore';
+    }
+
+    const text = `${salam} Bapak/Ibu *${namaPel}*,\n\nKami dari tim Customer Care Starlite by Desnarum ingin menginformasikan terkait layanan internet Bapak/Ibu:\n• *ID Pelanggan:* ${idPel}\n• *Nama Pelanggan:* ${namaPel}\n• *Status Layanan:* Isolir (Suspend)\n\nSaat ini akses Internet Starlite dinonaktifkan karena masa aktif berlangganan telah berakhir. Agar dapat menikmati layanan internet kembali, Bapak/Ibu bisa segera melakukan perpanjangan paket / pembayaran langganan.\n\nPembayaran dapat dilakukan melalui tautan berikut:\nhttps://starliteindonesia.com/payment-billing\natau bisa juga langsung via aplikasi Starlite.\n\nJika ada kendala terkait pembayaran mohon bisa diinfokan, kami dengan senang hati siap membantu.\n\nTerima kasih atas perhatian dan kerjasamanya. 🙏`;
+
+    try {
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopiedSuspendId(idPel);
+          setTimeout(() => setCopiedSuspendId(null), 2000);
+        }).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          setCopiedSuspendId(idPel);
+          setTimeout(() => setCopiedSuspendId(null), 2000);
+        });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setCopiedSuspendId(idPel);
+        setTimeout(() => setCopiedSuspendId(null), 2000);
+      }
+    } catch (e) {
+      console.warn('Copy reminder error:', e);
+    }
+  };
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterDateType, setFilterDateType] = useState('AUTO'); // 'AUTO' | 'AKTIVASI' | 'REGISTRASI' | 'IKR' | 'DISMANTLE'
@@ -18407,6 +18705,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
   const [showMassUpdate, setShowMassUpdate] = useState(false);
   const [showMassDelete, setShowMassDelete] = useState(false); // STATE BARU UNTUK MODAL HAPUS
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
+  const [selectedCustomerForCoverage, setSelectedCustomerForCoverage] = useState(null); // POPUP CEK COVERAGE DARI LIST
 
   const ITEMS_PER_PAGE = 15;
 
@@ -18547,7 +18846,84 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
     }
   };
 
-  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus, dismantleWoFilter, kendalaPartnerFilter, filterStartDate, filterEndDate, filterDateType]);
+  const [isSyncingSuspend, setIsSyncingSuspend] = useState(false);
+  const [suspendSyncTime, setSuspendSyncTime] = useState(null);
+  const lastSuspendSyncRef = useRef(0);
+
+  const triggerSuspendSync = async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastSuspendSyncRef.current < 90000) {
+      return;
+    }
+    if (isSyncingSuspend) return;
+
+    try {
+      setIsSyncingSuspend(true);
+      lastSuspendSyncRef.current = now;
+
+      const res = await syncSuspendCustomersFast({
+        pelangganList: pelangganData || []
+      });
+
+      if (res && res.success) {
+        const localUpdates = [];
+
+        // 1. Data yang aktif suspend + catatan follow up Vendor Management
+        (res.suspendList || []).forEach(item => {
+          const upd = {
+            idPelanggan: item.id_pelanggan,
+            statusAktivasi: 'Suspend',
+            aktivasi: 'Suspend',
+            telatBayarHari: item.telat_bayar_hari
+          };
+          if (item.catatan_suspend !== undefined) {
+            upd.catatanSuspend = item.catatan_suspend;
+            upd.catatan_suspend = item.catatan_suspend;
+          }
+          if (item.reporter_suspend !== undefined) {
+            upd.reporterSuspend = item.reporter_suspend;
+            upd.reporter_suspend = item.reporter_suspend;
+          }
+          if (item.tanggal_suspend !== undefined) {
+            upd.tanggalSuspend = item.tanggal_suspend;
+            upd.tanggal_suspend = item.tanggal_suspend;
+          }
+          localUpdates.push(upd);
+        });
+
+        // 2. Data yang kembali aktif (lunas)
+        // History reminder dihapus agar data lurus
+        (res.reactivatedList || []).forEach(item => {
+          localUpdates.push({
+            idPelanggan: item.id_pelanggan,
+            statusAktivasi: 'Sudah',
+            aktivasi: 'Sudah',
+            statusIkr: 'Sudah',
+            ikr: 'Sudah',
+            telatBayarHari: 0,
+            catatanSuspend: '',
+            reporterSuspend: '',
+            tanggalSuspend: '',
+            catatan_suspend: null,
+            reporter_suspend: null,
+            tanggal_suspend: null
+          });
+        });
+
+        if (localUpdates.length > 0 && onLocalPelangganUpdate) {
+          onLocalPelangganUpdate(localUpdates);
+        }
+
+        setSuspendSyncTime(new Date());
+      }
+    } catch (err) {
+      console.warn('[AUTO SYNC SUSPEND ERROR]:', err);
+    } finally {
+      setIsSyncingSuspend(false);
+    }
+  };
+
+  useEffect(() => { setCurrentPage(1); setOpenKendalaId(null); }, [searchTerm, filterStation, filterSales, filterStatus, dismantleWoFilter, kendalaPartnerFilter, suspendFollowUpFilter, suspendBroadcastFilter, dismantleBroadcastFilter, filterStartDate, filterEndDate, filterDateType]);
 
   useEffect(() => {
     if (!filterStatus || !filterStatus.includes('READY TO DISMANTLE')) {
@@ -18556,6 +18932,10 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
     if (!filterStatus || !filterStatus.includes('KENDALA')) {
       setKendalaPartnerFilter('ALL');
+    }
+
+    if (!filterStatus || !filterStatus.includes('SUSPEND')) {
+      setSuspendFollowUpFilter('ALL');
     }
   }, [filterStatus]);
 
@@ -18662,6 +19042,84 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
     return { all, canceled, notCanceled };
   }, [pelangganData, filterStation, filterSales]);
 
+  // Hitung metrik sub-kategori Isolir / Suspend (Semua vs Sudah di Follow Up vs Belum di Follow Up)
+  const suspendCounts = useMemo(() => {
+    if (!pelangganData || !Array.isArray(pelangganData)) return { all: 0, followedUp: 0, notFollowedUp: 0 };
+    let all = 0, followedUp = 0, notFollowedUp = 0;
+    pelangganData.forEach(item => {
+      const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
+      const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
+      if (!matchStation || !matchSales) return;
+
+      const rawAkt = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+      if (rawAkt === 'suspend' || globalStat === 'SUSPEND') {
+        all++;
+        const { note } = extractSuspendData(item);
+        const hasFu = Boolean(note) && note !== 'Belum ada catatan reminder' && String(note).trim() !== '';
+        if (hasFu) followedUp++;
+        else notFollowedUp++;
+      }
+    });
+    return { all, followedUp, notFollowedUp };
+  }, [pelangganData, filterStation, filterSales]);
+
+  // Metrik broadcast CS Pusat untuk pelanggan Suspend
+  const suspendBroadcastCounts = useMemo(() => {
+    if (!pelangganData || !Array.isArray(pelangganData)) return { all: 0, broadcasted: 0, notBroadcasted: 0, lanjut: 0, bayar: 0, tidak: 0, norespon: 0 };
+    let all = 0, broadcasted = 0, notBroadcasted = 0, lanjut = 0, bayar = 0, tidak = 0, norespon = 0;
+    pelangganData.forEach(item => {
+      const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
+      const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
+      if (!matchStation || !matchSales) return;
+
+      const rawAkt = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+      if (rawAkt === 'suspend' || globalStat === 'SUSPEND') {
+        all++;
+        const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+        if (bc?.isBroadcasted) {
+          broadcasted++;
+          if (bc.outcome === 'lanjut') lanjut++;
+          else if (bc.outcome === 'bayar') bayar++;
+          else if (bc.outcome === 'tidak') tidak++;
+          else if (bc.outcome === 'norespon') norespon++;
+        } else {
+          notBroadcasted++;
+        }
+      }
+    });
+    return { all, broadcasted, notBroadcasted, lanjut, bayar, tidak, norespon };
+  }, [pelangganData, filterStation, filterSales, broadcastVersion]);
+
+  // Metrik broadcast CS Pusat untuk pelanggan Ready To Dismantle
+  const dismantleBroadcastCounts = useMemo(() => {
+    if (!pelangganData || !Array.isArray(pelangganData)) return { all: 0, broadcasted: 0, notBroadcasted: 0, lanjut: 0, bayar: 0, tidak: 0, norespon: 0 };
+    let all = 0, broadcasted = 0, notBroadcasted = 0, lanjut = 0, bayar = 0, tidak = 0, norespon = 0;
+    pelangganData.forEach(item => {
+      const matchStation = filterStation === '' || String(item.stasiun || '').toLowerCase().trim() === String(filterStation).toLowerCase().trim();
+      const matchSales = filterSales === '' || String(item.namaSales || '').toLowerCase().trim() === String(filterSales).toLowerCase().trim();
+      if (!matchStation || !matchSales) return;
+
+      const rawAkt = String(item.aktivasi || item.statusAktivasi || '').trim().toLowerCase();
+      const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
+      if (rawAkt === 'ready to dismantle' || rawAkt === 'dismantling' || globalStat === 'READY TO DISMANTLE') {
+        all++;
+        const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+        if (bc?.isBroadcasted) {
+          broadcasted++;
+          if (bc.outcome === 'lanjut') lanjut++;
+          else if (bc.outcome === 'bayar') bayar++;
+          else if (bc.outcome === 'tidak') tidak++;
+          else if (bc.outcome === 'norespon') norespon++;
+        } else {
+          notBroadcasted++;
+        }
+      }
+    });
+    return { all, broadcasted, notBroadcasted, lanjut, bayar, tidak, norespon };
+  }, [pelangganData, filterStation, filterSales, broadcastVersion]);
+
   const filteredData = useMemo(() => {
     if (!pelangganData || !Array.isArray(pelangganData)) return [];
 
@@ -18718,17 +19176,29 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             if (!isMatch) return false;
             if (dismantleWoFilter === 'WITH_WO') {
               const wo = getWoDismantleInfo(item);
-              return Boolean(wo?.hasWo);
+              if (!Boolean(wo?.hasWo)) return false;
             }
             if (dismantleWoFilter === 'WITHOUT_WO') {
               const wo = getWoDismantleInfo(item);
-              return !Boolean(wo?.hasWo);
+              if (Boolean(wo?.hasWo)) return false;
             }
             return true;
           } else if (fStatus === 'DISMANTLED') {
             return finalStatus === 'DISMANTLED';
           } else if (fStatus === 'SUSPEND') {
-            return finalStatus === 'SUSPEND';
+            const isMatch = finalStatus === 'SUSPEND';
+            if (!isMatch) return false;
+            if (suspendFollowUpFilter === 'FOLLOWED_UP') {
+              const { note } = extractSuspendData(item);
+              const hasFu = Boolean(note) && note !== 'Belum ada catatan reminder' && String(note).trim() !== '';
+              if (!hasFu) return false;
+            }
+            if (suspendFollowUpFilter === 'NOT_FOLLOWED_UP') {
+              const { note } = extractSuspendData(item);
+              const hasFu = Boolean(note) && note !== 'Belum ada catatan reminder' && String(note).trim() !== '';
+              if (hasFu) return false;
+            }
+            return true;
           } else if (fStatus === 'WAITING') {
             return finalStatus.includes('WAITING') && (rawIkr === 'belum' || rawIkr === '' || rawIkr !== 'sudah');
           } else {
@@ -18924,7 +19394,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
     }
 
     return filtered;
-  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder, dismantleWoFilter, kendalaPartnerFilter, filterStartDate, filterEndDate, filterDateType]);
+  }, [pelangganData, searchTerm, filterStation, filterSales, filterStatus, sortAgeOrder, dismantleWoFilter, kendalaPartnerFilter, suspendFollowUpFilter, suspendBroadcastFilter, dismantleBroadcastFilter, broadcastVersion, filterStartDate, filterEndDate, filterDateType]);
 
   const summaryCounts = useMemo(() => {
     const counts = { WAITING: 0, PENDING: 0, AKTIF: 0, SUSPEND: 0, 'READY TO DISMANTLE': 0, DISMANTLED: 0, KENDALA: 0 };
@@ -19425,14 +19895,14 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
   };
 
   return (
-    <div className="max-w-7xl mx-auto h-auto md:h-full min-h-full flex flex-col page-enter relative pb-20 md:pb-0">
+    <div className="max-w-7xl mx-auto w-full h-full flex flex-col page-enter relative min-h-0 pb-16 md:pb-0">
 
       {isFilterModalOpen && (
         <div className="fixed inset-0 z-40" onClick={() => setIsFilterModalOpen(false)}></div>
       )}
 
       {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 sm:gap-3.5 mb-2 sm:mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 sm:gap-3.5 mb-2 sm:mb-4 shrink-0">
         {isPageLoading ? (
           Array.from({ length: 7 }).map((_, i) => (
             <div
@@ -19488,9 +19958,90 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
         )}
       </div>
 
+      {/* FILTER CEPAT HELPDESK UNTUK PELANGGAN ISOLIR (SUSPEND) */}
+      {filterStatus && filterStatus.includes('SUSPEND') && (
+        <div className="bg-gradient-to-r from-orange-500/10 via-orange-50 to-amber-50 border border-orange-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-orange-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Icon name="pause-circle" size={14} className="text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-xs sm:text-sm font-black text-orange-950 leading-tight">
+                  Status Partner : Pelanggan Isolir (Suspend)
+                </h4>
+                {isSyncingSuspend ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-900 bg-orange-100/90 px-2 py-0.5 rounded-md border border-orange-300/80 animate-pulse">
+                    <Icon name="refresh-cw" size={10} className="animate-spin text-orange-700" />
+                    Menyinkronkan API Partner...
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-orange-900 bg-orange-100/90 px-2 py-0.5 rounded-md border border-orange-300/80">
+                    <span className="w-1.5 h-1.5 rounded-full bg-orange-600"></span>
+                    Tersinkron: {suspendCounts.followedUp} Sudah di Follow Up
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] sm:text-xs text-orange-800/80 mt-0.5">
+                Monitoring pelanggan isolir yang sudah di-follow up atau masih belum di-follow up di Vendor Management.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 w-full sm:w-auto flex-wrap">
+            <button
+              type="button"
+              onClick={() => setSuspendFollowUpFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${suspendFollowUpFilter === 'ALL'
+                ? 'bg-orange-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-orange-200 hover:bg-orange-50'}`}
+            >
+              Semua ({suspendCounts.all})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSuspendFollowUpFilter('FOLLOWED_UP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'FOLLOWED_UP'
+                ? 'bg-orange-600 text-white shadow-xs'
+                : 'bg-white text-orange-950 border border-orange-300 hover:bg-orange-100/50'}`}
+              title="Pelanggan isolir yang sudah di-follow up / memiliki catatan reminder"
+            >
+              <span>Sudah di Follow Up</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${suspendFollowUpFilter === 'FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-800'}`}>
+                {suspendCounts.followedUp}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSuspendFollowUpFilter('NOT_FOLLOWED_UP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP'
+                ? 'bg-orange-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-orange-200 hover:bg-orange-50'}`}
+              title="Pelanggan isolir yang belum memiliki catatan reminder / follow up"
+            >
+              <span>Belum di Follow Up</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ml-1 ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {suspendCounts.notFollowedUp}
+              </span>
+            </button>
+
+            {/* Tombol sinkron cepat status isolir */}
+            <button
+              type="button"
+              onClick={() => triggerSuspendSync(true)}
+              disabled={isSyncingSuspend}
+              className="p-1.5 rounded-lg bg-white hover:bg-orange-100/80 text-orange-900 border border-orange-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
+              title="Sinkronkan ulang status Isolir dari Web Partner & Vendor Management sekarang"
+            >
+              <Icon name="refresh-cw" size={13} className={isSyncingSuspend ? 'animate-spin text-orange-700' : 'text-orange-700'} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* FILTER CEPAT HELPDESK UNTUK WO DISMANTLE (SEDANG DIAMBIL) */}
       {filterStatus && filterStatus.includes('READY TO DISMANTLE') && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50 border border-amber-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade">
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50 border border-amber-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
               <Icon name="wrench" size={14} className="text-white" />
@@ -19571,7 +20122,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
       {/* FILTER CEPAT HELPDESK UNTUK WO KENDALA (BATAL / CANCEL) */}
       {filterStatus && filterStatus.includes('KENDALA') && (
-        <div className="bg-gradient-to-r from-rose-500/10 via-rose-50 to-pink-50 border border-rose-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade">
+        <div className="bg-gradient-to-r from-rose-500/10 via-rose-50 to-pink-50 border border-rose-300/80 rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs animate-fade shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs">
               <Icon name="x-circle" size={14} className="text-white" />
@@ -19617,7 +20168,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 : 'bg-white text-rose-900 border border-rose-300 hover:bg-rose-100/50'}`}
               title="Pelanggan dengan status cancel di Web Partner"
             >
-              <span>Sudah Dibatalkan (Cancel)</span>
+              <span>Sudah Dibatalkan</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${kendalaPartnerFilter === 'CANCELED' ? 'bg-rose-700 text-white' : 'bg-rose-100 text-rose-800'}`}>
                 {kendalaCounts.canceled}
               </span>
@@ -19651,7 +20202,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
       )}
 
       {/* Header Actions */}
-      <div className="bg-white p-2.5 sm:p-4 rounded-lg sm:rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-2.5 sm:gap-4 justify-between items-center relative z-50 mb-2.5 sm:mb-4">
+      <div className="bg-white p-2.5 sm:p-4 rounded-lg sm:rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-2.5 sm:gap-4 justify-between items-center relative z-50 mb-2.5 sm:mb-4 shrink-0">
         <div className="relative w-full md:w-96 flex-1">
           <Icon name="search" className="absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 text-slate-400 sm:w-[18px] sm:h-[18px]" size={14} />
           <input
@@ -20116,10 +20667,10 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
       </div>
 
       {/* Tabel Data Pelanggan SPA */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col relative z-30">
+      <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col relative z-30 min-h-0">
 
         {/* === MOBILE LIST VIEW (CARD) === */}
-        <div className="md:hidden flex flex-col gap-2 p-2 bg-slate-50">
+        <div className="md:hidden flex-1 overflow-y-auto flex flex-col gap-2 p-2 bg-slate-50 min-h-0">
           {isPageLoading ? (
             Array.from({ length: 6 }).map((_, idx) => (
               <div key={idx} className="p-2.5 rounded-xl border border-slate-200/80 bg-white shadow-sm flex flex-col gap-2.5 animate-pulse">
@@ -20435,11 +20986,11 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                   // 5. SUSPEND
                   if (displayStatusStr === 'SUSPEND') {
-                    const tglExp = getExpDateDisplay(item);
-                    const { note: suspendReminderNote, reporter: repSuspendRaw } = extractSuspendData(item);
-                    const repSuspend = repSuspendRaw || item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
-                    const hasReminder = Boolean(suspendReminderNote);
+                    const { note: suspendReminderNote, reporter: repSuspendRaw, date: suspendReminderDate } = extractSuspendData(item);
+                    const hasReminder = Boolean(suspendReminderNote) && suspendReminderNote !== 'Belum ada catatan reminder';
                     const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
+                    const repSuspend = (hasReminder && repSuspendRaw) ? repSuspendRaw : '-';
+                    const tglRemindFormatted = (hasReminder && suspendReminderDate) ? formatDateDisplay(suspendReminderDate) : '';
 
                     return (
                       <div className="flex flex-col gap-1 text-[9px] font-medium text-orange-950 bg-orange-50 border border-orange-200 p-2 rounded-md ml-6 shadow-2xs" title={noteSuspend}>
@@ -20458,13 +21009,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           )}
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-orange-200/70 text-[8.5px] text-orange-800 font-medium not-italic">
-                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas: ${repSuspend}`}>
+                          <span className="flex items-center gap-1 truncate max-w-[130px]" title={`Petugas Follow Up: ${repSuspend}`}>
                             <Icon name="user" size={9} className="text-orange-500 shrink-0" />
                             <span className="truncate">{repSuspend}</span>
                           </span>
-                          <span className="flex items-center gap-1 shrink-0 font-semibold text-orange-700" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                          <span className="flex items-center gap-1 shrink-0 font-semibold text-orange-700" title={`Tanggal Remind: ${tglRemindFormatted || '-'}`}>
                             <Icon name="calendar" size={9} className="text-orange-500 shrink-0" />
-                            <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                            <span>{tglRemindFormatted ? `Remind: ${tglRemindFormatted}` : '-'}</span>
                           </span>
                         </div>
                       </div>
@@ -20579,6 +21130,26 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     ) : (
                       <span className="text-[10px] text-slate-400 bg-slate-50 px-1.5 py-1 rounded flex items-center"><Icon name="map-pin" size={10} className="mr-1" /> -</span>
                     )}
+
+                    {/* Cek Coverage HANYA untuk status WAITING, PENDING, KENDALA */}
+                    {(() => {
+                      const normStatus = String(displayStatusStr || '').toUpperCase();
+                      const isEligible = normStatus.includes('WAITING') || normStatus.includes('PENDING') || normStatus.includes('KENDALA');
+                      if (!isEligible) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCustomerForCoverage(item)}
+                          className={`flex items-center text-[10px] font-semibold px-1.5 py-1 rounded transition-colors cursor-pointer ${item.latitude && item.longitude
+                            ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                            : 'text-slate-400 bg-slate-50 hover:bg-slate-100'
+                            }`}
+                          title={item.latitude && item.longitude ? 'Cek Coverage ODP Terdekat' : 'Koordinat belum diisi'}
+                        >
+                          <Icon name="radar" size={10} className="mr-1" /> Coverage
+                        </button>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-1.5">
@@ -20621,7 +21192,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
         </div>
 
         {/* === DESKTOP TABLE VIEW === */}
-        <div className="hidden md:block overflow-x-auto overflow-y-auto flex-1">
+        <div className="hidden md:block overflow-x-auto overflow-y-auto flex-1 min-h-0">
           <table className="w-full text-sm text-left relative">
             <thead className="sticky top-0 z-20 bg-slate-50 text-slate-500 font-bold shadow-xs outline outline-1 outline-slate-200">
               <tr>
@@ -20719,8 +21290,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 else displayStatusStr = getGlobalStatusStr(item);
 
                 const { issue, reporter, date } = extractKendalaData(item);
-            const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
-            const { reason: dismantleReason, reporter: dismantleRep, date: dismantleDate } = extractDismantleData(item);
+                const { note: pendingNote, reporter: pendingRep, date: pendingDate } = extractPendingData(item);
+                const { reason: dismantleReason, reporter: dismantleRep, date: dismantleDate } = extractDismantleData(item);
 
                 let umurWoStr = '';
                 let isWoLama = false;
@@ -20861,11 +21432,32 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                         {item.latitude && item.longitude ? (
                           <a href={`https://maps.google.com/?q=${item.latitude},${item.longitude}`} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors">
-                            <Icon name="map-pin" size={11} className="mr-1 shrink-0" /> Lihat Peta
+                            <Icon name="map-pin" size={11} className="mr-1 shrink-0" /> Lokasi
                           </a>
                         ) : (
                           <span className="text-xs text-slate-400 flex items-center"><Icon name="map-pin" size={11} className="mr-1 shrink-0" /> -</span>
                         )}
+
+                        {/* Cek Coverage HANYA untuk status WAITING, PENDING, KENDALA */}
+                        {(() => {
+                          const normStatus = String(displayStatusStr || '').toUpperCase();
+                          const isEligible = normStatus.includes('WAITING') || normStatus.includes('PENDING') || normStatus.includes('KENDALA');
+                          if (!isEligible) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCustomerForCoverage(item)}
+                              className={`flex items-center text-xs font-semibold transition-colors cursor-pointer w-fit ${item.latitude && item.longitude
+                                ? 'text-blue-600 hover:text-blue-800'
+                                : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                              title={item.latitude && item.longitude ? 'Cek Coverage ODP Terdekat' : 'Koordinat belum diisi'}
+                            >
+                              <Icon name="radar" size={11} className={`mr-1 shrink-0 ${item.latitude && item.longitude ? 'text-blue-500' : 'text-slate-400'}`} />
+                              <span>Cek Coverage</span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-4 py-3 w-40 whitespace-nowrap">
@@ -20891,6 +21483,73 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
                             {displayStatusStr}
                           </span>
+
+                          {/* BADGE BROADCAST CS PUSAT (Untuk Suspend & Ready to Dismantle) */}
+                          {(() => {
+                            if (displayStatusStr !== 'SUSPEND' && displayStatusStr !== 'READY TO DISMANTLE') return null;
+                            const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+                            if (!bc) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedBroadcastItem({ customer: item, broadcast: bc });
+                                }}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold transition-all border shadow-2xs cursor-pointer select-none hover:opacity-90 hover:scale-105 active:scale-95 ${bc.badgeClass}`}
+                                title={`Broadcast CS Pusat: ${bc.outcomeLabel} (${bc.agent || 'CS Pusat'}) - Klik untuk lihat detail riwayat`}
+                              >
+                                <Icon name={bc.icon || 'message-square'} size={9} />
+                                <span>{bc.shortLabel || bc.outcomeLabel}</span>
+                              </button>
+                            );
+                          })()}
+
+                          {/* TOMBOL COPY REMINDER UNTUK PELANGGAN SUSPEND */}
+                          {displayStatusStr === 'SUSPEND' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopySuspendReminder(item);
+                              }}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold transition-all border shadow-2xs cursor-pointer select-none ${copiedSuspendId === item.idPelanggan
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-white hover:bg-orange-50 text-orange-800 border-orange-300 hover:border-orange-400'
+                                }`}
+                              title="Salin kalimat reminder follow up isolir untuk WhatsApp"
+                            >
+                              <Icon
+                                name={copiedSuspendId === item.idPelanggan ? 'check' : 'copy'}
+                                size={9}
+                                className={copiedSuspendId === item.idPelanggan ? 'text-emerald-700' : 'text-orange-600'}
+                              />
+                              <span>{copiedSuspendId === item.idPelanggan ? 'Tersalin!' : 'Reminder'}</span>
+                            </button>
+                          )}
+
+                          {/* TOMBOL COPY REMINDER UNTUK PELANGGAN READY TO DISMANTLE */}
+                          {displayStatusStr === 'READY TO DISMANTLE' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyDismantleReminder(item);
+                              }}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold transition-all border shadow-2xs cursor-pointer select-none ${copiedDismantleId === item.idPelanggan
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-white hover:bg-amber-50 text-amber-900 border-amber-300 hover:border-amber-400'
+                                }`}
+                              title="Salin kalimat konfirmasi penarikan perangkat dismantle untuk WhatsApp"
+                            >
+                              <Icon
+                                name={copiedDismantleId === item.idPelanggan ? 'check' : 'copy'}
+                                size={9}
+                                className={copiedDismantleId === item.idPelanggan ? 'text-emerald-700' : 'text-amber-700'}
+                              />
+                              <span>{copiedDismantleId === item.idPelanggan ? 'Tersalin!' : 'Reminder'}</span>
+                            </button>
+                          )}
 
                           {/* ACTIVE WO DISPATCH BADGE (Jika ada WO aktif yang sedang berjalan) */}
                           {(() => {
@@ -21051,11 +21710,11 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
 
                           // 5. SUSPEND
                           if (displayStatusStr === 'SUSPEND') {
-                            const tglExp = getExpDateDisplay(item);
-                            const { note: suspendReminderNote, reporter: repSuspendRaw } = extractSuspendData(item);
-                            const repSuspend = repSuspendRaw || item.reporterSuspend || item.reporter_suspend || (item.namaSales && item.namaSales !== '-' ? item.namaSales : (item.petugasAktivasi || item.petugasIkr || '-'));
-                            const hasReminder = Boolean(suspendReminderNote);
+                            const { note: suspendReminderNote, reporter: repSuspendRaw, date: suspendReminderDate } = extractSuspendData(item);
+                            const hasReminder = Boolean(suspendReminderNote) && suspendReminderNote !== 'Belum ada catatan reminder';
                             const noteSuspend = hasReminder ? suspendReminderNote : 'Belum ada catatan reminder';
+                            const repSuspend = (hasReminder && repSuspendRaw) ? repSuspendRaw : '-';
+                            const tglRemindFormatted = (hasReminder && suspendReminderDate) ? formatDateDisplay(suspendReminderDate) : '';
 
                             return (
                               <div className="col-span-full mt-1 flex flex-col gap-1 max-w-[280px] w-full">
@@ -21075,13 +21734,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                     )}
                                   </div>
                                   <div className="flex items-center justify-between gap-2 pt-1 mt-0.5 border-t border-orange-200/70 text-[9px] text-orange-800 font-semibold not-italic">
-                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas: ${repSuspend}`}>
+                                    <span className="flex items-center gap-1 truncate max-w-[140px]" title={`Petugas Follow Up: ${repSuspend}`}>
                                       <Icon name="user" size={10} className="text-orange-500 shrink-0" />
                                       <span className="truncate">{repSuspend}</span>
                                     </span>
-                                    <span className="flex items-center gap-1 shrink-0 text-orange-700 font-bold" title={`Tanggal Jatuh Tempo: ${tglExp || '-'}`}>
+                                    <span className="flex items-center gap-1 shrink-0 text-orange-700 font-bold" title={`Tanggal Remind: ${tglRemindFormatted || '-'}`}>
                                       <Icon name="calendar" size={10} className="text-orange-500 shrink-0" />
-                                      <span>{tglExp ? `Exp: ${tglExp}` : '-'}</span>
+                                      <span>{tglRemindFormatted ? `Remind: ${tglRemindFormatted}` : '-'}</span>
                                     </span>
                                   </div>
                                 </div>
@@ -21207,7 +21866,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             </tbody>
           </table>
         </div>
-        <div className="mt-auto p-3 sm:p-4 pb-8 sm:pb-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-0 text-xs sm:text-sm text-slate-500">
+        <div className="shrink-0 mt-auto p-3 sm:p-4 pb-8 sm:pb-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-0 text-xs sm:text-sm text-slate-500">
           {isPageLoading ? (
             <span className="flex items-center gap-2 text-slate-500 font-medium">
               <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
@@ -21307,6 +21966,24 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             onClose={() => setIsQuickScanOpen(false)}
             onLocalPelangganUpdate={onLocalPelangganUpdate}
             currentUser={currentUser}
+          />
+        )}
+
+        {/* --- RENDER MODAL CEK COVERAGE PELANGGAN LANGSUNG DARI LIST --- */}
+        {selectedCustomerForCoverage && (
+          <CustomerCoverageModal
+            customer={selectedCustomerForCoverage}
+            odpData={odpData}
+            onClose={() => setSelectedCustomerForCoverage(null)}
+          />
+        )}
+
+        {/* --- RENDER MODAL DETAIL RIWAYAT BROADCAST CS PUSAT --- */}
+        {selectedBroadcastItem && (
+          <BroadcastDetailModal
+            isOpen={Boolean(selectedBroadcastItem)}
+            onClose={() => setSelectedBroadcastItem(null)}
+            data={selectedBroadcastItem}
           />
         )}
 

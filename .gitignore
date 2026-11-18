@@ -30,3 +30,8 @@ dist-ssr
 # Firebase
 .firebase/
 
+# Temporary scratch scripts & large backups (Prevents IDE / Git watcher lag)
+scratch/
+*.backup*
+
+

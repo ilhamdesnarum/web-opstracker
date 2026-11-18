@@ -457,3 +457,60 @@ export const getWoDispatchBadgeProps = (activeDispatch, itemOrStatus = '') => {
   };
 };
 
+// --- Helper Function: Menerjemahkan Pesan Error Database PostgreSQL / Supabase ke Bahasa Awam ---
+export const formatHumanErrorMessage = (err, defaultMsg = 'Terjadi kesalahan pada sistem') => {
+  if (!err) return defaultMsg;
+  const rawMsg = String(err.message || err.error_description || err || '').trim();
+
+  // 1. DUPLICATE KEY / UNIQUE CONSTRAINT (Error 23505)
+  if (rawMsg.includes('duplicate key') || rawMsg.includes('violates unique constraint') || rawMsg.includes('23505')) {
+    if (rawMsg.includes('odp_pkey') || rawMsg.includes('"odp_pkey"')) {
+      return 'Gagal mengupload data: Terdapat data ODP atau ID yang sudah terdaftar di database (terjadi duplikasi data).';
+    }
+    if (rawMsg.includes('kode_odp') || rawMsg.includes('label')) {
+      return 'Gagal menyimpan: Nama/Kode ODP tersebut sudah terdaftar di sistem.';
+    }
+    if (rawMsg.includes('users_username') || rawMsg.includes('username')) {
+      return 'Gagal menyimpan: Username sudah digunakan oleh pengguna lain.';
+    }
+    if (rawMsg.includes('id_pelanggan')) {
+      return 'Gagal menyimpan: ID Pelanggan tersebut sudah terdaftar di sistem.';
+    }
+    return 'Gagal menyimpan: Data tersebut sudah ada di database (terjadi duplikasi data).';
+  }
+
+  // 2. NOT-NULL CONSTRAINT (Error 23502)
+  if (rawMsg.includes('violates not-null constraint') || rawMsg.includes('null value in column') || rawMsg.includes('23502')) {
+    const colMatch = rawMsg.match(/column "([^"]+)"/);
+    const colName = colMatch ? colMatch[1] : '';
+    const friendlyCol = colName === 'id' ? 'ID' :
+      colName === 'kode_odp' ? 'Kode ODP' :
+      colName === 'stasiun' ? 'Stasiun' :
+      colName === 'username' ? 'Username' :
+      colName === 'password' ? 'Password' : colName;
+    return `Gagal menyimpan: Ada data wajib${friendlyCol ? ` (${friendlyCol})` : ''} yang belum diisi. Mohon lengkapi terlebih dahulu.`;
+  }
+
+  // 3. FOREIGN KEY CONSTRAINT (Error 23503)
+  if (rawMsg.includes('violates foreign key constraint') || rawMsg.includes('23503')) {
+    return 'Gagal memproses: Data relasi atau referensi terkait tidak ditemukan di database.';
+  }
+
+  // 4. JARINGAN & KONEKSI
+  if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError') || rawMsg.includes('ENOTFOUND') || rawMsg.includes('timeout') || rawMsg.includes('fetch failed')) {
+    return 'Koneksi ke server database terputus atau internet tidak stabil. Silakan periksa koneksi internet Anda dan coba lagi.';
+  }
+
+  // 5. SESI & HAK AKSES
+  if (rawMsg.includes('JWT') || rawMsg.includes('token') || rawMsg.includes('unauthorized') || rawMsg.includes('permission denied') || rawMsg.includes('row-level security')) {
+    return 'Sesi akun Anda telah berakhir atau tidak memiliki izin akses untuk operasi ini. Silakan muat ulang halaman atau login kembali.';
+  }
+
+  // Jika pesan sudah berbentuk kalimat ramah (diawali kata Gagal, Silakan, Mohon, dll)
+  if (/^(gagal|silakan|mohon|tidak|harap)\b/i.test(rawMsg)) {
+    return rawMsg;
+  }
+
+  return `${defaultMsg}: ${rawMsg}`;
+};
+

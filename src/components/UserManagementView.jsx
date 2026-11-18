@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import Icon from './Icon';
 import { supabase } from '../supabaseClient';
 import { logActivity as recordActivityLog } from '../services/activityLogService';
+import { formatHumanErrorMessage } from '../utils';
 
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin (Akses Penuh)', shortLabel: 'Admin', color: 'purple' },
@@ -313,7 +314,7 @@ export default function UserManagementView({ currentUser }) {
       setEditingUserId(null);
     } catch (err) {
       console.error("Save user error:", err);
-      showToast('Gagal menyimpan pengguna: ' + err.message, 'error');
+      showToast(formatHumanErrorMessage(err, 'Gagal menyimpan pengguna'), 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -338,7 +339,7 @@ export default function UserManagementView({ currentUser }) {
       );
     } catch (err) {
       console.error("Toggle user status error:", err);
-      showToast('Gagal mengubah status: ' + err.message, 'error');
+      showToast(formatHumanErrorMessage(err, 'Gagal mengubah status'), 'error');
     }
   };
 
@@ -365,7 +366,7 @@ export default function UserManagementView({ currentUser }) {
           );
         } catch (err) {
           console.error("Delete user error:", err);
-          showToast('Gagal menghapus pengguna: ' + err.message, 'error');
+          showToast(formatHumanErrorMessage(err, 'Gagal menghapus pengguna'), 'error');
         } finally {
           setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
         }
