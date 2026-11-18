@@ -14533,7 +14533,7 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                       <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Data Pelanggan</h3>
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-slate-200/80 text-slate-700">
-                      {displayStatusStr}
+                      {displayStatusStr === 'READY TO DISMANTLE' ? 'DISMANTLE' : displayStatusStr}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -19077,7 +19077,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
       const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
       if (rawAkt === 'suspend' || globalStat === 'SUSPEND') {
         all++;
-        const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+        const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+        const bc = getCustomerBroadcastSummary(custPhone);
         if (bc?.isBroadcasted) {
           broadcasted++;
           if (bc.outcome === 'lanjut') lanjut++;
@@ -19105,7 +19106,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
       const globalStat = String(getGlobalStatusStr(item)).toUpperCase();
       if (rawAkt === 'ready to dismantle' || rawAkt === 'dismantling' || globalStat === 'READY TO DISMANTLE') {
         all++;
-        const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+        const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+        const bc = getCustomerBroadcastSummary(custPhone);
         if (bc?.isBroadcasted) {
           broadcasted++;
           if (bc.outcome === 'lanjut') lanjut++;
@@ -19182,6 +19184,11 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               const wo = getWoDismantleInfo(item);
               if (Boolean(wo?.hasWo)) return false;
             }
+            if (dismantleWoFilter === 'WITH_BROADCAST') {
+              const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+              const bc = getCustomerBroadcastSummary(custPhone);
+              if (!bc?.isBroadcasted) return false;
+            }
             return true;
           } else if (fStatus === 'DISMANTLED') {
             return finalStatus === 'DISMANTLED';
@@ -19197,6 +19204,11 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               const { note } = extractSuspendData(item);
               const hasFu = Boolean(note) && note !== 'Belum ada catatan reminder' && String(note).trim() !== '';
               if (hasFu) return false;
+            }
+            if (suspendFollowUpFilter === 'WITH_BROADCAST') {
+              const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+              const bc = getCustomerBroadcastSummary(custPhone);
+              if (!bc?.isBroadcasted) return false;
             }
             return true;
           } else if (fStatus === 'WAITING') {
@@ -19978,12 +19990,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-orange-900 bg-orange-100/90 px-2 py-0.5 rounded-md border border-orange-300/80">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-600"></span>
-                    Tersinkron: {suspendCounts.followedUp} Sudah di Follow Up
+                    <span>Tersinkron: {suspendCounts.followedUp} Follow Up</span>
+                    {suspendBroadcastCounts.broadcasted > 0 && (
+                      <>
+                        <span className="text-orange-400">•</span>
+                        <span>{suspendBroadcastCounts.broadcasted} Broadcast CS</span>
+                      </>
+                    )}
                   </span>
                 )}
               </div>
               <p className="text-[10px] sm:text-xs text-orange-800/80 mt-0.5">
-                Monitoring pelanggan isolir yang sudah di-follow up atau masih belum di-follow up di Vendor Management.
+                Monitoring pelanggan isolir yang sudah di-follow up atau belum di Vendor Management.
               </p>
             </div>
           </div>
@@ -19992,36 +20010,53 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             <button
               type="button"
               onClick={() => setSuspendFollowUpFilter('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${suspendFollowUpFilter === 'ALL'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'ALL'
                 ? 'bg-orange-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 border border-orange-200 hover:bg-orange-50'}`}
             >
-              Semua ({suspendCounts.all})
+              <span>Semua</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${suspendFollowUpFilter === 'ALL' ? 'bg-orange-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {suspendCounts.all}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setSuspendFollowUpFilter('FOLLOWED_UP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'FOLLOWED_UP'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'FOLLOWED_UP'
                 ? 'bg-orange-600 text-white shadow-xs'
                 : 'bg-white text-orange-950 border border-orange-300 hover:bg-orange-100/50'}`}
               title="Pelanggan isolir yang sudah di-follow up / memiliki catatan reminder"
             >
-              <span>Sudah di Follow Up</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${suspendFollowUpFilter === 'FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-800'}`}>
+              <span>Sudah Follow Up</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${suspendFollowUpFilter === 'FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-800'}`}>
                 {suspendCounts.followedUp}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setSuspendFollowUpFilter('NOT_FOLLOWED_UP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP'
                 ? 'bg-orange-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 border border-orange-200 hover:bg-orange-50'}`}
               title="Pelanggan isolir yang belum memiliki catatan reminder / follow up"
             >
-              <span>Belum di Follow Up</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ml-1 ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              <span>Belum Follow Up</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${suspendFollowUpFilter === 'NOT_FOLLOWED_UP' ? 'bg-orange-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
                 {suspendCounts.notFollowedUp}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSuspendFollowUpFilter('WITH_BROADCAST')}
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${suspendFollowUpFilter === 'WITH_BROADCAST'
+                ? 'bg-orange-600 text-white shadow-xs'
+                : 'bg-white text-blue-900 border border-blue-200 hover:bg-blue-50'}`}
+              title="Filter pelanggan isolir (suspend) yang memiliki riwayat broadcast CS Starlite Pusat"
+            >
+              <Icon name="send" size={11} className={suspendFollowUpFilter === 'WITH_BROADCAST' ? 'text-white' : 'text-blue-600'} />
+              <span>Broadcast CS</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${suspendFollowUpFilter === 'WITH_BROADCAST' ? 'bg-orange-700 text-white' : 'bg-blue-100 text-blue-800'}`}>
+                {suspendBroadcastCounts.broadcasted}
               </span>
             </button>
 
@@ -20033,7 +20068,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 triggerBroadcastSync(true);
               }}
               disabled={isSyncingSuspend || isSyncingBroadcast}
-              className="p-1.5 rounded-lg bg-white hover:bg-orange-100/80 text-orange-900 border border-orange-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg bg-white hover:bg-orange-100/80 text-orange-900 border border-orange-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
               title="Sinkronkan ulang status Isolir & riwayat broadcast CS Pusat sekarang"
             >
               <Icon name="refresh-cw" size={13} className={(isSyncingSuspend || isSyncingBroadcast) ? 'animate-spin text-orange-700' : 'text-orange-700'} />
@@ -20062,7 +20097,13 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 ) : dismantleSyncTime ? (
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300/80">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
-                    Tersinkron: {dismantleCounts.withWo} WO Aktif
+                    <span>Tersinkron: {dismantleCounts.withWo} WO Aktif</span>
+                    {dismantleBroadcastCounts.broadcasted > 0 && (
+                      <>
+                        <span className="text-amber-500">•</span>
+                        <span>{dismantleBroadcastCounts.broadcasted} Broadcast CS</span>
+                      </>
+                    )}
                   </span>
                 ) : null}
               </div>
@@ -20076,36 +20117,53 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
             <button
               type="button"
               onClick={() => setDismantleWoFilter('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dismantleWoFilter === 'ALL'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'ALL'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 border border-amber-200 hover:bg-amber-50'}`}
             >
-              Semua ({dismantleCounts.all})
+              <span>Semua</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${dismantleWoFilter === 'ALL' ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {dismantleCounts.all}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setDismantleWoFilter('WITH_WO')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_WO'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_WO'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/50'}`}
               title="Pelanggan yang sudah ada WO Dismantle dan ditugaskan ke teknisi"
             >
-              <span>Sudah Ada WO (Sedang Diambil)</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${dismantleWoFilter === 'WITH_WO' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
+              <span>Sudah Ada WO</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${dismantleWoFilter === 'WITH_WO' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
                 {dismantleCounts.withWo}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setDismantleWoFilter('WITHOUT_WO')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dismantleWoFilter === 'WITHOUT_WO'
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITHOUT_WO'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 border border-amber-200 hover:bg-amber-50'}`}
               title="Pelanggan yang belum diterbitkan WO"
             >
               <span>Belum Ada WO</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ml-1 ${dismantleWoFilter === 'WITHOUT_WO' ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${dismantleWoFilter === 'WITHOUT_WO' ? 'bg-amber-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
                 {dismantleCounts.withoutWo}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismantleWoFilter('WITH_BROADCAST')}
+              className={`h-8 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer ${dismantleWoFilter === 'WITH_BROADCAST'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-blue-900 border border-blue-200 hover:bg-blue-50'}`}
+              title="Filter pelanggan Ready To Dismantle yang memiliki riwayat broadcast CS Starlite Pusat"
+            >
+              <Icon name="send" size={11} className={dismantleWoFilter === 'WITH_BROADCAST' ? 'text-white' : 'text-blue-600'} />
+              <span>Broadcast CS</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold leading-none ${dismantleWoFilter === 'WITH_BROADCAST' ? 'bg-amber-700 text-white' : 'bg-blue-100 text-blue-800'}`}>
+                {dismantleBroadcastCounts.broadcasted}
               </span>
             </button>
 
@@ -20117,7 +20175,7 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                 triggerBroadcastSync(true);
               }}
               disabled={isSyncingDismantle || isSyncingBroadcast}
-              className="p-1.5 rounded-lg bg-white hover:bg-amber-100/80 text-amber-800 border border-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg bg-white hover:bg-amber-100/80 text-amber-800 border border-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
               title="Sinkronkan ulang WO Dismantle & riwayat broadcast CS Pusat sekarang"
             >
               <Icon name="refresh-cw" size={13} className={(isSyncingDismantle || isSyncingBroadcast) ? 'animate-spin text-amber-700' : ''} />
@@ -20847,10 +20905,30 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-1 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                     <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                      {displayStatusStr}
+                      {displayStatusStr === 'READY TO DISMANTLE' ? 'DISMANTLE' : displayStatusStr}
                     </span>
+                    {(() => {
+                      if (displayStatusStr !== 'SUSPEND' && displayStatusStr !== 'READY TO DISMANTLE') return null;
+                      const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+                      const bc = getCustomerBroadcastSummary(custPhone);
+                      if (!bc) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedBroadcastItem({ customer: item, broadcast: bc });
+                          }}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold transition-all border shadow-2xs cursor-pointer select-none ${bc.badgeClass}`}
+                          title={`Broadcast CS Pusat: ${bc.outcomeLabel} (${bc.agent || 'CS Pusat'}) - Klik untuk lihat detail riwayat`}
+                        >
+                          <Icon name={bc.icon || 'message-square'} size={8} />
+                          <span>{bc.shortLabel || bc.outcomeLabel}</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -21487,13 +21565,14 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                         {/* BARIS 1: BADGES STATUS & WO DISPATCH */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusColor}`}>
-                            {displayStatusStr}
+                            {displayStatusStr === 'READY TO DISMANTLE' ? 'DISMANTLE' : displayStatusStr}
                           </span>
 
                           {/* BADGE BROADCAST CS PUSAT (Untuk Suspend & Ready to Dismantle) */}
                           {(() => {
                             if (displayStatusStr !== 'SUSPEND' && displayStatusStr !== 'READY TO DISMANTLE') return null;
-                            const bc = getCustomerBroadcastSummary(item.nomorHp || item.telepon);
+                            const custPhone = item.nomorHp || item.telepon || item.nomor_hp || item.kontak || item.noHp;
+                            const bc = getCustomerBroadcastSummary(custPhone);
                             if (!bc) return null;
                             return (
                               <button
@@ -21520,8 +21599,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 handleCopySuspendReminder(item);
                               }}
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold transition-all border shadow-2xs cursor-pointer select-none ${copiedSuspendId === item.idPelanggan
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                  : 'bg-white hover:bg-orange-50 text-orange-800 border-orange-300 hover:border-orange-400'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : 'bg-white hover:bg-orange-50 text-orange-800 border-orange-300 hover:border-orange-400'
                                 }`}
                               title="Salin kalimat reminder follow up isolir untuk WhatsApp"
                             >
@@ -21543,8 +21622,8 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
                                 handleCopyDismantleReminder(item);
                               }}
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold transition-all border shadow-2xs cursor-pointer select-none ${copiedDismantleId === item.idPelanggan
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                  : 'bg-white hover:bg-amber-50 text-amber-900 border-amber-300 hover:border-amber-400'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : 'bg-white hover:bg-amber-50 text-amber-900 border-amber-300 hover:border-amber-400'
                                 }`}
                               title="Salin kalimat konfirmasi penarikan perangkat dismantle untuk WhatsApp"
                             >
