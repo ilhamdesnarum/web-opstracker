@@ -20025,15 +20025,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               </span>
             </button>
 
-            {/* Tombol sinkron cepat status isolir */}
+            {/* Tombol sinkron cepat status isolir & riwayat broadcast CS Pusat */}
             <button
               type="button"
-              onClick={() => triggerSuspendSync(true)}
-              disabled={isSyncingSuspend}
+              onClick={() => {
+                triggerSuspendSync(true);
+                triggerBroadcastSync(true);
+              }}
+              disabled={isSyncingSuspend || isSyncingBroadcast}
               className="p-1.5 rounded-lg bg-white hover:bg-orange-100/80 text-orange-900 border border-orange-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
-              title="Sinkronkan ulang status Isolir dari Web Partner & Vendor Management sekarang"
+              title="Sinkronkan ulang status Isolir & riwayat broadcast CS Pusat sekarang"
             >
-              <Icon name="refresh-cw" size={13} className={isSyncingSuspend ? 'animate-spin text-orange-700' : 'text-orange-700'} />
+              <Icon name="refresh-cw" size={13} className={(isSyncingSuspend || isSyncingBroadcast) ? 'animate-spin text-orange-700' : 'text-orange-700'} />
             </button>
           </div>
         </div>
@@ -20106,15 +20109,18 @@ function DatabaseView({ pelangganData, visitData, odpData, woDispatchData = [], 
               </span>
             </button>
 
-            {/* Tombol sinkron cepat WO Dismantle */}
+            {/* Tombol sinkron cepat WO Dismantle & riwayat broadcast CS Pusat */}
             <button
               type="button"
-              onClick={() => triggerDismantleSync(true)}
-              disabled={isSyncingDismantle}
+              onClick={() => {
+                triggerDismantleSync(true);
+                triggerBroadcastSync(true);
+              }}
+              disabled={isSyncingDismantle || isSyncingBroadcast}
               className="p-1.5 rounded-lg bg-white hover:bg-amber-100/80 text-amber-800 border border-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0 shadow-2xs"
-              title="Sinkronkan ulang WO Dismantle dari Web Partner sekarang"
+              title="Sinkronkan ulang WO Dismantle & riwayat broadcast CS Pusat sekarang"
             >
-              <Icon name="refresh-cw" size={13} className={isSyncingDismantle ? 'animate-spin text-amber-700' : ''} />
+              <Icon name="refresh-cw" size={13} className={(isSyncingDismantle || isSyncingBroadcast) ? 'animate-spin text-amber-700' : ''} />
             </button>
           </div>
         </div>
