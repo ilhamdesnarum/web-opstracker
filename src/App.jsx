@@ -88,7 +88,13 @@ const parseSupabaseDocument = (fields) => {
     woDismantle: fields.wo_dismantle || fields.woDismantle || (String(fields.reason_dismantle || '').includes('[WO DISMANTLE]') ? fields.reason_dismantle : ""),
     reasonDismantle: (fields.reason_dismantle || "").replace(/\[WO DISMANTLE\][^\n]*/g, "").trim(),
     fotoDismantle: fields.foto_dismantle || "",
-    statusPartner: fields.status_partner || fields.statusPartner || ""
+    statusPartner: fields.status_partner || fields.statusPartner || "",
+    historyPenggantianOnt: Array.isArray(fields.history_penggantian_ont)
+      ? fields.history_penggantian_ont
+      : (typeof fields.history_penggantian_ont === 'string' && fields.history_penggantian_ont.trim().startsWith('[')
+          ? (() => { try { return JSON.parse(fields.history_penggantian_ont); } catch { return []; } })()
+          : (Array.isArray(fields.historyPenggantianOnt) ? fields.historyPenggantianOnt : [])),
+    history_penggantian_ont: fields.history_penggantian_ont || []
   };
 };
 
@@ -1948,7 +1954,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
   }, []);
 
   // SISTEM INFORMASI FITUR BARU (WHAT'S NEW)
-  const CURRENT_APP_VERSION = 'v2.7.0';
+  const CURRENT_APP_VERSION = 'v2.8.0';
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [hasUnseenFeatures, setHasUnseenFeatures] = useState(false);
 
@@ -2070,7 +2076,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
           newPelangganData.unshift(updatedItem);
         }
       });
-      setCachedData('otas_pelanggan_cache_v14', newPelangganData);
+      setCachedData('otas_pelanggan_cache_v15', newPelangganData);
       return { ...prevData, pelangganData: newPelangganData };
     });
   };
@@ -2368,7 +2374,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
     try {
       if (isForce) {
-        setCachedData('otas_pelanggan_cache_v14', null);
+        setCachedData('otas_pelanggan_cache_v15', null);
         setCachedData('otas_pelanggan_cache_v13', null);
         setCachedData('otas_pelanggan_cache_v12', null);
         setCachedData('otas_odp_cache_v5', null);
@@ -2384,11 +2390,11 @@ function App({ currentUser: propCurrentUser, onLogout }) {
       }
 
       // 1. Cek Data Lokal (Supabase & GAS Cache)
-      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v14');
+      let parsedPelanggan = getCachedData('otas_pelanggan_cache_v15');
       // Validasi cache pelanggan: total pelanggan riil > 5.000 dan harus memiliki updatedAt. Jika cache stale/tanpa updatedAt, refresh dari Supabase.
       if (parsedPelanggan && (parsedPelanggan.length < 5000 || !parsedPelanggan.some(p => p.updatedAt))) {
         parsedPelanggan = null;
-        setCachedData('otas_pelanggan_cache_v14', null);
+        setCachedData('otas_pelanggan_cache_v15', null);
       }
 
       if (isForce) {
@@ -2438,7 +2444,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
       if (!parsedPelanggan || !parsedOdp || !cachedVisit || !cachedDetailPo || !cachedTeknisi || !cachedStation || !cachedWoDispatch || !cachedWoDispatch.length) {
         // Ambil data langsung dari tabel Supabase
-        const pelangganColumnsWithSuspend = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,catatan_suspend,reporter_suspend,tanggal_suspend,wo_dismantle,status_partner';
+        const pelangganColumnsWithSuspend = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,catatan_suspend,reporter_suspend,tanggal_suspend,wo_dismantle,status_partner,history_penggantian_ont';
         const pelangganColumnsWithIkrPartner = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,ikr_partner,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColumnsWithDismantle = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,wo_dismantle,status_partner';
         const pelangganColumnsWithPending = 'id_pelanggan,nama_pelanggan,nomor_hp,alamat,stasiun,odp,port_odp,latitude,longitude,status_ikr,status_aktivasi,tanggal_registrasi,tgl_ikr,tgl_aktivasi,tanggal_kendala,petugas_aktivasi,petugas_ikr,reporter_kendala,issue_kendala,catatan,kabel_precon,sn_ont,foto_rumah_pelanggan,foto_ont_terpasang,tanggal_berakhir,telat_bayar_hari,nama_sales,tahap_pembangunan,tanggal_dismantle,reason_dismantle,foto_dismantle,created_at,updated_at,catatan_pending,reporter_pending,tanggal_pending,status_partner';
@@ -2477,7 +2483,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
 
         if (supabasePelanggan) {
           parsedPelanggan = supabasePelanggan.map(parseSupabaseDocument);
-          setCachedData('otas_pelanggan_cache_v14', parsedPelanggan);
+          setCachedData('otas_pelanggan_cache_v15', parsedPelanggan);
         }
         if (supabaseOdp) {
           const rawParsed = supabaseOdp.map(parseSupabaseOdpDocument);
@@ -2579,7 +2585,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
             fetchAllSupabaseData('data_pelanggan', '*', 'id_pelanggan').then(freshRows => {
               if (freshRows && freshRows.length > 0) {
                 const parsed = freshRows.map(parseSupabaseDocument);
-                setCachedData('otas_pelanggan_cache_v14', parsed);
+                setCachedData('otas_pelanggan_cache_v15', parsed);
                 setData(prev => ({
                   ...prev,
                   pelangganData: parsed
@@ -2667,7 +2673,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               });
 
               if (hasChanges) {
-                setCachedData('otas_pelanggan_cache_v14', nextList);
+                setCachedData('otas_pelanggan_cache_v15', nextList);
                 return { ...prev, pelangganData: nextList };
               }
               return prev;
@@ -2878,7 +2884,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
               }
             }
 
-            setCachedData('otas_pelanggan_cache_v14', newPelangganData);
+            setCachedData('otas_pelanggan_cache_v15', newPelangganData);
             return {
               ...prev,
               pelangganData: newPelangganData
@@ -3326,7 +3332,7 @@ function App({ currentUser: propCurrentUser, onLogout }) {
                 type="button"
                 onClick={() => setIsWhatsNewOpen(true)}
                 className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 hover:border-amber-300 hover:shadow-xs transition-all relative cursor-pointer active:scale-95 shrink-0"
-                title="Lihat Pembaruan Fitur Baru (v2.7)"
+                title="Lihat Pembaruan Fitur Baru (v2.8)"
                 aria-label="Apa yang Baru?"
               >
                 <Icon name="sparkles" size={15} className="text-amber-500" />
@@ -4925,7 +4931,7 @@ export function OkupansiView({ data, setData }) {
             }
             return p;
           });
-          setCachedData('otas_pelanggan_cache_v14', updatedPel);
+          setCachedData('otas_pelanggan_cache_v15', updatedPel);
 
           return { ...prev, odpData: updatedOdp, pelangganData: updatedPel };
         });
@@ -12121,7 +12127,7 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             <div className="flex items-center justify-between mb-1">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/20 border border-white/20 text-white tracking-wide shadow-xs">
                 <Icon name="sparkles" size={11} className="text-amber-300" />
-                <span>Pembaruan v2.7</span>
+                <span>Pembaruan v2.8</span>
               </span>
               <button
                 type="button"
@@ -12144,79 +12150,79 @@ function WhatsNewModal({ onClose, onTryFeature }) {
 
         {/* BODY MODAL: 3 FITUR UTAMA ULTRA-COMPACT */}
         <div className="p-3 sm:p-3.5 space-y-2 overflow-y-auto max-h-[58vh] bg-slate-50/50">
-          {/* FITUR 1: Monitoring Performansi Tim Lapangan */}
+          {/* FITUR 1: Integrasi Broadcast CS */}
           <div
-            onClick={() => onTryFeature('team', dontShowAgain)}
+            onClick={() => onTryFeature('database', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50/50 via-white to-white border border-blue-100/80 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Monitoring Performansi Tim Lapangan"
+            title="Buka Data Pelanggan untuk melihat riwayat Broadcast CS"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="users" size={16} />
+                <Icon name="message-square" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-                    Monitoring Performansi Tim Lapangan
+                    Integrasi Broadcast CS
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-100/80 text-blue-700">
-                    Menu Monitoring Tim
+                    Data Pelanggan
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Evaluasi performansi tim teknisi per stasiun & TL, plotting tim harian, serta rincian tugas terintegrasi.
+                  Tracking respon WhatsApp CS Pusat (Terkirim, Mau Lanjut, dll.), filter cepat, dan pop-up riwayat chat lengkap.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* FITUR 2: Monitoring Gangguan Massal (Gamas) */}
+          {/* FITUR 2: Integrasi Follow Up Pelanggan */}
           <div
-            onClick={() => onTryFeature('gamas', dontShowAgain)}
-            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-rose-50/50 via-white to-white border border-rose-100/80 hover:border-rose-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka Monitoring Gangguan Massal (Gamas)"
+            onClick={() => onTryFeature('database', dontShowAgain)}
+            className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-orange-50/50 via-white to-white border border-orange-100/80 hover:border-orange-300 hover:shadow-xs transition-all cursor-pointer group"
+            title="Buka Data Pelanggan untuk memonitor Follow Up Pelanggan"
           >
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-600 to-red-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="activity" size={16} />
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-orange-500 to-amber-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <Icon name="phone-call" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-rose-600 transition-colors">
-                    Monitoring Gangguan Massal (Gamas)
+                  <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-orange-600 transition-colors">
+                    Integrasi Follow Up Pelanggan
                   </h3>
-                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-100/80 text-rose-700">
-                    Menu Monitoring Gamas
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-orange-100/80 text-orange-800">
+                    Pelanggan Isolir
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Dashboard pemantauan dan tracking tiket gangguan massal (Gamas) real-time untuk penanganan insiden jaringan terpadu.
+                  Sinkronisasi catatan reminder isolir dari Vendor Management, filter follow up, serta copy template pesan reminder WhatsApp.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* FITUR 3: Coverage Area Realtime dari API Partner */}
+          {/* FITUR 3: Pembaruan UI di Data Pelanggan */}
           <div
-            onClick={() => onTryFeature('coverage', dontShowAgain)}
+            onClick={() => onTryFeature('database', dontShowAgain)}
             className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-emerald-50/50 via-white to-white border border-emerald-100/80 hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group"
-            title="Klik untuk buka ODP Coverage Area"
+            title="Lihat pembaruan tampilan di Data Pelanggan"
           >
             <div className="flex items-start gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <Icon name="map" size={16} />
+                <Icon name="layout" size={16} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                   <h3 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight group-hover:text-emerald-600 transition-colors">
-                    Coverage Area Realtime Terpusat
+                    Pembaruan UI di Data Pelanggan
                   </h3>
                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100/80 text-emerald-700">
-                    Menu ODP Coverage
+                    Desain Baru
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 leading-snug">
-                  Peta jangkauan dan coverage area ODP yang tersinkronisasi langsung secara real-time.
+                  Badge status DISMANTLE lebih ringkas, ukuran pill filter seragam, dan indikator sinkronisasi satu baris yang rapi.
                 </p>
               </div>
             </div>
@@ -12245,10 +12251,10 @@ function WhatsNewModal({ onClose, onTryFeature }) {
             </button>
             <button
               type="button"
-              onClick={() => onTryFeature('team', dontShowAgain)}
+              onClick={() => onTryFeature('database', dontShowAgain)}
               className="px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:opacity-95 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
             >
-              <span>Buka Monitoring Tim</span>
+              <span>Buka Data Pelanggan</span>
               <Icon name="arrow-right" size={13} />
             </button>
           </div>
@@ -13951,6 +13957,100 @@ function ActionModal({ type, data, initialTask = null, onClose, onGoToCoverage, 
                     {renderEditableDetailRow({ label: "IKR Partner", fieldKey: "ikrPartner", valueOverride: internalData.ikrPartner || internalData.ikr_partner || '-' })}
                   </>
                 )}
+
+                {/* RIWAYAT PENGGANTIAN ONT (JIKA ADA) */}
+                {(() => {
+                  const ontHistory = Array.isArray(internalData.historyPenggantianOnt) 
+                    ? internalData.historyPenggantianOnt 
+                    : (Array.isArray(internalData.history_penggantian_ont) 
+                        ? internalData.history_penggantian_ont 
+                        : (typeof internalData.history_penggantian_ont === 'string' && internalData.history_penggantian_ont.trim().startsWith('[')
+                            ? (() => { try { return JSON.parse(internalData.history_penggantian_ont); } catch { return []; } })()
+                            : []));
+                  
+                  if (!ontHistory || ontHistory.length === 0) return null;
+
+                  return (
+                    <div className="md:col-span-2 mt-3 pt-3 border-t border-slate-200">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+                            <Icon name="refresh-cw" size={13} />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                            Riwayat Penggantian ONT
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700 border border-indigo-200">
+                          {ontHistory.length}x Penggantian
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {ontHistory.map((item, hIdx) => {
+                          const isDone = item.status === 'Selesai' || item.status === 'done';
+                          return (
+                            <div key={item.id_wo || hIdx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${isDone ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-rose-100 text-rose-800 border-rose-300'}`}>
+                                    {item.status || 'Selesai'}
+                                  </span>
+                                  {item.tipe_tugas && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-slate-200/80 text-slate-700 border border-slate-300/70">
+                                      {item.tipe_tugas}
+                                    </span>
+                                  )}
+                                  <span className="font-semibold text-slate-700 text-[11px]">
+                                    {item.tanggal_selesai || item.tanggal_wo || '-'}
+                                  </span>
+                                </div>
+                                {item.teknisi && (
+                                  <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                                    <Icon name="user" size={11} className="text-slate-400" />
+                                    Teknisi: <strong className="text-slate-700">{item.teknisi}</strong>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-200/70 text-[11px]">
+                                <div className="space-y-0.5">
+                                  <div className="text-[10px] uppercase font-bold text-slate-400">SN ONT Baru (Aktif)</div>
+                                  <div className="font-mono font-bold text-indigo-700 bg-indigo-50/80 px-2 py-1 rounded border border-indigo-200 inline-block">
+                                    {item.sn_ont_baru || internalData.snOnt || '-'} {item.brand_ont ? `(${item.brand_ont})` : ''}
+                                  </div>
+                                </div>
+                                {item.sn_ont_lama && (
+                                  <div className="space-y-0.5">
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">SN ONT Lama (Sebelum Ganti)</div>
+                                    <div className="font-mono font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block line-through">
+                                      {item.sn_ont_lama}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {(item.catatan || item.odp) && (
+                                <div className="flex items-center justify-between gap-2 text-[10.5px] text-slate-500 pt-1 border-t border-slate-200/60">
+                                  {item.catatan && (
+                                    <span className="truncate" title={item.catatan}>
+                                      Catatan: <em className="text-slate-600 not-italic font-medium">"{item.catatan}"</em>
+                                    </span>
+                                  )}
+                                  {item.odp && (
+                                    <span className="shrink-0 font-mono text-[10px] bg-slate-200/70 px-1.5 py-0.5 rounded text-slate-700">
+                                      ODP: {item.odp} {item.port_odp ? `P:${item.port_odp}` : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* FOTO DOKUMENTASI */}
                 <div className="md:col-span-2 mt-4">

@@ -142,7 +142,7 @@ export async function syncSuspendCustomersFast({
     // 1. Tarik halaman pertama Starlite API dan data Vendor Management secara paralel
     const firstUrl = `${partnerBaseUrl}/customer/suspend?page=1&page_size=10&sort_order=DESC&status=suspend`;
     const [firstRes, fuMap] = await Promise.all([
-      fetch(firstUrl, { headers, signal: AbortSignal.timeout(15000) }),
+      fetch(firstUrl, { headers, signal: AbortSignal.timeout(25000) }),
       fetchVendorManagementFollowUps()
     ]);
 
@@ -163,28 +163,39 @@ export async function syncSuspendCustomersFast({
       onProgress(`Mengunduh ${totalCount} pelanggan Isolir (${totalPages} halaman) & ${fuMap.size} catatan follow-up...`);
     }
 
-    // 2. Tarik sisa halaman Starlite API secara paralel (batch ukuran 8)
+    // 2. Tarik sisa halaman Starlite API secara terkontrol (concurrency: 3) dengan auto-retry
     const remainingPages = [];
     for (let p = 2; p <= totalPages; p++) {
       remainingPages.push(p);
     }
 
-    const BATCH_SIZE = 8;
-    for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
-      const batch = remainingPages.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(p =>
-          fetch(`${partnerBaseUrl}/customer/suspend?page=${p}&page_size=10&sort_order=DESC&status=suspend`, {
+    const CONCURRENCY = 3;
+    const fetchPageWithRetry = async (pageNumber, maxRetries = 1) => {
+      const pageUrl = `${partnerBaseUrl}/customer/suspend?page=${pageNumber}&page_size=10&sort_order=DESC&status=suspend`;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await fetch(pageUrl, {
             headers,
-            signal: AbortSignal.timeout(15000)
-          })
-            .then(r => (r.ok ? r.json() : null))
-            .catch(err => {
-              console.warn(`[SYNC ISOLIR] Gagal memuat hal ${p}:`, err.message);
-              return null;
-            })
-        )
-      );
+            signal: AbortSignal.timeout(25000)
+          });
+          if (res.ok) {
+            return await res.json();
+          }
+        } catch (err) {
+          if (attempt === maxRetries) {
+            console.warn(`[SYNC ISOLIR] Gagal memuat hal ${pageNumber}:`, err.message);
+            return null;
+          }
+          // Delay sebentar sebelum retry
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
+      return null;
+    };
+
+    for (let i = 0; i < remainingPages.length; i += CONCURRENCY) {
+      const batch = remainingPages.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(batch.map(p => fetchPageWithRetry(p)));
 
       batchResults.forEach(j => {
         if (j?.data && Array.isArray(j.data)) {
